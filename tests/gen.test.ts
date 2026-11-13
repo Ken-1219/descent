@@ -132,7 +132,7 @@ test('2,000 floors pass every fairness gate and the floor-shape rules', { timeou
   console.log(`rejected seeds per depth:\n${lines.join('\n')}`);
 });
 
-test('generate(28) stays under 20 ms on average, including retries', { timeout: 20_000 }, () => {
+test('generate(28): mean under 20 ms, max under 50 ms, including retries', { timeout: 20_000 }, () => {
   for (let s = 1; s <= 5; s++) generate(28, s); // warm up
   const ms: number[] = [];
   for (let s = 100; s < 150; s++) {
@@ -144,6 +144,7 @@ test('generate(28) stays under 20 ms on average, including retries', { timeout: 
   const mean = ms.reduce((a, b) => a + b, 0) / ms.length;
   console.log(`generate(28): mean ${mean.toFixed(1)} ms, median ${ms[25]?.toFixed(1)} ms, max ${ms[49]?.toFixed(1)} ms`);
   expect(mean).toBeLessThan(20);
+  expect(ms[49] ?? 0).toBeLessThan(50);
 });
 
 test('every curse: floors still pass the gates; Frail starts on 2 hearts; Deep Dark keeps the radius at 2 or more; Light Sleepers keeps the entrance out of its range', () => {

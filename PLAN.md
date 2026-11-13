@@ -695,7 +695,7 @@ These apply to every phase. Each rule is written so Claude Code can check it. A 
 | Atlas | one PNG under 100 KB | file size |
 | Fonts | two woff2 files, preloaded, under 60 KB together | file size |
 | Input to motion | under 50 ms | timestamp in the debug hook |
-| `generate(depth)` | under 20 ms on the dev machine at depth 28 | Vitest timing |
+| `generate(depth)` | mean under 20 ms, max under 50 ms on the dev machine at depth 28 (Phase 6: each day's floor is generated once by the cron or the first post and stored, so a slow seed costs one request, never a player's wait; the mean bounds test time) | Vitest timing |
 | `replay()` on the server | under 50 ms per run | Vitest timing |
 | `GET /api/floor` response | under 50 KB | response size |
 | Rollover job | under 10 s | server log |
