@@ -1,6 +1,6 @@
 // LOCAL ONLY: Design Lab. Never a Devvit entrypoint.
 import { PALETTE, TILE, type Level } from '../shared/content';
-import { buildAtlas, contrast, drawFrame, iconCanvas, type SpriteName } from './sprites';
+import { buildAtlas, contrast, drawFrame, iconCanvas, type Atlas, type SpriteName } from './sprites';
 import { button, dpad, el, ghostCard, hearts, plate, slot, wick } from './ui';
 
 const panel = document.getElementById('panel');
@@ -28,8 +28,7 @@ const levelAt = (x: number, y: number): Level | null => {
   return x <= REMEMBERED_MAX_X ? 'remembered' : null;
 };
 
-const mockRoom = () => {
-  const atlas = buildAtlas();
+const mockRoom = (atlas: Atlas) => {
   const w = ROOM[0]?.length ?? 0;
   const h = ROOM.length;
   const canvas = el('canvas', 'room');
@@ -52,6 +51,31 @@ const mockRoom = () => {
   return canvas;
 };
 
+// One wall-over-floor column per light level, so each rung of the ladder can be read on its own.
+const LEGEND: [Level | null, string][] = [['lit', 'Lit'], ['edge', 'Edge'], ['dim', 'Dim'], ['remembered', 'Remembered'], [null, 'Unseen']];
+const lightStrip = (atlas: Atlas) =>
+  el(
+    'div',
+    'legend',
+    ...LEGEND.map(([level, label]) => {
+      const c = el('canvas');
+      c.width = TILE;
+      c.height = TILE * 2;
+      c.style.width = `${TILE * 3}px`;
+      c.style.height = `${TILE * 6}px`;
+      const ctx = c.getContext('2d');
+      if (ctx) {
+        ctx.fillStyle = PALETTE['ink-0'];
+        ctx.fillRect(0, 0, c.width, c.height);
+        if (level) {
+          drawFrame(ctx, atlas, 'wall', level, 0, 0);
+          drawFrame(ctx, atlas, 'floor', level, 0, TILE);
+        }
+      }
+      return el('figure', 'legend__cell', c, el('figcaption', '', label));
+    })
+  );
+
 // Integer zoom only: the largest of 2×–4× that fits the panel.
 const fitZoom = (canvas: HTMLCanvasElement, note: HTMLElement) => {
   const zoom = Math.max(2, Math.min(4, Math.floor((panel.clientWidth - 4) / canvas.width)));
@@ -73,13 +97,15 @@ const tokensTab = () => {
     );
   }
 
-  const room = mockRoom();
+  const atlas = buildAtlas();
+  const room = mockRoom(atlas);
   const note = caption('');
   addEventListener('resize', () => fitZoom(room, note));
   queueMicrotask(() => fitZoom(room, note));
 
   return [
     section('The room', room, note),
+    section('Light levels', lightStrip(atlas)),
     section('Palette', swatches),
     section(
       'Type',

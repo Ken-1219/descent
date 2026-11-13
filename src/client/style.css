@@ -350,6 +350,24 @@ h3 {
   margin: 0 0 var(--gap);
 }
 
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--pad);
+}
+.legend__cell {
+  margin: 0;
+}
+.legend__cell canvas {
+  display: block;
+  border: var(--line) solid var(--ink-2);
+}
+.legend__cell figcaption {
+  margin-top: 4px;
+  font-size: var(--t-small);
+  color: var(--pale);
+}
+
 .room {
   display: block;
   border: var(--line) solid var(--ink-2);

@@ -17,7 +17,7 @@ test('light tables map every token to a token', () => {
     expect(Object.keys(LIGHT[level]).sort()).toEqual([...tokens].sort());
     for (const v of Object.values(LIGHT[level])) expect(isToken(v)).toBe(true);
   }
-  for (const v of Object.values(LIGHT.remembered)) expect(['ink-1', 'ink-2']).toContain(v);
+  for (const v of Object.values(LIGHT.remembered)) expect(['ink-0', 'ink-1', 'ink-2']).toContain(v);
 });
 
 test('sprites are 16x16 bitmaps with 1-2 layers', () => {

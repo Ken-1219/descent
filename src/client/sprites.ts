@@ -34,10 +34,9 @@ const heartOutline: Layer = {
 // Placeholders; Phase 2 owns the final bitmaps.
 export const SPRITES: Record<SpriteName, SpriteDef> = {
   floor: {
-    bg: 'ink-1',
+    bg: 'stone',
     layers: [{
-      // Cracks: stone dims to ink-1, so they only show inside the torchlight.
-      token: 'stone',
+      token: 'pale',
       rows: at(5,
         '.........##.....',
         '..........#.....',
@@ -58,7 +57,8 @@ export const SPRITES: Record<SpriteName, SpriteDef> = {
     }],
   },
   wall: {
-    bg: 'ink-2',
+    // One rung brighter than the floor at every light level, so walls read as raised.
+    bg: 'pale',
     layers: [
       {
         token: 'stone',
@@ -84,7 +84,7 @@ export const SPRITES: Record<SpriteName, SpriteDef> = {
     ],
   },
   spikes: {
-    bg: 'ink-1',
+    bg: 'stone',
     layers: [{
       token: 'blood',
       rows: at(5,
@@ -133,10 +133,12 @@ export const SPRITES: Record<SpriteName, SpriteDef> = {
       },
       {
         token: 'ember',
-        rows: at(5,
+        rows: at(3,
           '...........#....',
           '..........##....',
-          '..........##....',
+          '..........###...',
+          '..........###...',
+          '...........#....',
         ),
       },
     ],
