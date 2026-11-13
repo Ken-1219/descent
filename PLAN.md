@@ -177,7 +177,7 @@ The dungeon is cold ink. The only warm thing in it is you.
 | Wisp | pale green-cyan | The dead: ghosts, carvings, anything left by players |
 | Blood | red | Will hurt you this turn |
 
-Nothing else may use these three colours.
+Inside our own art and UI, nothing else may use these three colours. Creature and prop art from the 0x72 pack keeps its own colours; a threat's tell is always our `blood` mark, never the creature's art alone.
 
 ### Tokens
 
@@ -187,7 +187,7 @@ Nothing else may use these three colours.
 | `ink-1` | `#171b24` | Remembered floor |
 | `ink-2` | `#262c3a` | Plates, unlit walls |
 | `stone` | `#4a5165` | Dim walls, dormant mechanisms |
-| `pale` | `#8b93a7` | Enemy bodies, secondary text |
+| `pale` | `#8b93a7` | Secondary text, robe shade |
 | `bone` | `#d9cfb8` | Lit floor detail, primary text, borders |
 | `ember` | `#f2a33a` | Torch, hero flame, primary button |
 | `ember-deep` | `#b5541e` | Low torch, pressed button |
@@ -196,10 +196,11 @@ Nothing else may use these three colours.
 | `gilt` | `#e8cf6a` | Treasure, key |
 | `bile` | `#b7c94a` | Curses |
 
-- Type: **Jacquard 24** (pixel blackletter) for the title, floor numbers and death/victory headlines only. **Pixelify Sans** for everything else, 14 px minimum.
+- Type: **Jacquard 24** (pixel blackletter) for the title, floor numbers and death/victory headlines only. **Pixelify Sans** for everything else, 16 px minimum: its 2 and 5 smear into 8 and S below 16 px.
 - Self-host both as woff2. Confirm each font's OFL licence file when adding it, and credit it in the README.
-- Sprites: 16×16 source pixels. Environment, props and most of the cast come from 0x72 DungeonTileset II (CC0); stone tiles are graded onto the ink ramp and danger tiles onto `blood` at load, so the dungeon stays cold and ours. The hero, wisps and UI icons are our own pixel maps: dark outline plus up to four token shades. Flip but never rotate.
-- Light: an `ink-0` darkness layer with soft radial glows cut from it, warm (`ember`) at the hero and wall torches, cold (`wisp`) at wisps. Fog of war: remembered tiles are drawn dark and colourless; unseen tiles are not drawn.
+- Sprites: 16 px wide. Environment, props, items and enemies come from 0x72 DungeonTileset II v1.7 (CC0) in `assets/atlas.png`. Their idle, run and hit frames are reused exactly as drawn and only re-timed (§15.4). At load, stone tiles are graded onto `ink-0`…`pale` and spike tiles onto `blood`; creatures and props keep their art. Only the hero, wisps, the wall torch and the death-to-wisp frames are drawn for Descent, as pixel maps: a 1 px `ink-0` outline plus up to four token shades. Flip but never rotate; never scale a sprite except by the canvas's integer zoom.
+- Tall sprites: a frame may be taller than one tile (heroes 19–21 px, the Warden 36 px). It stands bottom-aligned on its tile and overhangs the tile above. Draw row by row from the top, then by x, so a sprite always covers the overhang of whatever stands behind it and is covered by whatever stands in front of it.
+- Light: an `ink-0` darkness layer with soft radial glows cut from it. Glow is allowed only on light sources (the hero's torch, wall torches) and on wisps: `ember` for fire, `wisp` for the dead. Nothing else glows: no glowing UI, text, items or enemies. Fog of war: remembered tiles are drawn dark and colourless; unseen tiles are not drawn.
 - Motion: sprite animation is frame-stepped at 12 fps or less. A tile hop is 96 ms. Screen shake is 2 px for 120 ms, on damage only. Screen changes are cuts or a row-by-row "descent" wipe.
 - UI surfaces: flat `ink-2` plates, 2 px `bone` border, square corners, a hard 2 px offset shadow that collapses on press.
 - Voice: terse, dry, second person. "You fell at the spike hall. 41 fell before you." No exclamation marks.
@@ -210,7 +211,7 @@ Nothing else may use these three colours.
 Banned:
 
 - Purple or indigo anything; gradients on UI surfaces; blur or glass effects.
-- Rounded cards with soft shadows; glow that has no light source (only torches, the hero and wisps glow).
+- Rounded cards with soft shadows; glow on anything except light sources and wisps.
 - Emoji as icons; Press Start 2P; hype copy.
 - Smooth scaling or rotation of pixel sprites; mixed pixel sizes inside the canvas.
 - Symmetric auto-generated-looking sprites; pillow shading.
@@ -227,7 +228,7 @@ Required:
 
 ### Hero: the Delver
 
-- White-hooded cleric: outlined pixel map, robe in `bone`/`pale`/`stone`, face in shadow with two `ember` eyes, torch on the leading side.
+- White-hooded cleric, 16×19 (the pack heroes measure 19–21 px): outlined pixel map, robe in `bone`/`pale`/`stone`, face in shadow with two `ember` eyes, gilt sash, torch on the leading side.
 - Idle: 2 frames at 2 fps. Flame: 3 frames.
 - Move: 4-frame hop, y offsets 0, −2, −1, 0. Attack: 4 px lunge and back in 80 ms.
 - Hurt: 2 frames tinted `blood` plus shake.
@@ -236,21 +237,21 @@ Required:
 
 ### Ghosts and carvings
 
-- Wisp: 8×10 teardrop with two eye pixels, bobbing 1 px at 2 fps.
+- Wisp: about 8×10 teardrop pixel map with two eye pixels, bobbing 1 px at 2 fps, with a soft `wisp` glow.
 - Stacking: one wisp, two wisps for 2–4, a cluster with a count plate for 5 or more.
 - Your own ghost from an earlier day has an `ember` outline.
 - Carving glyph on the tile, in `wisp`: ▲ warning, → path, ◆ bait. The text appears in a line under the HUD only while you stand adjacent.
 - Ghost card (tap a wisp): snoovatar at 96 px in a bone-bordered plate, u/name, carving, lifetime record, Trust/Liar buttons. Voting unlocks after your run ends.
 - Carvings come from about 16 fixed phrases with a direction arrow. No free text.
 
-### Enemies (shared rule: pale body, blood eyes)
+### Enemies (0x72 pack art; every tell is a `blood` mark or a frame change)
 
 | Enemy | Look | Tell |
 |---|---|---|
-| Rat | 7×5 body, curved tail, 2-frame scurry | Turns to face you and its eyes light one turn before it chases |
-| Bat | Folded 5×6 on the ceiling line, then a 2-frame flap with a shadow pixel on its tile | Unfolds the turn before it flies |
-| Skeleton | 6×11; collapses into a bone pile | The pile shows ribs counting down 3, 2, 1 |
-| The Warden | 2×2 tiles, cage-lantern head, ring of keys | Target row or column flashes `blood` one turn before the slam |
+| Goblin (`goblin`) | 16×16 pack sprite, 4-frame idle and run | Turns to face you and a `blood` glint marks it one turn before it chases |
+| Imp (`imp`) | 16×16 pack sprite; perches on idle frame 0 until woken | Its run frames start the turn before it flies |
+| Skeleton (`skelet`) | 16×16 pack sprite; collapses into a bone pile (pack `skull`) | The pile shows a countdown 3, 2, 1 |
+| The Warden (`big_zombie`) | 2×2 tiles, 32×36 pack sprite | Target row or column flashes `blood` one turn before the slam |
 
 ### HUD and controls
 
@@ -290,8 +291,8 @@ Splash states to design: not played, played, boss day, zero ghosts. It must fit 
 | Family (pos) | T1, floors 1–7 | T2, 8–14 | T3, 15–21 | T4, 22+ |
 |---|---|---|---|---|
 | Spikes (1) | Fixed: always up | Breathing: up 1 turn in 3, half-raised the turn before | Wave: rows offset by one phase | Buried: hidden until adjacent; hairline crack tell |
-| Rats (1) | Lone rat, chases within 4 tiles | Pair that flanks | Nest spawns a rat every 6 turns until stepped on | Starving: double move every third turn |
-| Bats (2) | Wakes within 4 tiles, moves 2 per turn | Diver: straight line, overshoots | Colony of 3 wakes together | Wakes on torchlight instead of distance |
+| Goblins (1) | Lone goblin, chases within 4 tiles | Pair that flanks | Den spawns a goblin every 6 turns until stepped on | Starving: double move every third turn |
+| Imps (2) | Wakes within 4 tiles, moves 2 per turn | Diver: straight line, overshoots | Swarm of 3 wakes together | Wakes on torchlight instead of distance |
 | Mechanisms (3) | Plate opens a door | Plate slams the door behind you | Plate fires a dart line, range 5, slit visible | Timed door closes 5 turns after the plate |
 | Skeletons (4) | Rebuilds 4 turns after a hit | Rebuilds in 3; walks around spikes | Archer: fires along a row at range 3 | Pair sharing one rebuild timer |
 | Pits (5) | Open pit: −1 heart, land nearer the stairs | Crumbling floor: gone after one step | Crumbling chains over pits | Hidden pit: one missing mortar line |
@@ -447,14 +448,14 @@ Each phase lists Build, Show me (what to open), Checks, and Gate.
 
 ### Phase 2 — Cast (Nov 15)
 
-- **Build:** Delver, wisp, rat, bat, skeleton, items (potion, bomb, lantern), key, stairs, door, floor and wall variants, all with animations. Lab tab Cast.
+- **Build:** Delver, wisp, goblin, imp, skeleton, Warden, items (potion, bomb, lantern), key, stairs, door, wall torch, floor and wall variants, all with animations. Lab tab Cast.
 - **Rule:** a code-drawn sprite that fails review twice is replaced by the nearest pack sprite.
 - **Show me:** the silhouette line-up and the death-to-wisp loop at 2×.
 - **Gate (cast):** each sprite is identifiable in silhouette at 2×.
 
 ### Phase 3 — Core run (Nov 16–18)
 
-- **Build:** `rng.ts`; `sim.ts` with movement, bump attack, hearts, torch, fog, key and door, one rat, fixed spikes, stairs; `scene.ts` drawing state and playing events; `ui.ts` HUD and controls; input on keyboard, d-pad and swipe; Floor 0 as a hand-written string map; the `__descent` hook.
+- **Build:** `rng.ts`; `sim.ts` with movement, bump attack, hearts, torch, fog, key and door, one goblin, fixed spikes, stairs; `scene.ts` drawing state and playing events; `ui.ts` HUD and controls; input on keyboard, d-pad and swipe; Floor 0 as a hand-written string map; the `__descent` hook.
 - **Tests:** `replay(floor, log)` equals stepping the same log; the same log gives the same result 100 times; Floor 0 can't kill.
 - **Show me:** `game.html` playing Floor 0, on desktop and on a phone over LAN.
 - **Checks:** Playwright completes Floor 0 by keyboard and by taps; the full matrix passes.
@@ -603,7 +604,7 @@ These apply to every phase. Each rule is written so Claude Code can check it. A 
 **Access**
 
 - Colour is never the only signal. Danger, ghosts and treasure each have a distinct shape.
-- Text contrast at least 4.5:1. Body text at least 14 px.
+- Text contrast at least 4.5:1. Body text at least 16 px.
 - Fully playable by keyboard on desktop, with a visible focus ring on every button.
 - `prefers-reduced-motion` removes shake and flicker.
 - Sound is off until the first tap. The mute choice is remembered.
@@ -668,10 +669,10 @@ The test for every animation: would a person drawing this frame by frame have do
 
 **Weight and overlap**
 
-- Follow-through: the torch flame lags the body by one frame. The hood settles one frame after a stop. The rat's tail trails its body.
-- Weight shows in holds. The skeleton holds one extra frame before each step. The rat never holds. The Warden's slam has a 2-frame hang at the top.
+- Follow-through: the torch flame lags the body by one frame. The hood settles one frame after a stop. The goblin's run cycle lags its hop by one frame.
+- Weight shows in holds. The skeleton holds one extra frame before each step. The goblin never holds. The Warden's slam has a 2-frame hang at the top.
 - Squash is one pixel for one frame on landing. Never more.
-- Arcs: the bat's path between tiles curves (3 stepped y offsets). Nothing with wings moves in a straight line.
+- Arcs: the imp's path between tiles curves (3 stepped y offsets). Nothing with wings moves in a straight line.
 
 **Life**
 
