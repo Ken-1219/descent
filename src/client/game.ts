@@ -119,27 +119,42 @@ const run = async (a: Action) => {
 };
 
 // ---- input: keyboard, d-pad (Pointer Events, hold to repeat), swipe on the map ----
+// Keys repeat on our own clock, like the d-pad: OS auto-repeat is ignored, so damage can cancel a held key,
+// and a key whose keyup we never see (focus jumped to the Reddit page) can't keep walking the hero.
+let heldKey = '';
 addEventListener('keydown', (e) => {
   const a = KEYS[e.key];
   if (!a || !end.hidden) return;
   e.preventDefault();
+  if (e.repeat) return;
   act(a);
+  startRepeat(a);
+  heldKey = e.key;
 });
+addEventListener('keyup', (e) => {
+  if (e.key === heldKey) stopRepeat();
+});
+addEventListener('blur', stopRepeat);
+document.addEventListener('visibilitychange', stopRepeat);
 
 let repeat = 0;
-const stopRepeat = () => {
+function stopRepeat() {
   clearTimeout(repeat);
   clearInterval(repeat);
   repeat = 0;
-};
+  heldKey = '';
+}
+function startRepeat(a: Action) {
+  stopRepeat();
+  if (a !== 'I') repeat = window.setTimeout(() => (repeat = window.setInterval(() => act(a), REPEAT_MS)), REPEAT_DELAY_MS);
+}
 pad.addEventListener('pointerdown', (e) => {
   const b = e.target instanceof Element ? e.target.closest('[data-act]') : null;
   const a = b instanceof HTMLElement ? b.dataset.act : undefined;
   if (!isAction(a)) return;
   e.preventDefault();
   act(a);
-  stopRepeat();
-  if (a !== 'I') repeat = window.setTimeout(() => (repeat = window.setInterval(() => act(a), REPEAT_MS)), REPEAT_DELAY_MS);
+  startRepeat(a);
 });
 for (const type of ['pointerup', 'pointercancel', 'pointerleave'] as const) pad.addEventListener(type, stopRepeat);
 // Keyboard activation of a focused plate (Enter/Space) arrives as a click with detail 0.

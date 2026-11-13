@@ -158,6 +158,7 @@ src/server/
   rollover.ts               daily job and mod menu actions
 tests/
   shared.test.ts  server.test.ts
+  play.mcp.js               end-to-end browser check run through the Playwright MCP (rules, input, death, resize)
 shots/                      gitignored
 docs/superpowers/           per-phase specs and plans written by Superpowers
 ```
