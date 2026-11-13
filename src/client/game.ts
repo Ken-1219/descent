@@ -2,10 +2,13 @@
 // Boot, input router, HUD wiring and the dev hook. Rules live in src/shared/sim.ts; this file only sends actions.
 import * as Phaser from 'phaser';
 import { FLOOR_0, HEARTS, ITEMS, PALETTE, TILE, TORCH_LOW_PCT } from '../shared/content';
-import { start, step, type Action, type End, type Floor, type Pos } from '../shared/sim';
+import { navigateTo, showLoginPrompt } from '@devvit/web/client';
+import type { FloorResponse, RunResult } from '../shared/api';
+import { isAction, replay, start, step, type Action, type End, type Floor, type Pos } from '../shared/sim';
+import { api, submit } from './net';
 import { DescentScene } from './scene';
 import { loadPack, packIcon } from './sprites';
-import { controls, createHud, endPanel } from './ui';
+import { controls, createHud, endPanel, saveLine } from './ui';
 
 const $ = (id: string) => {
   const node = document.getElementById(id);
@@ -21,23 +24,41 @@ const MIN_TILES = 9;
 const SWIPE_PX = 24;
 const REPEAT_DELAY_MS = 300;
 const REPEAT_MS = 200;
-const ACTIONS: readonly Action[] = ['U', 'D', 'L', 'R', 'W', 'I'];
 const KEYS: Record<string, Action> = {
   ArrowUp: 'U', ArrowDown: 'D', ArrowLeft: 'L', ArrowRight: 'R', w: 'U', s: 'D', a: 'L', d: 'R', W: 'U', S: 'D', A: 'L', D: 'R',
   ' ': 'W', e: 'I', E: 'I',
 };
-const isAction = (s: string | undefined): s is Action => ACTIONS.some((a) => a === s);
 
 // Dev builds only: game.html?scene=goblins-2 opens a scene; game.html?depth=15&seed=123 opens a generated floor (§15.2).
 // Production never imports the scenes, the generator or the bot.
 const SCENES = import.meta.env.DEV ? (await import('../shared/scenes')).SCENES : [];
 const GEN = import.meta.env.DEV ? await import('../shared/gen') : null;
+const LOCAL = import.meta.env.DEV ? await import('./local') : null;
 const sceneFloor = (id: string | null) => SCENES.find((s) => s.id === id)?.floor;
 const depthFloor = (depth: number, seed: number) => (GEN && depth > 0 ? GEN.generate(depth, seed).floor : undefined);
 
 const params = new URLSearchParams(location.search);
-let floor: Floor = sceneFloor(params.get('scene')) ?? depthFloor(Number(params.get('depth')), Number(params.get('seed') ?? 1)) ?? FLOOR_0;
-let state = start(floor);
+const devFloor = sceneFloor(params.get('scene')) ?? depthFloor(Number(params.get('depth')), Number(params.get('seed') ?? 1));
+
+// ---- the day's floor: fetched once, then play never waits on the network (§15.1) ----
+// `live` is the day's real floor while it is being played; Floor 0, scenes and dev floors are never logged or submitted.
+type Live = { depth: number; seed: number; floor: Floor; log: string };
+const day: FloorResponse | 'error' = devFloor ? { kind: 'none' } : await api.floor().catch(() => 'error' as const);
+let live: Live | null = null;
+// Saved logs are keyed by depth and seed, so an old log can never replay onto a different floor.
+const logKey = (l: { depth: number; seed: number }) => `descent:log:${l.depth}:${l.seed}`;
+const F0_KEY = 'descent:f0';
+const store = {
+  get: (k: string) => { try { return localStorage.getItem(k); } catch { return null; } },
+  set: (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* private mode: the run still plays, it just won't resume */ } },
+};
+const liveOf = (r: { depth: number; seed: number; floor: Floor }): Live => ({ depth: r.depth, seed: r.seed, floor: r.floor, log: store.get(logKey(r)) ?? '' });
+const playable = day !== 'error' && day.kind === 'play' ? day : null;
+if (playable && store.get(F0_KEY)) live = liveOf(playable);
+let floor: Floor = devFloor ?? live?.floor ?? FLOOR_0;
+// Resume: the saved log replays with animations skipped (it is the same fold the server runs).
+const begin = () => (live ? replay(floor, [...live.log].filter(isAction)) : start(floor));
+let state = begin();
 let pack: HTMLCanvasElement | null = null;
 void loadPack().then((p) => {
   pack = p;
@@ -88,18 +109,43 @@ const settle = () => {
 };
 
 const CAUSES: Record<string, string> = { trap: 'trap', pit: 'fall' };
+const endLine = (ended: End, turns: number) =>
+  ended.kind === 'won' ? `${turns} turns. The stairs go down.` : `The ${CAUSES[ended.cause] ?? ended.cause} took you on turn ${turns}.`;
+const practice = { label: 'Practice Floor 0', run: () => play(FLOOR_0, null) };
 const finish = (ended: End) => {
-  const line = ended.kind === 'won' ? `${state.turn} turns. The stairs go down.` : `The ${CAUSES[ended.cause] ?? ended.cause} took you on turn ${state.turn}.`;
-  endPanel(end, ended.kind === 'won' ? `Floor ${state.floor.depth} cleared` : 'You fell', line, again);
+  const title = ended.kind === 'won' ? `Floor ${state.floor.depth} cleared` : 'You fell';
+  if (!live) {
+    store.set(F0_KEY, '1');
+    // After Floor 0, the day's floor is the next thing (no dead ends), unless it is already played or out of reach.
+    const next = playable && !played ? { label: `Descend to Floor ${playable.depth}`, run: () => play(playable.floor, playable) } : { label: 'Descend again', run: () => play(floor, null) };
+    return endPanel(end, title, endLine(ended, state.turn), next);
+  }
+  const save = saveLine();
+  endPanel(end, title, endLine(ended, state.turn), practice, save.node);
+  const req = { depth: live.depth, log: live.log };
+  const send = () => void submit(req, (s) => save.set(s, send)).then((r) => {
+    if (r?.kind === 'saved') played = r.run;
+    if (r?.kind === 'closed') closed(state.floor.depth, r.today, r.todayUrl);
+  });
+  send();
 };
+let played: RunResult | null = null;
+
+/** Start (or restart) a floor. `real` set: the day's floor, logged and resumed from its saved log. */
+function play(f: Floor, real: { depth: number; seed: number; floor: Floor } | null) {
+  floor = f;
+  live = real && liveOf(real);
+  again();
+}
 
 function again() {
   end.hidden = true;
   queued = null;
-  state = start(floor);
+  state = begin();
   scene.reset(state);
   view();
   settle();
+  if (state.ended) finish(state.ended);
 }
 
 const act = (a: Action) => {
@@ -116,6 +162,12 @@ const run = async (a: Action) => {
   inputAt = performance.now();
   requestAnimationFrame(() => (inputToMotion = performance.now() - inputAt));
   const r = step(state, a);
+  // Only actions that change state are logged: a free bump would make a log unbounded, and the server rejects one.
+  if (live && r.state !== state) {
+    if (!live.log) void api.start({ depth: live.depth }).catch(() => undefined);
+    live.log += a;
+    store.set(logKey(live), live.log);
+  }
   state = r.state;
   view();
   if (r.events.some((e) => e.t === 'hurt')) stopRepeat();
@@ -191,6 +243,22 @@ stage.addEventListener('pointerup', (e) => {
   act(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'R' : 'L') : dy > 0 ? 'D' : 'U');
 });
 
+const go = (url: string | null) => url && (import.meta.env.DEV ? location.assign(url) : navigateTo(url));
+function closed(depth: number, today: number, url: string | null) {
+  endPanel(end, `Floor ${depth} has closed`, `Today is Floor ${today}.`, { label: "Go to today's floor", run: () => go(url) });
+}
+
+// Every state the day can be in is designed, none fails silently (§15.1). The full already-played screen is Phase 9.
+if (day === 'error') endPanel(end, 'The way down is dark', "Can't reach the dungeon. Try again.", { label: 'Retry', run: () => location.reload() });
+else if (day.kind === 'login') endPanel(end, 'Log in to descend', `Floor ${day.depth}: one run a day, kept under your name.`, { label: 'Log in', run: () => showLoginPrompt() });
+else if (day.kind === 'closed') closed(day.depth, day.today, day.todayUrl);
+else if (day.kind === 'played') {
+  played = day.run;
+  const ended: End = { kind: day.run.outcome, cause: day.run.cause };
+  endPanel(end, day.run.outcome === 'won' ? `Floor ${day.depth} cleared` : `You fell on Floor ${day.depth}`, `Score ${day.run.score}. ${endLine(ended, day.run.turns)}`, practice);
+} else if (day.kind === 'none' && !devFloor) endPanel(end, 'No floor yet', 'The first floor opens soon.', practice);
+else if (state.ended) finish(state.ended); // resumed onto a finished run: show it and (re)submit, which is a safe retry
+
 void scene.ready.then(() => performance.mark('descent:interactive'));
 
 // ---- dev hook for Playwright (§10). Dev builds only; never in the Devvit bundle. ----
@@ -204,6 +272,12 @@ type DescentHook = {
   /** Every scene's id and action log, for e2e checks that replay them by keyboard or taps. */
   scenes: () => { id: string; log: Action[] }[];
   metrics: () => { inputToMotion: number; shakes: number };
+  /** The local rollover (local.ts); reload to see the new day. */
+  advanceDay: () => void;
+  /** Fake a dropped connection for every request (retry and "Not saved" states). */
+  offline: (on: boolean) => void;
+  /** The live floor's logged actions ('' on Floor 0 and dev floors). */
+  log: () => string;
 };
 declare global {
   interface Window {
@@ -229,10 +303,14 @@ if (import.meta.env.DEV) {
       if (target !== 0 && !picked) throw new Error(`no floor ${target}: Floor 0, a scene id, or a depth`);
       const { seed: _, ...floorOpts } = opts;
       floor = picked ?? { ...FLOOR_0, ...floorOpts };
+      live = null;
       again();
     },
     skipAnim: (on) => (skipAnim = on),
     scenes: () => SCENES.map((s) => ({ id: s.id, log: [...s.log] })),
     metrics: () => ({ inputToMotion, shakes: scene.shakes }),
+    advanceDay: LOCAL?.advanceDay ?? (() => undefined),
+    offline: LOCAL?.setOffline ?? (() => undefined),
+    log: () => live?.log ?? '',
   };
 }

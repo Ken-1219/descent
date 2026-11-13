@@ -141,12 +141,13 @@ src/shared/
   grid.ts                   tile-grid geometry: what a map char blocks, line of sight, BFS, rays (gen.ts reuses the BFS)
   gen.ts                    tiersFor(), generate(depth, seed, mods), budget, crowd weights, player traps, fairness gates, safePath()
   bot.ts                    bot(floor, skill, seed): plays from what a player can see (visibility + tells); gate 3 and the curve
-  sim.ts                    State, step(), tells(), replay(), score()
+  sim.ts                    State, step(), tells(), replay(), score(), judge() (validates and replays a submitted log)
   scenes.ts                 one scene per tier-table cell, trap and item: map, log, expected outcome (tests, Lab, ?scene= in dev only)
   api.ts                    wire types (reuse the template's shared types file if one exists)
 src/client/
   splash.html  splash.ts    inline feed card, no Phaser
-  game.html    game.ts      boot, screen router, input, net, debug hook
+  game.html    game.ts      boot, screen router, input, debug hook
+  net.ts                    api() (fetch in production, local.ts in dev) and the background submit with 3 retries
   scene.ts                  the one Phaser scene
   ui.ts                     DOM screens and HUD
   sprites.ts                pixel-map rendering, light levels, pack frames and grading, ANIMS + frameAt
@@ -157,11 +158,13 @@ src/client/
   labfloors.ts              LOCAL ONLY: Lab tabs that draw floors: Bestiary and Depth
   assets/                   atlas.png, fonts/*.woff2, fonts/OFL.txt, icon
 src/server/
-  index.ts                  Hono routes, thin
-  game.ts                   Redis reads/writes: runs, ghosts, votes, traps, souls, boards
+  index.ts                  Hono app, one log line per request
+  routes/                   template route files: api.ts (/api/*), menu.ts, triggers.ts, scheduler.ts (cron)
+  game.ts                   Redis reads/writes: floors, runs, ghosts, votes, traps, souls, boards
   rollover.ts               daily job and mod menu actions
 tests/
   shared.test.ts  server.test.ts
+  bundle.test.ts            production build: server carries gen and bot; client carries no gen, bot, scenes, Lab, local or hook
   gen.test.ts               tiers, determinism, crowd, curses, traps, 2,000-floor gates, generate() timing
   curve.test.ts             bot win-rate curve on two seed lists (own file so Vitest runs it in parallel)
   play.mcp.js               end-to-end browser check run through the Playwright MCP (rules, input, death, resize)
@@ -523,7 +526,7 @@ Each phase lists Build, Show me (what to open), Checks, and Gate.
 ### Phase 6 — Server and first real playtest (Nov 23–24)
 
 - **Build:** `GET /api/floor`, `POST /api/run` with replay validation and one accepted run per user per day, scores, `splash.html` with `requestExpandedMode`, a minimal cron that posts the next floor, run resume from localStorage.
-- **Redis keys:** `game` hash; `f:{d}:mods` string; `f:{d}:runs` hash; `f:{d}:scores` sorted set.
+- **Redis keys:** `game` hash (`day`, `postId`, `started`); `f:{d}:mods` string; `f:{d}:floor` string (generated once, set-if-absent; replay validates against it, so retuning never changes a floor in play); `f:{d}:runs` hash; `f:{d}:scores` sorted set; `f:{d}:starts` hash (run-start log, §2); `rollovers` hash (UTC date → done, the cron's idempotency guard).
 - **Tests:** with `@devvit/test`: a forged log is rejected; a second run is rejected; the same log scores the same on client and server.
 - **Show me:** a post in the private test subreddit, playable end to end.
 - **Gate:** a run survives a page reload and appears in Redis. Reddit smoke test.
@@ -761,6 +764,7 @@ The test for every animation: would a person drawing this frame by frame have do
 
 (Claude Code appends out-of-phase ideas here, one line each.)
 
+- Load: split Phaser into a dynamic chunk so `GET /api/floor` overlaps the 372 KB game.js download (saves ~0.3 s; interactive on Reddit was 3.5 s on a ~150 KB/s link).
 - Curve rises after torch pricing: 9→10 (+10 on list A, +20 on B, 50 seeds) and 25→26 (+28 on A, +36 on B; depth 25 is 25% on 200 seeds). Both are torch-driven band effects; revisit once real deaths exist.
 
 ## Sources

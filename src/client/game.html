@@ -6,6 +6,8 @@
     <link rel="icon" href="data:," />
     <link rel="preload" href="./assets/fonts/jacquard-24.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="preload" href="./assets/fonts/pixelify-sans.woff2" as="font" type="font/woff2" crossorigin />
+    <!-- The atlas would otherwise start only after game.js runs: preloading overlaps it with the script download. -->
+    <link rel="preload" href="./assets/atlas.png" as="image" />
     <link rel="stylesheet" href="style.css" />
     <title>Descent</title>
   </head>

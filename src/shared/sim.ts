@@ -12,6 +12,8 @@ import {
   PIT_DAMAGE,
   PIT_DROP,
   PITS,
+  RUN,
+  SCORE,
   SKELETONS,
   SPIKES,
   TORCH_LOW_PCT,
@@ -616,3 +618,30 @@ export function tells(s: State): Tell[] {
 export function replay(floor: Floor, log: readonly Action[]): State {
   return log.reduce((s, a) => step(s, a).state, start(floor));
 }
+
+/** What the server stores for a run, derived by replay (the client sends only the log). `tile`: where it ended. */
+export type RunResult = { outcome: End['kind']; score: number; turns: number; torch: number; cause: string; tile: Pos };
+
+export const score = (s: State): number => (s.ended?.kind === 'won' ? SCORE.won + SCORE.perHeart * s.hearts + s.torch : s.turn);
+
+/**
+ * judge(floor, log): validate a submitted log, then replay it. A log is only U D L R W I, at most RUN.maxActions long,
+ * holds no free action (a bump changes no state, so a client never logs one; without this rule a log has no upper bound),
+ * and ends the run on its last action.
+ */
+export function judge(floor: Floor, log: string): { ok: true; run: RunResult } | { ok: false; reason: string } {
+  if (log.length === 0 || log.length > RUN.maxActions) return { ok: false, reason: 'length' };
+  let s = start(floor);
+  for (const a of log) {
+    if (!isAction(a)) return { ok: false, reason: 'action' };
+    if (s.ended) return { ok: false, reason: 'after end' };
+    const next = step(s, a).state;
+    if (next === s) return { ok: false, reason: 'free action' };
+    s = next;
+  }
+  if (!s.ended) return { ok: false, reason: 'unfinished' };
+  return { ok: true, run: { outcome: s.ended.kind, score: score(s), turns: s.turn, torch: s.torch, cause: s.ended.cause, tile: { ...s.pos } } };
+}
+
+const ACTIONS: readonly Action[] = ['U', 'D', 'L', 'R', 'W', 'I'];
+export const isAction = (a: string | undefined): a is Action => ACTIONS.some((x) => x === a);

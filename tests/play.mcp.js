@@ -92,7 +92,8 @@ async (page) => {
     check('end overlay shown with one primary action', (await endVisible(p)) && (await p.locator('#end .btn--primary').count()) === 1, '');
     await p.keyboard.press('Enter');
     const r = await S(p);
-    check('Enter on the focused "Descend again" restarts', r.turn === 0 && !r.ended && !(await endVisible(p)), `turn ${r.turn}`);
+    check('first visit: Enter on "Descend to Floor 1" after Floor 0 opens the day\'s floor', r.floor === 1 && r.turn === 0 && !r.ended && !(await endVisible(p)), `floor ${r.floor} turn ${r.turn}`);
+    await p.evaluate(() => window.__descent.load(0));
     const t0 = Date.now();
     for (const a of WIN) { await p.keyboard.press(KEY[a]); await p.waitForTimeout(125); }
     const kb = await S(p);
@@ -349,6 +350,84 @@ async (page) => {
     const st = await S(g.p);
     check('game.html?depth=15&seed=123 opens that generated floor', st.floor === 15 && !st.ended, `floor ${st.floor} torch ${st.torch}`);
     await g.ctx.close();
+  }
+
+
+  // 12. Phase 6: the day's floor (local.ts fakes /api/*): logging, resume, save states, played, closed, logged out, splash
+  {
+    const dayCtx = async (opts = {}) => {
+      const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
+      await ctx.addInitScript(() => localStorage.setItem('descent:f0', '1')); // Floor 0 already done
+      const p = await ctx.newPage();
+      p.on('pageerror', (e) => errs.push(String(e)));
+      p.on('console', (m) => { if (m.type() === 'error') errs.push(m.text()); });
+      await p.goto(`${URL}${opts.q ?? ''}`);
+      await p.waitForFunction(() => window.__descent);
+      await p.evaluate(() => window.__descent.ready);
+      return { ctx, p };
+    };
+    const endText = (p) => p.locator('#end').innerText();
+    const { ctx, p } = await dayCtx();
+    await p.evaluate(() => window.__descent.skipAnim(true));
+    const s0 = await S(p);
+    check('returning player opens the day\'s floor directly', s0.floor === 1 && !(await endVisible(p)), `floor ${s0.floor}`);
+    // Bump into walls (free) and wait (logged): only state changes reach the log.
+    for (const a of ['U', 'U', 'U', 'U', 'U', 'U', 'U', 'U', 'L', 'L', 'L', 'L', 'L', 'L', 'L', 'L']) await acts(p, [a]);
+    await acts(p, ['W', 'W']);
+    const mid = await S(p);
+    const log = await p.evaluate(() => window.__descent.log());
+    check('only state-changing actions are logged (no free bumps)', log.length === mid.turn, `log ${log.length} turn ${mid.turn}`);
+    await p.reload();
+    await p.waitForFunction(() => window.__descent);
+    await p.evaluate(() => window.__descent.ready);
+    const back = await S(p);
+    check('a mid-run reload resumes at the same turn, tile, torch and hearts', back.turn === mid.turn && back.pos.x === mid.pos.x && back.pos.y === mid.pos.y && back.torch === mid.torch && back.hearts === mid.hearts && !back.ended, `turn ${back.turn}/${mid.turn}`);
+    await p.evaluate(() => window.__descent.skipAnim(true));
+    await p.evaluate(async () => { for (let i = 0; i < 1500 && !window.__descent.state().ended; i++) await window.__descent.act('W'); });
+    await p.waitForFunction(() => /Saved/.test(document.getElementById('end').innerText), null, { timeout: 5000 });
+    check('a finished run shows Saved (no retry), with one primary action', (await p.locator('#end .btn--primary').count()) === 1 && !(await p.getByRole('button', { name: 'Retry' }).isVisible()), (await endText(p)).replace(/\n/g, ' | '));
+    await p.reload();
+    await p.waitForFunction(() => window.__descent);
+    check('a second attempt shows the stored result', /Floor 1/.test(await endText(p)) && /Score \d+/.test(await endText(p)) && (await endVisible(p)), (await endText(p)).replace(/\n/g, ' | '));
+    const sp = await ctx.newPage();
+    await sp.setViewportSize({ width: 320, height: 320 });
+    await sp.goto('http://localhost:5190/splash.html');
+    await sp.waitForFunction(() => !document.getElementById('go').disabled);
+    const splash = await sp.evaluate(() => {
+      const b = document.getElementById('go').getBoundingClientRect();
+      return { text: document.body.innerText, fits: document.documentElement.scrollWidth <= innerWidth && b.bottom <= innerHeight && b.height >= 44, interactive: performance.getEntriesByName('descent:splash')[0]?.startTime ?? -1 };
+    });
+    check('splash at 320x320: floor number, played state, button in view', /Floor 1/.test(splash.text) && /See your run/.test(splash.text) && splash.fits, splash.text.replace(/\n/g, ' | '));
+    await sp.close();
+    // Rollover: yesterday's post is closed and offers today's floor.
+    await p.evaluate(() => window.__descent.advanceDay());
+    await p.goto(`${URL}?post=1`);
+    await p.waitForFunction(() => window.__descent);
+    check('your result still shows on yesterday\'s post', /Score/.test(await endText(p)), (await endText(p)).replace(/\n/g, ' | '));
+    await ctx.close();
+    const c2 = await dayCtx();
+    await c2.p.evaluate(() => { window.__descent.advanceDay(); });
+    await c2.p.goto(`${URL}?post=1`);
+    await c2.p.waitForFunction(() => window.__descent);
+    check('a rolled-over floor is closed and offers today\'s floor', /has closed/.test(await endText(c2.p)) && /Floor 2/.test(await endText(c2.p)), (await endText(c2.p)).replace(/\n/g, ' | '));
+    await c2.p.locator('#end .btn--primary').click();
+    await c2.p.waitForURL(/post=2/);
+    await c2.p.waitForFunction(() => window.__descent);
+    await c2.p.evaluate(() => window.__descent.ready);
+    check('"Go to today\'s floor" opens today\'s floor', (await S(c2.p)).floor === 2 && !(await endVisible(c2.p)), `floor ${(await S(c2.p)).floor}`);
+    // A dropped connection: Saving, then Not saved with a retry that succeeds once the network is back.
+    await c2.p.evaluate(() => { window.__descent.skipAnim(true); window.__descent.offline(true); });
+    await c2.p.evaluate(async () => { for (let i = 0; i < 1500 && !window.__descent.state().ended; i++) await window.__descent.act('W'); });
+    const saving = await endText(c2.p);
+    await c2.p.waitForFunction(() => /Not saved/.test(document.getElementById('end').innerText), null, { timeout: 12000 });
+    await c2.p.evaluate(() => window.__descent.offline(false));
+    await c2.p.getByRole('button', { name: 'Retry' }).click();
+    await c2.p.waitForFunction(() => /Saved/.test(document.getElementById('end').innerText) && !/Not saved/.test(document.getElementById('end').innerText), null, { timeout: 5000 });
+    check('offline: Saving, then Not saved after 3 retries, then Retry saves', /Saving/.test(saving) && !/Retry/.test(saving), saving.replace(/\n/g, ' | '));
+    await c2.ctx.close();
+    const c3 = await dayCtx({ q: '?loggedOut=1' });
+    check('logged out: "Log in to descend" with a Log in action', /Log in to descend/.test(await endText(c3.p)) && (await c3.p.locator('#end .btn--primary').innerText()) === 'Log in', (await endText(c3.p)).replace(/\n/g, ' | '));
+    await c3.ctx.close();
   }
 
   return { passed: results.filter((r) => r.pass).length, failed: results.filter((r) => !r.pass), total: results.length, errs, results: results.map((r) => `${r.pass ? 'PASS' : 'FAIL'} ${r.name}${r.detail ? ' — ' + r.detail : ''}`) };

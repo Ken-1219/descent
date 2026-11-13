@@ -238,3 +238,10 @@ export const PLACE_TRIES = 24;
 export const TILES_PER_INSTANCE = [5, 4, 3, 3, 3, 3];
 /** Floor-shape rules 2-3: the day's new family appears alone in its showcase room, then combined with an older family in later rooms; it takes at most this many instances in any one room. */
 export const FRESH_PER_ROOM = 2;
+
+// ---- Phase 6: runs ----
+
+/** A won run scores `won + perHeart·hearts + torch left`; a death scores the turns survived (always below `won`). */
+export const SCORE = { won: 1000, perHeart: 100 };
+/** A submitted log is rejected past this many actions. Free bumps are never logged, so a real run stays far below it. */
+export const RUN = { maxActions: 1500 };

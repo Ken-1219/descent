@@ -571,3 +571,58 @@ h3 {
   padding: 0 var(--gap);
   text-align: right;
 }
+
+/* Save status under the end line: muted while saving, bone once saved; a failure adds a blood bar and a retry
+   (blood text is 3.2:1 on ink-2, under the 4.5:1 floor, so the words stay bone). */
+.save {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap);
+  margin: 0;
+  min-height: var(--tap);
+  color: var(--pale);
+}
+.save[data-state='saved'] {
+  color: var(--bone);
+}
+.save[data-state='failed'] {
+  color: var(--bone);
+  border-left: calc(var(--line) * 2) solid var(--blood);
+  padding-left: var(--gap);
+}
+.end__panel .save__retry {
+  width: auto;
+}
+.save__retry[hidden] {
+  display: none;
+}
+
+/* Splash (inline feed card): works from 320 px tall; one primary action at the bottom. */
+.splash {
+  height: 100vh;
+  overflow: hidden;
+}
+.splash__card {
+  height: 100%;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto auto 1fr auto;
+  justify-items: center;
+  align-items: start;
+  gap: var(--gap);
+  padding: var(--pad);
+  text-align: center;
+}
+.splash__floor {
+  margin: 0;
+  font-size: var(--t-title);
+  color: var(--ember);
+}
+.splash__line {
+  margin: 0;
+  max-width: 100%;
+}
+.splash__go {
+  width: min(100%, 320px);
+}

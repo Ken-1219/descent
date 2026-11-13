@@ -119,11 +119,28 @@ export const controls = (root: HTMLElement) => {
   root.replaceChildren(item, el('p', 'keyhints', 'Arrows move. Space waits. E uses item.'), dpad());
 };
 
-/** End overlay: headline, one line, one primary action at the bottom. */
-export const endPanel = (root: HTMLElement, headline: string, line: string, onAgain: () => void) => {
-  const again = button('Descend again', 'btn--primary');
-  again.addEventListener('click', onAgain);
-  root.replaceChildren(el('div', 'plate end__panel', el('h1', 'title', headline), el('p', '', line), again));
+/** End overlay and every designed state: headline, one line, one primary action at the bottom, an optional status line. */
+export const endPanel = (root: HTMLElement, headline: string, line: string, action: { label: string; run: () => void }, status?: Node) => {
+  const primary = button(action.label, 'btn--primary');
+  primary.addEventListener('click', action.run);
+  root.replaceChildren(el('div', 'plate end__panel', el('h1', 'title', headline), el('p', '', line), ...(status ? [status] : []), primary));
   root.hidden = false;
-  again.focus();
+  primary.focus();
+};
+
+/** "Saving", then "Saved" or "Not saved" with a retry (§15.1). `aria-live` so the change is announced. */
+export const saveLine = () => {
+  const text = el('span');
+  const retry = button('Retry', 'save__retry');
+  const node = el('p', 'save', text, retry);
+  node.setAttribute('aria-live', 'polite');
+  return {
+    node,
+    set: (s: 'saving' | 'saved' | 'failed', again?: () => void) => {
+      node.dataset.state = s;
+      text.textContent = s === 'saving' ? 'Saving' : s === 'saved' ? 'Saved' : 'Not saved';
+      retry.hidden = s !== 'failed' || !again;
+      retry.onclick = again ?? null;
+    },
+  };
 };

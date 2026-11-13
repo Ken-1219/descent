@@ -1,7 +1,7 @@
 import { test, expect } from 'vitest';
-import { FLOOR_0, HEARTS, LIGHT, PALETTE, type Token } from '../src/shared/content';
+import { FLOOR_0, HEARTS, LIGHT, PALETTE, RUN, type Token } from '../src/shared/content';
 import { hash, mulberry32, pick } from '../src/shared/rng';
-import { replay, start, step, visibility, type Action, type Event, type Floor, type State } from '../src/shared/sim';
+import { judge, replay, score, start, step, visibility, type Action, type Event, type Floor, type State } from '../src/shared/sim';
 import { SPRITES, type SpriteDef } from '../src/client/art';
 import { ANIMS, PACK, contrast, frameAt, tokenAt, type Anim } from '../src/client/sprites';
 
@@ -413,4 +413,23 @@ test('a bone pile is floor for everyone; at 0 it rises only once its tile is emp
   const off = step(s, 'R'); // step off: it gets up that turn
   expect(off.state.enemies[0]?.mode).toBe('chase');
   expect(off.events).toContainEqual({ t: 'rebuild', id: 0 });
+});
+
+test('judge: a finished log is replayed into its result; score matches replay', () => {
+  const win = 'DRRURRRRDDDDLLLLLL';
+  const r = judge(FLOOR_0, win);
+  expect(r).toEqual({ ok: true, run: { outcome: 'won', score: score(replay(FLOOR_0, [...win] as Action[])), turns: 18, torch: FLOOR_0.torch - 18, cause: 'stairs', tile: { x: 1, y: 6 } } });
+  const dead = { ...FLOOR_0, mercy: false, torch: 6 };
+  const d = judge(dead, 'WWWWWWWWWWWW');
+  expect(d.ok && d.run).toMatchObject({ outcome: 'dead', cause: 'dark', score: 12, tile: { x: 2, y: 2 } });
+});
+
+test('judge rejects forged logs: unknown action, a free bump, unfinished, actions after the end, too long, empty', () => {
+  const win = 'DRRURRRRDDDDLLLLLL';
+  expect(judge(FLOOR_0, 'DRRURRRRDDDDLLLLLX')).toEqual({ ok: false, reason: 'action' });
+  expect(judge(FLOOR_0, 'LL' + win)).toEqual({ ok: false, reason: 'free action' }); // the second L bumps the west wall
+  expect(judge(FLOOR_0, win.slice(0, -1))).toEqual({ ok: false, reason: 'unfinished' });
+  expect(judge(FLOOR_0, win + 'W')).toEqual({ ok: false, reason: 'after end' });
+  expect(judge(FLOOR_0, 'W'.repeat(RUN.maxActions + 1))).toEqual({ ok: false, reason: 'length' });
+  expect(judge(FLOOR_0, '')).toEqual({ ok: false, reason: 'length' });
 });
