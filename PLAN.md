@@ -56,6 +56,7 @@ Descent ships in 13 gated phases (0–12). Each phase ends with something visibl
 | 9 | CC0 SFX files | SFX synthesized with WebAudio | No files, no licences |
 | 10 | Freeze Dec 6 / Dec 5 (both appear) | Dec 5 | Later section of the game plan wins |
 | 11 | Rollover time open | 10:00 UTC, one constant | New floor waits for the US morning; visible to the dev at 3:30 PM IST |
+| 12 | Kenney 1-bit, flat light bands (row 3) | 0x72 DungeonTileset II (CC0), stone graded onto the ink ramp, soft torch glow; our own hero, wisp and icons as outlined pixel maps | User decision at the Phase 1 gate (Nov 13): 1-bit sprites could not read as characters at 16 px |
 
 ## 4. Engineering rules
 
@@ -197,8 +198,8 @@ Nothing else may use these three colours.
 
 - Type: **Jacquard 24** (pixel blackletter) for the title, floor numbers and death/victory headlines only. **Pixelify Sans** for everything else, 14 px minimum.
 - Self-host both as woff2. Confirm each font's OFL licence file when adding it, and credit it in the README.
-- Sprites: 16×16 source pixels, 1-bit layers, at most two tinted layers per sprite, flip but never rotate.
-- Light: four discrete levels per tile (lit, dim, remembered, unseen). The band edge uses a checker-dither tile, never a smooth gradient.
+- Sprites: 16×16 source pixels. Environment, props and most of the cast come from 0x72 DungeonTileset II (CC0); stone tiles are graded onto the ink ramp and danger tiles onto `blood` at load, so the dungeon stays cold and ours. The hero, wisps and UI icons are our own pixel maps: dark outline plus up to four token shades. Flip but never rotate.
+- Light: an `ink-0` darkness layer with soft radial glows cut from it, warm (`ember`) at the hero and wall torches, cold (`wisp`) at wisps. Fog of war: remembered tiles are drawn dark and colourless; unseen tiles are not drawn.
 - Motion: sprite animation is frame-stepped at 12 fps or less. A tile hop is 96 ms. Screen shake is 2 px for 120 ms, on damage only. Screen changes are cuts or a row-by-row "descent" wipe.
 - UI surfaces: flat `ink-2` plates, 2 px `bone` border, square corners, a hard 2 px offset shadow that collapses on press.
 - Voice: terse, dry, second person. "You fell at the spike hall. 41 fell before you." No exclamation marks.
@@ -209,7 +210,7 @@ Nothing else may use these three colours.
 Banned:
 
 - Purple or indigo anything; gradients on UI surfaces; blur or glass effects.
-- Rounded cards with soft shadows; glow on everything.
+- Rounded cards with soft shadows; glow that has no light source (only torches, the hero and wisps glow).
 - Emoji as icons; Press Start 2P; hype copy.
 - Smooth scaling or rotation of pixel sprites; mixed pixel sizes inside the canvas.
 - Symmetric auto-generated-looking sprites; pillow shading.
@@ -226,7 +227,7 @@ Required:
 
 ### Hero: the Delver
 
-- Hooded figure, 10 px tall, torch on the leading side. Body layer `bone`, flame layer `ember`.
+- White-hooded cleric: outlined pixel map, robe in `bone`/`pale`/`stone`, face in shadow with two `ember` eyes, torch on the leading side.
 - Idle: 2 frames at 2 fps. Flame: 3 frames.
 - Move: 4-frame hop, y offsets 0, −2, −1, 0. Attack: 4 px lunge and back in 80 ms.
 - Hurt: 2 frames tinted `blood` plus shake.

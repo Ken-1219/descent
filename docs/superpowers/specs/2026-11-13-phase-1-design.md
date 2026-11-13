@@ -53,3 +53,11 @@ Everything in the pipeline is code-drawn: 1-bit bitmaps written as strings, rast
 - B6. `contrast()` uses floats and lives in `sprites.ts`, a client file, not `src/shared`.
 - B7. The Lab tab is remembered in `location.hash`.
 - B8. Placeholder wisp and tile bitmaps are drawn for the mock room; Phase 2 owns their final form. The hero failed review three times, so under the two-strike rule it uses Kenney 1-Bit Pack tile 24,1 (CC0), converted to our bitmap format with an ember flame on the staff. The pack itself is not in the repo.
+
+## Gate revision (Nov 13, user decision)
+
+The user chose a shaded CC0 pack over 1-bit sprites after reviewing mockups. Changes:
+- `assets/atlas.png` is 0x72 DungeonTileset II v1.7 (CC0, 39.6 KB). `loadPack()` grades the stone tiles onto `ink-0`…`pale` by nearest luminance, and spikes onto `blood`. Characters and props keep their art.
+- The light bands are replaced in the Lab room by an `ink-0` darkness layer with soft radial glows (`ember` for the hero and wall torches, `wisp` for wisps). `LIGHT` tables remain for our bitmaps and for fog of war in Phase 3.
+- `SpriteDef` gains a pixel-map form (`map` + `key`). The hero is a white-hooded cleric drawn that way. The pack's knight, wizard, elf, dwarf and lizard are shown beside it in the Lab as alternatives.
+- PLAN.md §3 (row 12), §6 and §7 are updated to match.

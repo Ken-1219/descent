@@ -1,10 +1,13 @@
 import { LIGHT, PALETTE, TILE, LEVELS, type Level, type Token } from '../shared/content';
 
 export type Layer = { token: Token; rows: readonly string[] };
-export type SpriteDef = { bg?: Token; layers: readonly Layer[] };
+export type SpriteDef =
+  | { bg?: Token; layers: readonly Layer[] }
+  /** Multi-colour pixel map: each char maps to a token through `key`; '.' is transparent. */
+  | { map: readonly string[]; key: Readonly<Record<string, Token>> };
 
 const NAMES = [
-  'floor', 'wall', 'spikes', 'stairs', 'hero', 'wisp',
+  'hero', 'wisp',
   'heart', 'heart-lost', 'key', 'flame', 'arrow-up', 'arrow-left',
 ] as const;
 export type SpriteName = (typeof NAMES)[number];
@@ -33,133 +36,29 @@ const heartOutline: Layer = {
 
 // Placeholders; Phase 2 owns the final bitmaps.
 export const SPRITES: Record<SpriteName, SpriteDef> = {
-  floor: {
-    // Flagstones: dark grooves on ink-2 slabs. In dim light the slabs sink to ink-1 and the
-    // grooves vanish, so only the torch's pool shows the stone.
-    bg: 'ink-2',
-    layers: [{
-      token: 'ink-1',
-      rows: [
-        '################',
-        '#.....#.........',
-        '#.....#.........',
-        '#.....#.........',
-        '#.....#.........',
-        '#.....#.........',
-        '#.....#.........',
-        '#.....#.........',
-        '#.....##########',
-        '#..........#....',
-        '#..........#....',
-        '#..........#....',
-        '#..........#....',
-        '#..........#....',
-        '#..........#....',
-        '#..........#....',
-      ],
-    }],
-  },
-  wall: {
-    // Bricks: ink-0 grooves survive every light level; stone top faces catch the torch.
-    bg: 'ink-2',
-    layers: [
-      {
-        token: 'ink-0',
-        rows: [
-          '...........#....',
-          '...........#....',
-          '...........#....',
-          '...........#....',
-          '################',
-          '...#............',
-          '...#............',
-          '...#............',
-          '...#............',
-          '################',
-          '........#.......',
-          '........#.......',
-          '........#.......',
-          '........#.......',
-          '################',
-          '.............#..',
-        ],
-      },
-      {
-        token: 'stone',
-        rows: [
-          '###########.####', BLANK, BLANK, BLANK, BLANK,
-          '###.############', BLANK, BLANK, BLANK, BLANK,
-          '########.#######', BLANK, BLANK, BLANK, BLANK,
-          '#############.##',
-        ],
-      },
-    ],
-  },
-  spikes: {
-    bg: 'ink-2',
-    layers: [{
-      token: 'blood',
-      rows: at(5,
-        '...#............',
-        '...#.......#....',
-        '..###......#....',
-        '..###.....###...',
-        '.#####....###...',
-        '.#####...#####..',
-        '#######..#####..',
-        '#######.#######.',
-      ),
-    }],
-  },
-  stairs: {
-    bg: 'ink-0',
-    layers: [{
-      token: 'bone',
-      rows: at(1,
-        '################', BLANK,
-        '##############..', BLANK,
-        '############....', BLANK,
-        '##########......', BLANK,
-        '########........', BLANK,
-        '######..........', BLANK,
-        '####............',
-      ),
-    }],
-  },
   hero: {
-    // From Kenney's 1-Bit Pack (CC0), tile 24,1: hooded figure with a staff. Code-drawn versions
-    // failed review three times (PLAN.md two-strike rule). The staff tip becomes the torch.
-    layers: [
-      {
-        token: 'bone',
-        rows: [
-          '................',
-          '...########..#..',
-          '..#.########.##.',
-          '....#......#.#..',
-          '....#.####.#.##.',
-          '....#..##..#..#.',
-          '....#.#..#.#..#.',
-          '...##......##.#.',
-          '..####....###.#.',
-          '..#####..###....',
-          '..#########..##.',
-          '.....##..##..##.',
-          '...#.##..##.....',
-          '.....##..##...#.',
-          '.....##..##...#.',
-          '................',
-        ],
-      },
-      {
-        token: 'ember',
-        rows: at(0,
-          '.............#..',
-          '............###.',
-          '.............##.',
-        ),
-      },
+    // The Delver: white-hooded cleric, face lost in shadow but for two ember eyes, torch held
+    // out on the right. Outline (o) and three robe shades (w, p, s) carry the read at 16 px;
+    // the robe is shaded away from the torch.
+    map: [
+      '......ooo.......',
+      '.....owwwo......',
+      '....owwwwwo.....',
+      '...owwwwwwwo.o..',
+      '...owpkkkpwooeo.',
+      '..owpkkkkkpwoego',
+      '..owkkekekkwoeeo',
+      '..owpkkkkkpwodo.',
+      '..owwpkkkpwwowo.',
+      '.owwwwwwwwwwwwo.',
+      '.opwwwwwwwwposo.',
+      '.opwwwwwwwwposo.',
+      '.ospwwwwwwpso.o.',
+      '.ospwwwwwwpso...',
+      '.osspwwwwpsso...',
+      '..oooooooooo....',
     ],
+    key: { o: 'ink-0', w: 'bone', p: 'pale', s: 'stone', k: 'ink-1', e: 'ember', d: 'ember-deep', g: 'gilt' },
   },
   wisp: {
     layers: [{
@@ -281,6 +180,10 @@ const shade = (token: Token, level: Level, x: number, y: number): Token => {
 
 /** Top layer wins, then bg; null = transparent. */
 export function tokenAt(def: SpriteDef, level: Level, x: number, y: number): Token | null {
+  if ('map' in def) {
+    const t = def.key[def.map[y]?.[x] ?? '.'];
+    return t === undefined ? null : shade(t, level, x, y);
+  }
   for (let i = def.layers.length - 1; i >= 0; i--) {
     const layer = def.layers[i];
     if (layer?.rows[y]?.[x] === '#') return shade(layer.token, level, x, y);
@@ -361,4 +264,71 @@ const luminance = (hex: string): number => {
 export function contrast(a: string, b: string): number {
   const [hi, lo] = [luminance(a), luminance(b)].sort((p, q) => q - p);
   return ((hi ?? 0) + 0.05) / ((lo ?? 0) + 0.05);
+}
+
+// 0x72 DungeonTileset II (CC0), assets/atlas.png: [x, y, w, h]. Tall frames are bottom-aligned to the tile.
+export const PACK = {
+  floor: [16, 64, 16, 16],
+  'floor-crack': [32, 64, 16, 16],
+  'floor-chip': [48, 80, 16, 16],
+  'wall-top': [32, 0, 16, 16],
+  wall: [32, 16, 16, 16],
+  'wall-hole': [48, 32, 16, 16],
+  spikes: [64, 192, 16, 16], // floor_spikes_anim_f3: fully raised
+  stairs: [80, 192, 16, 16],
+  crate: [288, 408, 16, 24],
+  skull: [288, 432, 16, 16],
+  knight: [128, 100, 16, 28],
+  wizard: [128, 164, 16, 28],
+  elf: [128, 36, 16, 28],
+  dwarf: [128, 292, 16, 28],
+  lizard: [128, 196, 16, 28],
+} as const satisfies Record<string, readonly [number, number, number, number]>;
+export type PackName = keyof typeof PACK;
+
+// Stone is graded onto our ink ramp so the dungeon reads cold; danger onto blood. Actors keep their art.
+const STONE: readonly PackName[] = ['floor', 'floor-crack', 'floor-chip', 'wall-top', 'wall', 'wall-hole', 'stairs'];
+const DANGER: readonly PackName[] = ['spikes'];
+const RAMP: readonly Token[] = ['ink-0', 'ink-1', 'ink-2', 'stone', 'pale'];
+
+const rgb = (hex: string): [number, number, number] => [
+  parseInt(hex.slice(1, 3), 16),
+  parseInt(hex.slice(3, 5), 16),
+  parseInt(hex.slice(5, 7), 16),
+];
+const lum = ([r, g, b]: readonly number[]) => 0.2126 * (r ?? 0) + 0.7152 * (g ?? 0) + 0.0722 * (b ?? 0);
+const nearest = (ramp: readonly Token[], l: number): Token =>
+  ramp.reduce((best, t) => (Math.abs(lum(rgb(PALETTE[t])) - l) < Math.abs(lum(rgb(PALETTE[best])) - l) ? t : best));
+
+const grade = (ctx: CanvasRenderingContext2D, names: readonly PackName[], pick: (l: number) => Token) => {
+  for (const name of names) {
+    const [x, y, w, h] = PACK[name];
+    const img = ctx.getImageData(x, y, w, h);
+    const d = img.data;
+    for (let i = 0; i < d.length; i += 4) {
+      if ((d[i + 3] ?? 0) === 0) continue;
+      const [r, g, b] = rgb(PALETTE[pick(lum([d[i] ?? 0, d[i + 1] ?? 0, d[i + 2] ?? 0]))]);
+      d[i] = r;
+      d[i + 1] = g;
+      d[i + 2] = b;
+    }
+    ctx.putImageData(img, x, y);
+  }
+};
+
+/** Loads the pack and grades its stone and danger tiles onto the palette. */
+export async function loadPack(): Promise<HTMLCanvasElement> {
+  const img = new Image();
+  img.src = new URL('./assets/atlas.png', import.meta.url).href;
+  await img.decode();
+  const [canvas, ctx] = canvas2d(img.width, img.height);
+  ctx.drawImage(img, 0, 0);
+  grade(ctx, STONE, (l) => nearest(RAMP, l));
+  grade(ctx, DANGER, (l) => (l > 110 ? 'blood' : nearest(['ink-0', 'ink-1', 'ink-2'], l)));
+  return canvas;
+}
+
+export function drawPack(ctx: CanvasRenderingContext2D, pack: HTMLCanvasElement, name: PackName, dx: number, dy: number): void {
+  const [x, y, w, h] = PACK[name];
+  ctx.drawImage(pack, x, y, w, h, dx, dy + TILE - h, w, h);
 }

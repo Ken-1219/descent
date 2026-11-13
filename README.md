@@ -38,4 +38,5 @@ Both fonts are self-hosted and licensed under the SIL Open Font License 1.1; the
 
 ### Sprites
 
-- Hero sprite: Kenney's 1-Bit Pack (https://kenney.nl/assets/1-bit-pack), CC0 1.0. Thank you, Kenney.
+- Dungeon tiles and characters: 16x16 DungeonTileset II by 0x72 (https://0x72.itch.io/dungeontileset-ii), CC0 1.0, in `src/client/assets/atlas.png`. Thank you, 0x72.
+- The hero, wisp and UI icons are drawn for Descent.

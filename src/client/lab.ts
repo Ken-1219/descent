@@ -1,6 +1,6 @@
 // LOCAL ONLY: Design Lab. Never a Devvit entrypoint.
-import { PALETTE, TILE, type Level } from '../shared/content';
-import { buildAtlas, contrast, drawFrame, iconCanvas, type Atlas, type SpriteName } from './sprites';
+import { PALETTE, TILE, type Token } from '../shared/content';
+import { buildAtlas, contrast, drawFrame, drawPack, iconCanvas, loadPack, type Atlas, type PackName } from './sprites';
 import { button, dpad, el, ghostCard, hearts, plate, slot, wick } from './ui';
 
 const panel = document.getElementById('panel');
@@ -11,66 +11,106 @@ const section = (title: string, ...kids: (Node | string)[]) => el('section', '',
 const row = (...kids: (Node | string)[]) => el('div', 'lab__row', ...kids);
 const caption = (text: string) => el('p', 'lab__caption', text);
 
-// Mock room: lab data, not game tuning. Light radii are squared tile distances from the hero.
-const ROOM = ['#########', '#..^....#', '#.....W.#', '#.@.^...#', '#.......#', '#.....>.#', '#########'];
-const HERO = { x: 2, y: 3 };
-const LIT = 4;
-const EDGE = 8;
-const DIM = 18;
-const REMEMBERED_MAX_X = 6;
-const TILES: Record<string, SpriteName> = { '#': 'wall', '^': 'spikes', '>': 'stairs' };
+// Mock room: lab data, not game tuning. T wall top, W wall, f wall torch, ^ spikes, c crate, s skull,
+// > stairs, @ hero, * wisp. Light radii are in tiles.
+const ROOM = ['TTTTTTTTT', 'WWfWWWfWW', 'W.......W', 'W..^^..sW', 'W.@...*.W', 'Wc...^^.W', 'W.....>.W', 'TTTTTTTTT'];
+const PROPS: Record<string, PackName> = { '^': 'spikes', c: 'crate', s: 'skull', '>': 'stairs' };
+const DARK = 0.86;
+type Light = { x: number; y: number; r: number; tint: Token };
 
-const levelAt = (x: number, y: number): Level | null => {
-  const d = (x - HERO.x) ** 2 + (y - HERO.y) ** 2;
-  if (d <= LIT) return 'lit';
-  if (d <= EDGE) return 'edge';
-  if (d <= DIM) return 'dim';
-  return x <= REMEMBERED_MAX_X ? 'remembered' : null;
+const rgba = (t: Token, a: number) => {
+  const h = PALETTE[t];
+  return `rgba(${parseInt(h.slice(1, 3), 16)}, ${parseInt(h.slice(3, 5), 16)}, ${parseInt(h.slice(5, 7), 16)}, ${a})`;
 };
 
-const mockRoom = (atlas: Atlas) => {
-  const w = ROOM[0]?.length ?? 0;
-  const h = ROOM.length;
-  const canvas = el('canvas', 'room');
-  canvas.width = w * TILE;
-  canvas.height = h * TILE;
-  canvas.setAttribute('aria-label', 'Mock lit room: hero with torch, spikes, a wisp, remembered stairs');
+const FLOOR_VARIANTS: readonly PackName[] = ['floor-crack', 'floor-chip'];
+const floorAt = (x: number, y: number): PackName => FLOOR_VARIANTS[(x * 7 + y * 3) % 9] ?? 'floor';
+
+// Darkness with soft holes cut at each light, then a warm or cold wash on top.
+const shine = (ctx: CanvasRenderingContext2D, w: number, h: number, lights: Light[]) => {
+  const dark = el('canvas');
+  dark.width = w;
+  dark.height = h;
+  const d = dark.getContext('2d');
+  if (!d) return;
+  d.fillStyle = rgba('ink-0', DARK);
+  d.fillRect(0, 0, w, h);
+  d.globalCompositeOperation = 'destination-out';
+  for (const l of lights) {
+    const g = d.createRadialGradient(l.x, l.y, 0, l.x, l.y, l.r);
+    g.addColorStop(0, rgba('ink-0', 1));
+    g.addColorStop(0.5, rgba('ink-0', 0.75));
+    g.addColorStop(1, rgba('ink-0', 0));
+    d.fillStyle = g;
+    d.fillRect(0, 0, w, h);
+  }
+  ctx.drawImage(dark, 0, 0);
+  ctx.globalCompositeOperation = 'soft-light';
+  for (const l of lights) {
+    const g = ctx.createRadialGradient(l.x, l.y, 0, l.x, l.y, l.r);
+    g.addColorStop(0, rgba(l.tint, 0.7));
+    g.addColorStop(1, rgba(l.tint, 0));
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, w, h);
+  }
+  ctx.globalCompositeOperation = 'source-over';
+};
+
+const mockRoom = (atlas: Atlas, pack: HTMLCanvasElement, canvas: HTMLCanvasElement) => {
   const ctx = canvas.getContext('2d');
-  if (!ctx) return canvas;
+  if (!ctx) return;
+  const lights: Light[] = [];
+  const centre = (x: number, y: number, r: number, tint: Token) => lights.push({ x: x * TILE + 8, y: y * TILE + 8, r: r * TILE, tint });
   ctx.fillStyle = PALETTE['ink-0'];
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   ROOM.forEach((line, y) =>
     [...line].forEach((ch, x) => {
-      const level = levelAt(x, y);
-      if (!level) return;
-      drawFrame(ctx, atlas, TILES[ch] ?? 'floor', level, x * TILE, y * TILE);
-      if (ch === 'W' && level !== 'remembered') drawFrame(ctx, atlas, 'wisp', level, x * TILE, y * TILE);
+      const px = x * TILE;
+      const py = y * TILE;
+      if (ch === 'T') return drawPack(ctx, pack, 'wall-top', px, py);
+      if (ch === 'W' || ch === 'f') {
+        drawPack(ctx, pack, 'wall', px, py);
+        if (ch === 'f') {
+          drawFrame(ctx, atlas, 'flame', 'lit', px, py);
+          centre(x, y, 2.4, 'ember');
+        }
+        return;
+      }
+      drawPack(ctx, pack, floorAt(x, y), px, py);
+      const prop = PROPS[ch];
+      if (prop) drawPack(ctx, pack, prop, px, py);
+      if (ch === '*') {
+        drawFrame(ctx, atlas, 'wisp', 'lit', px, py);
+        centre(x, y, 1.8, 'wisp');
+      }
+      if (ch === '@') {
+        drawFrame(ctx, atlas, 'hero', 'lit', px, py);
+        centre(x, y, 3.4, 'ember');
+      }
     })
   );
-  drawFrame(ctx, atlas, 'hero', 'lit', HERO.x * TILE, HERO.y * TILE);
-  return canvas;
+  shine(ctx, canvas.width, canvas.height, lights);
 };
 
-// One wall-over-floor column per light level, so each rung of the ladder can be read on its own.
-const LEGEND: [Level | null, string][] = [['lit', 'Lit'], ['edge', 'Edge'], ['dim', 'Dim'], ['remembered', 'Remembered'], [null, 'Unseen']];
-const lightStrip = (atlas: Atlas) =>
+// Hero candidates side by side, each standing on a floor tile at 4×.
+const HEROES: [string, PackName | null][] = [['Cleric (ours)', null], ['Knight', 'knight'], ['Wizard', 'wizard'], ['Elf', 'elf'], ['Dwarf', 'dwarf'], ['Lizard', 'lizard']];
+const heroLineup = (atlas: Atlas, pack: HTMLCanvasElement) =>
   el(
     'div',
     'legend',
-    ...LEGEND.map(([level, label]) => {
+    ...HEROES.map(([label, name]) => {
       const c = el('canvas');
       c.width = TILE;
       c.height = TILE * 2;
-      c.style.width = `${TILE * 3}px`;
-      c.style.height = `${TILE * 6}px`;
+      c.style.width = `${TILE * 4}px`;
+      c.style.height = `${TILE * 8}px`;
       const ctx = c.getContext('2d');
       if (ctx) {
-        ctx.fillStyle = PALETTE['ink-0'];
+        ctx.fillStyle = PALETTE['ink-1'];
         ctx.fillRect(0, 0, c.width, c.height);
-        if (level) {
-          drawFrame(ctx, atlas, 'wall', level, 0, 0);
-          drawFrame(ctx, atlas, 'floor', level, 0, TILE);
-        }
+        drawPack(ctx, pack, 'floor', 0, TILE);
+        if (name) drawPack(ctx, pack, name, 0, TILE);
+        else drawFrame(ctx, atlas, 'hero', 'lit', 0, TILE);
       }
       return el('figure', 'legend__cell', c, el('figcaption', '', label));
     })
@@ -81,7 +121,7 @@ const fitZoom = (canvas: HTMLCanvasElement, note: HTMLElement) => {
   const zoom = Math.max(2, Math.min(4, Math.floor((panel.clientWidth - 4) / canvas.width)));
   canvas.style.width = `${canvas.width * zoom}px`;
   canvas.style.height = `${canvas.height * zoom}px`;
-  note.textContent = `Lit, edge dither, dim, remembered and unseen tiles at ${zoom}×.`;
+  note.textContent = `Graded 0x72 tiles under torch glow, at ${zoom}×.`;
 };
 
 const tokensTab = () => {
@@ -98,14 +138,22 @@ const tokensTab = () => {
   }
 
   const atlas = buildAtlas();
-  const room = mockRoom(atlas);
+  const room = el('canvas', 'room');
+  room.width = (ROOM[0]?.length ?? 0) * TILE;
+  room.height = ROOM.length * TILE;
+  room.setAttribute('aria-label', 'Mock room: cleric with torch, wall torches, spikes, a wisp, stairs');
   const note = caption('');
+  const heroes = el('div');
   addEventListener('resize', () => fitZoom(room, note));
   queueMicrotask(() => fitZoom(room, note));
+  void loadPack().then((pack) => {
+    mockRoom(atlas, pack, room);
+    heroes.replaceChildren(heroLineup(atlas, pack));
+  });
 
   return [
     section('The room', room, note),
-    section('Light levels', lightStrip(atlas)),
+    section('Hero options', heroes),
     section('Palette', swatches),
     section(
       'Type',

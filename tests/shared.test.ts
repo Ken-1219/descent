@@ -20,8 +20,16 @@ test('light tables map every token to a token', () => {
   for (const v of Object.values(LIGHT.remembered)) expect(['ink-0', 'ink-1', 'ink-2']).toContain(v);
 });
 
-test('sprites are 16x16 bitmaps with 1-2 layers', () => {
+test('sprites are 16x16: 1-2 layer bitmaps, or pixel maps whose every char has a token', () => {
   for (const def of Object.values(SPRITES)) {
+    if ('map' in def) {
+      expect(def.map).toHaveLength(16);
+      for (const row of def.map) {
+        expect(row).toHaveLength(16);
+        for (const ch of row) if (ch !== '.') expect(def.key[ch]).toBeDefined();
+      }
+      continue;
+    }
     expect(def.layers.length).toBeGreaterThanOrEqual(1);
     expect(def.layers.length).toBeLessThanOrEqual(2);
     for (const layer of def.layers) {
@@ -29,6 +37,13 @@ test('sprites are 16x16 bitmaps with 1-2 layers', () => {
       for (const row of layer.rows) expect(row).toMatch(/^[#.]{16}$/);
     }
   }
+});
+
+test('tokenAt reads pixel maps through their key', () => {
+  const def: SpriteDef = { map: ['oe' + '.'.repeat(14), ...Array.from({ length: 15 }, () => '.'.repeat(16))], key: { o: 'ink-0', e: 'ember' } };
+  expect(tokenAt(def, 'lit', 0, 0)).toBe('ink-0');
+  expect(tokenAt(def, 'dim', 1, 0)).toBe(LIGHT.dim.ember);
+  expect(tokenAt(def, 'lit', 2, 0)).toBeNull();
 });
 
 const blank = '.'.repeat(16);
