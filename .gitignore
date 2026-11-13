@@ -3,8 +3,8 @@ node_modules
 dist
 .env
 
-*.md
-docs/
+docs/*
+!docs/superpowers/
 .claude/
 shots/
 .playwright-mcp/
