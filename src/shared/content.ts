@@ -85,11 +85,10 @@ export const FLOOR_0: Floor = {
 };
 
 // ---- Phase 4: tier table (§8). Each family's tier is set per floor (Floor.tiers); rules read these entries. ----
-// `cost` is the budget price of one instance. §8 started at 1, 2, 3, 5 by tier (enemies one more); Phase 5 sets each cell
-// from its measured lethality: one budget point per 5 hearts lost per 100 instances by the skill-60 bot (depths 1–28,
-// seeds 1–50; re-measured after the single-tile dive rule at the final density), clamped to 1–8. Dark rooms hurt through the torch, which
-// hearts can't see: they are priced by the extra torch they burn, at half a heart per turn of darkness (T2+ ≈ 3–4 hearts
-// per instance, so the cap). A harmless upgrade (gates) no longer eats the budget a lethal one would.
+// `cost` is the budget price of one instance. §8 started at 1, 2, 3, 5 by tier (enemies one more). Phase 5 prices every
+// cell by what it costs the skill-60 bot (depths 1–28, seeds 1–50): hearts lost plus torch turns spent on it (fighting,
+// dodging, waiting out timed spikes, burning in a dark room) at half a heart per turn, the rate a dark torch drains you.
+// One point per 10 hearts-equivalent per 100 instances, clamped to 1–16. Enemies cost turns more than hearts.
 // `frames` names the pack or own sprites the client draws for it (checked by a test).
 
 export type Family = 'spikes' | 'goblins' | 'imps' | 'mechanisms' | 'skeletons' | 'pits' | 'dark';
@@ -101,26 +100,26 @@ type Priced = { cost: number; frames: readonly string[] };
 
 /** period 0 = always up. Otherwise up when (turn - rowShift*y) mod period = 0, half-raised the turn before. */
 export const SPIKES: Record<Tier, Priced & { period: number; rowShift: number; buried: boolean }> = {
-  1: { period: 0, rowShift: 0, buried: false, cost: 4, frames: ['spikes'] },
-  2: { period: 3, rowShift: 0, buried: false, cost: 4, frames: ['spikes-0', 'spikes-1', 'spikes'] },
-  3: { period: 3, rowShift: 1, buried: false, cost: 2, frames: ['spikes-0', 'spikes-1', 'spikes'] },
-  4: { period: 0, rowShift: 0, buried: true, cost: 2, frames: ['crack', 'spikes'] },
+  1: { period: 0, rowShift: 0, buried: false, cost: 2, frames: ['spikes'] },
+  2: { period: 3, rowShift: 0, buried: false, cost: 2, frames: ['spikes-0', 'spikes-1', 'spikes'] },
+  3: { period: 3, rowShift: 1, buried: false, cost: 1, frames: ['spikes-0', 'spikes-1', 'spikes'] },
+  4: { period: 0, rowShift: 0, buried: true, cost: 1, frames: ['crack', 'spikes'] },
 };
 
 /** sight: Manhattan wake distance (with line of sight). den: spawn period (0 none). starve: double move every N turns (0 none). */
 export const GOBLINS: Record<Tier, Priced & { sight: number; flank: boolean; packWake: boolean; den: number; starve: number }> = {
-  1: { sight: 4, flank: false, packWake: false, den: 0, starve: 0, cost: 1, frames: ['goblin-idle-0', 'goblin-run-0'] },
-  2: { sight: 4, flank: true, packWake: true, den: 0, starve: 0, cost: 1, frames: ['goblin-idle-0', 'goblin-run-0'] },
-  3: { sight: 4, flank: false, packWake: false, den: 6, starve: 0, cost: 2, frames: ['goblin-idle-0', 'goblin-run-0', 'den'] },
-  4: { sight: 4, flank: false, packWake: false, den: 0, starve: 3, cost: 1, frames: ['goblin-idle-0', 'goblin-run-0'] },
+  1: { sight: 4, flank: false, packWake: false, den: 0, starve: 0, cost: 10, frames: ['goblin-idle-0', 'goblin-run-0'] },
+  2: { sight: 4, flank: true, packWake: true, den: 0, starve: 0, cost: 12, frames: ['goblin-idle-0', 'goblin-run-0'] },
+  3: { sight: 4, flank: false, packWake: false, den: 6, starve: 0, cost: 14, frames: ['goblin-idle-0', 'goblin-run-0', 'den'] },
+  4: { sight: 4, flank: false, packWake: false, den: 0, starve: 3, cost: 4, frames: ['goblin-idle-0', 'goblin-run-0'] },
 };
 
 /** wake 'near' = Manhattan distance, through walls; 'light' = its tile is lit by your torch. dive: dive length (0 = no dive). */
 export const IMPS: Record<Tier, Priced & { wake: 'near' | 'light'; wakeDist: number; steps: number; dive: number; diveRange: number; packWake: boolean }> = {
-  1: { wake: 'near', wakeDist: 4, steps: 2, dive: 0, diveRange: 0, packWake: false, cost: 1, frames: ['imp-idle-0', 'imp-run-0'] },
-  2: { wake: 'near', wakeDist: 4, steps: 1, dive: 6, diveRange: 5, packWake: false, cost: 2, frames: ['imp-idle-0', 'imp-run-0', 'mark-line'] },
-  3: { wake: 'near', wakeDist: 4, steps: 2, dive: 0, diveRange: 0, packWake: true, cost: 2, frames: ['imp-idle-0', 'imp-run-0'] },
-  4: { wake: 'light', wakeDist: 0, steps: 2, dive: 0, diveRange: 0, packWake: false, cost: 1, frames: ['imp-idle-0', 'imp-run-0'] },
+  1: { wake: 'near', wakeDist: 4, steps: 2, dive: 0, diveRange: 0, packWake: false, cost: 6, frames: ['imp-idle-0', 'imp-run-0'] },
+  2: { wake: 'near', wakeDist: 4, steps: 1, dive: 6, diveRange: 5, packWake: false, cost: 11, frames: ['imp-idle-0', 'imp-run-0', 'mark-line'] },
+  3: { wake: 'near', wakeDist: 4, steps: 2, dive: 0, diveRange: 0, packWake: true, cost: 15, frames: ['imp-idle-0', 'imp-run-0'] },
+  4: { wake: 'light', wakeDist: 0, steps: 2, dive: 0, diveRange: 0, packWake: false, cost: 4, frames: ['imp-idle-0', 'imp-run-0'] },
 };
 
 /** What a plate does to its nearest gate or slit. range: dart reach. turns: a timed gate's open time. */
@@ -133,17 +132,17 @@ export const MECHANISMS: Record<Tier, Priced & { plate: 'open' | 'close' | 'dart
 
 /** rebuild: turns as a bone pile. avoid: paths around spikes. range: archer reach along its row (0 = melee). shared: one rebuild timer per pair. */
 export const SKELETONS: Record<Tier, Priced & { sight: number; rebuild: number; avoid: boolean; range: number; shared: boolean }> = {
-  1: { sight: 4, rebuild: 4, avoid: false, range: 0, shared: false, cost: 1, frames: ['skelet-idle-0', 'skelet-run-0', 'skull'] },
-  2: { sight: 4, rebuild: 3, avoid: true, range: 0, shared: false, cost: 1, frames: ['skelet-idle-0', 'skelet-run-0', 'skull'] },
-  3: { sight: 4, rebuild: 3, avoid: true, range: 3, shared: false, cost: 3, frames: ['skelet-idle-0', 'skelet-run-0', 'skull', 'mark-line'] },
-  4: { sight: 4, rebuild: 3, avoid: true, range: 0, shared: true, cost: 5, frames: ['skelet-idle-0', 'skelet-run-0', 'skull'] },
+  1: { sight: 4, rebuild: 4, avoid: false, range: 0, shared: false, cost: 16, frames: ['skelet-idle-0', 'skelet-run-0', 'skull'] },
+  2: { sight: 4, rebuild: 3, avoid: true, range: 0, shared: false, cost: 16, frames: ['skelet-idle-0', 'skelet-run-0', 'skull'] },
+  3: { sight: 4, rebuild: 3, avoid: true, range: 3, shared: false, cost: 16, frames: ['skelet-idle-0', 'skelet-run-0', 'skull', 'mark-line'] },
+  4: { sight: 4, rebuild: 3, avoid: true, range: 0, shared: true, cost: 16, frames: ['skelet-idle-0', 'skelet-run-0', 'skull'] },
 };
 
 /** crumble 'leave' = falls after you step off; 'stand' = cracks under you and falls next turn. hidden = looks like floor. */
 export const PITS: Record<Tier, Priced & { crumble: 'none' | 'leave' | 'stand'; hidden: boolean }> = {
-  1: { crumble: 'none', hidden: false, cost: 2, frames: ['pit'] },
+  1: { crumble: 'none', hidden: false, cost: 1, frames: ['pit'] },
   2: { crumble: 'leave', hidden: false, cost: 1, frames: ['crumble', 'pit'] },
-  3: { crumble: 'stand', hidden: false, cost: 4, frames: ['chain', 'chain-crack', 'pit'] },
+  3: { crumble: 'stand', hidden: false, cost: 2, frames: ['chain', 'chain-crack', 'pit'] },
   4: { crumble: 'none', hidden: true, cost: 1, frames: ['mortar', 'pit'] },
 };
 export const PIT_DAMAGE = 1;
@@ -153,9 +152,9 @@ export const PIT_DROP = 3;
 /** Inside an unlit dark room: torch radius and torch burned per turn. brazier: the room can be lit. */
 export const DARK: Record<Tier, Priced & { radius: number; burn: number; brazier: boolean }> = {
   1: { radius: 1, burn: 1, brazier: false, cost: 1, frames: [] },
-  2: { radius: 1, burn: 2, brazier: false, cost: 8, frames: [] },
-  3: { radius: 1, burn: 2, brazier: false, cost: 8, frames: [] },
-  4: { radius: 1, burn: 2, brazier: true, cost: 8, frames: ['brazier', 'brazier-lit'] },
+  2: { radius: 1, burn: 2, brazier: false, cost: 16, frames: [] },
+  3: { radius: 1, burn: 2, brazier: false, cost: 16, frames: [] },
+  4: { radius: 1, burn: 2, brazier: true, cost: 16, frames: ['brazier', 'brazier-lit'] },
 };
 
 /** Trapsetter traps (§8), placed by survivors outside the floor budget, so they cost 0 here. */
@@ -188,7 +187,7 @@ export const GRID = { base: 15, step: 2, maxBand: 5 };
 export const ROOMS = { base: 4, maxBand: 5, minLeaf: 6, minRoom: 3, loops: 1 };
 
 /** Budget 8 + 4·min(depth, 35) (§8 started at 3 per depth; Phase 5 tuning); no family may take more than 30% of it (§8 allows up to 40%; 30 keeps a showcase family from flooding the floor). */
-export const BUDGET = { base: 8, step: 8, capDepth: 35, familyCapPct: 40 };
+export const BUDGET = { base: 16, step: 16, capDepth: 35, familyCapPct: 40 };
 /** Purchase weight per family (×10). */
 export const FAMILY_WEIGHT: Record<Family, number> = { spikes: 10, goblins: 10, imps: 10, mechanisms: 8, skeletons: 2, pits: 10, dark: 6 };
 
@@ -198,7 +197,7 @@ export const FAMILY_WEIGHT: Record<Family, number> = { spikes: 10, goblins: 10, 
  * (median) and up to ~4× (p75 on 9-room floors), so slack covers exploration and grows with the room count (Phase 5 tuning).
  * Gate 2: the safe path's burn ≤ 70% of the torch.
  */
-export const SLACK = { startPct: 300, perDepthPct: 3, minPct: 190, perRoomPct: 0 };
+export const SLACK = { startPct: 268, perDepthPct: 2, minPct: 235, perRoomPct: 8 };
 export const GATE_TORCH_PCT = 70;
 
 /** Compass zones ranked by yesterday's deaths: weights ×10. Zones with no deaths 6; no deaths anywhere: uniform. */
@@ -213,7 +212,7 @@ export const ENTRANCE_CLEAR = 2;
 export const ITEM_RULE = { base: 1, bandStep: 2, max: 3 };
 export const ITEM_WEIGHT: Record<Item, number> = { potion: 3, oil: 2, bomb: 1 };
 
-/** A floor failing a fairness gate is retried with seed + 1, at most this many times; hitting the cap is a generator bug. */
+/** A floor failing a fairness gate is retried with seed + 1, at most this many times; past the cap it falls back to a lighter floor (half budget, no traps, then empty). */
 export const RETRY_CAP = 25;
 
 /**
@@ -225,7 +224,7 @@ export const CURSES = {
   'short-wick': { torchPct: 90, budgetPct: 100, radiusDelta: 0, wakeDelta: 0, heartsDelta: 0 },
   overrun: { torchPct: 100, budgetPct: 160, radiusDelta: 0, wakeDelta: 0, heartsDelta: 0 },
   'deep-dark': { torchPct: 100, budgetPct: 100, radiusDelta: -1, wakeDelta: 0, heartsDelta: 0 },
-  'light-sleepers': { torchPct: 100, budgetPct: 100, radiusDelta: 0, wakeDelta: 2, heartsDelta: 0 },
+  'light-sleepers': { torchPct: 100, budgetPct: 100, radiusDelta: 0, wakeDelta: 4, heartsDelta: 0 },
   frail: { torchPct: 100, budgetPct: 100, radiusDelta: 0, wakeDelta: 0, heartsDelta: -1 },
 } as const satisfies Record<string, { torchPct: number; budgetPct: number; radiusDelta: number; wakeDelta: number; heartsDelta: number }>;
 export const CURSE_MIN_RADIUS = 2;

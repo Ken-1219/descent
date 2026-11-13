@@ -152,6 +152,7 @@ export function bot(floor: Floor, skillPct: number, seed: number, sight: 'player
     } else {
       const aimers = s.enemies.filter((e) => e.mode === 'windup' && e.aim.some((t) => t.x === s.pos.x && t.y === s.pos.y));
       const adjacent = s.enemies.filter((e) => e.mode !== 'pile' && dist(e, s.pos) === 1);
+      const foe = adjacent.find((e) => !map || e.kind !== 'skeleton');
       const nearby = s.enemies.filter((e) => e.mode !== 'pile' && Math.abs(e.x - s.pos.x) <= 1 && Math.abs(e.y - s.pos.y) <= 1);
       const lone = aimers.length === 1 && aimers[0] && dist(aimers[0], s.pos) === 1 ? aimers[0] : undefined;
       if (s.item === 'potion' && s.hearts <= 1) a = 'I';
@@ -164,7 +165,9 @@ export function bot(floor: Floor, skillPct: number, seed: number, sight: 'player
       } else if (bold && adjacent[0]) a = toward(s.pos, adjacent[0]);
       else if (darkness.has(me) && around.some((p) => look(p) === 'Y')) a = toward(s.pos, around.find((p) => look(p) === 'Y') ?? s.pos); // light the brazier
       else if (hurtsNext(s.pos) && safeStep) a = toward(s.pos, safeStep);
-      else if (adjacent[0] && !hurtsNext(s.pos)) a = toward(s.pos, adjacent[0]);
+      // The player bot strikes whatever is next to it. The map bot (gate 3) keeps to the safe path past skeletons, which
+      // only get up again (a wind-up aims at a fixed tile, so walking on dodges it); goblins and imps die for good, so it fights them.
+      else if (foe && !hurtsNext(s.pos)) a = toward(s.pos, foe);
       // Step along the plan unless that tile hurts next turn: then wait, or sidestep if standing still hurts too.
       else if (firstPos) {
         const jump = 'Oo'.includes(look(firstPos)) && s.hearts >= 2 && !marked.has(firstPos.y * w + firstPos.x); // the planned way out

@@ -422,7 +422,7 @@ export function step(state: State, action: Action): { state: State; events: Even
   const wakes = (e: Enemy): boolean => {
     if (e.kind === 'imp') {
       const t = IMPS[tierOf(d, 'imps')];
-      return t.wake === 'light' ? litNow[e.y * w + e.x] === 1 : dist(e, d.pos) <= t.wakeDist + curse(d.floor, 'wakeDelta');
+      return t.wake === 'light' ? litNow[e.y * w + e.x] === 1 || dist(e, d.pos) <= curse(d.floor, 'wakeDelta') : dist(e, d.pos) <= t.wakeDist + curse(d.floor, 'wakeDelta');
     }
     const sight = e.kind === 'goblin' ? GOBLINS[tierOf(d, 'goblins')].sight : SKELETONS[tierOf(d, 'skeletons')].sight;
     return dist(e, d.pos) <= sight + curse(d.floor, 'wakeDelta') && lineOfSight(d.tiles, e, d.pos);

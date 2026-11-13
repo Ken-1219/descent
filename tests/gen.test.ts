@@ -44,20 +44,37 @@ test('crowd weights: ranked 2.2/1.6/1.2 then 0.8, empty zones 0.6, uniform with 
   expect(zoneWeights([0, 9, 0, 3, 0, 1, 0, 0, 5])).toEqual([6, 22, 6, 12, 6, 8, 6, 6, 16]);
 });
 
-test('painted deaths pull hazards toward that zone', { timeout: 30_000 }, () => {
-  // Share of all hazard and enemy tiles that lie in zone 8, over 100 floors at depth 22.
+test('painted deaths pull hazards toward that zone: where it has a room, it holds about the §8 share', { timeout: 30_000 }, () => {
+  // §8 weights give one painted zone (2.2 against eight zones at 0.6) about 31% of the budget. Measured on floors that
+  // have a room in the zone (a zone without a room can't hold hazards), over 100 floors at depth 22.
   const share = (mods: Mods) => {
     let inZone = 0, all = 0;
     for (let s = 1; s <= 100; s++) {
-      generate(22, s, mods).floor.rows.forEach((row, y) => [...row].forEach((c, x) => {
+      const g = generate(22, s, mods);
+      const side = g.floor.rows.length;
+      if (!g.rooms.some((r) => zoneOf({ x: r.x + Math.floor(r.w / 2), y: r.y + Math.floor(r.h / 2) }, side) === 8)) continue;
+      g.floor.rows.forEach((row, y) => [...row].forEach((c, x) => {
         if (!'^Oo,_giKGYxFSu'.includes(c)) return;
         all++;
-        if (zoneOf({ x, y }, row.length) === 8) inZone++;
+        if (zoneOf({ x, y }, side) === 8) inZone++;
       }));
     }
     return inZone / all;
   };
-  expect(share({ ...NO_MODS, deaths: [0, 0, 0, 0, 0, 0, 0, 0, 40] })).toBeGreaterThan(share(NO_MODS));
+  const painted = share({ ...NO_MODS, deaths: [0, 0, 0, 0, 0, 0, 0, 0, 40] });
+  const plain = share(NO_MODS);
+  console.log(`zone 8 share at depth 22: ${Math.round(plain * 100)}% unpainted, ${Math.round(painted * 100)}% painted`);
+  expect(painted).toBeGreaterThanOrEqual(0.25);
+  expect(painted).toBeGreaterThanOrEqual(2 * plain);
+});
+
+test('hitting the retry cap falls back to a lighter floor that still passes the gates (production never goes without a floor)', () => {
+  let seed = 1;
+  while (generate(25, seed).rejected === 0) seed++;
+  const g = generate(25, seed, NO_MODS, 0); // cap 0: the first rejection forces the fallback
+  expect(g.fallback).toBeGreaterThanOrEqual(1);
+  expect(safePath(g.floor)).not.toBeNull();
+  expect(strandFree(g.floor)).toBe(true);
 });
 
 test('curses: overrun raises the budget; short wick shortens the torch but never below gate 2', () => {
@@ -87,6 +104,7 @@ test('2,000 floors pass every fairness gate and the floor-shape rules', { timeou
     const depth = (i % 60) + 1;
     const g = generate(depth, 1000 + i);
     (rejected[depth] ??= []).push(g.rejected);
+    expect(g.fallback, `d${depth} s${1000 + i} hit the retry cap`).toBe(0);
     const f = g.floor;
     const s = start(f);
     const room1 = g.rooms.find((r) => s.pos.x >= r.x && s.pos.x < r.x + r.w && s.pos.y >= r.y && s.pos.y < r.y + r.h);
@@ -128,7 +146,7 @@ test('generate(28) stays under 20 ms on average, including retries', { timeout: 
   expect(mean).toBeLessThan(20);
 });
 
-test('every curse: floors still pass the gates; Frail starts on 2 hearts; Deep Dark keeps the radius at 2 or more; Light Sleepers widens room-1 safety', () => {
+test('every curse: floors still pass the gates; Frail starts on 2 hearts; Deep Dark keeps the radius at 2 or more; Light Sleepers keeps the entrance out of its range', () => {
   for (const c of Object.keys(CURSES) as (keyof typeof CURSES)[]) {
     for (const d of [1, 9, 15, 22, 30]) {
       const g = generate(d, 7, { ...NO_MODS, curses: [c] });
@@ -139,12 +157,14 @@ test('every curse: floors still pass the gates; Frail starts on 2 hearts; Deep D
   }
   expect(start(generate(5, 1, { ...NO_MODS, curses: ['frail'] }).floor).hearts).toBe(2);
   expect(lightRadius(start(generate(5, 1, { ...NO_MODS, curses: ['deep-dark'] }).floor))).toBe(3);
+  // Light Sleepers: room 1 keeps the normal range; only the entrance tile is kept out of the cursed (longer) range.
   const g = generate(15, 3, { ...NO_MODS, curses: ['light-sleepers'] });
   const s0 = start(g.floor);
   const room1 = g.rooms.find((r) => s0.pos.x >= r.x && s0.pos.x < r.x + r.w && s0.pos.y >= r.y && s0.pos.y < r.y + r.h);
   for (const e of s0.enemies) {
     if (!room1) break;
     const gap = Math.max(0, room1.x - e.x, e.x - (room1.x + room1.w - 1)) + Math.max(0, room1.y - e.y, e.y - (room1.y + room1.h - 1));
-    expect(gap).toBeGreaterThanOrEqual(ROOM1_ENEMY_GAP + CURSES['light-sleepers'].wakeDelta);
+    expect(gap).toBeGreaterThanOrEqual(ROOM1_ENEMY_GAP);
+    expect(Math.abs(e.x - s0.pos.x) + Math.abs(e.y - s0.pos.y)).toBeGreaterThanOrEqual(ROOM1_ENEMY_GAP + CURSES['light-sleepers'].wakeDelta);
   }
 });

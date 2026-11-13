@@ -319,9 +319,9 @@ Trapsetter options, always available to survivors: spikes, dart slit, false stai
 | Rooms | `4 + min(band, 5)` | 4 | 5 | 6 | 7 | 7 |
 
 - Instance cost by tier: 1, 2, 3, 5. Enemies cost one more. No family takes over 40% of the budget.
-  *Phase 5:* each tier cell's cost is set in `content.ts` from its measured lethality (one point per 5 hearts lost per 100 instances by the skill-60 bot, clamped 1–8; dark rooms by the torch they burn, half a heart per extra turn); budget `8 + 8·min(depth, 35)`; family cap 40%; room density by band.
+  *Phase 5:* each tier cell's cost is set in `content.ts` from its measured lethality (one point per 10 of hearts lost plus torch turns at half a heart each, per 100 instances by the skill-60 bot, clamped 1–16; dark rooms are priced by the same rule); budget `16 + 16·min(depth, 35)`; family cap 40%; room density by band.
 - `torch = ceil(shortestPath × slack)`, so the torch is fair by construction on any layout.
-  *Phase 5:* the torch comes from the zero-damage path's burn (turns, waits, dark rooms at 2), not the geometric shortest path; slack is `max(190%, 300% − 3%·depth)`.
+  *Phase 5:* the torch comes from the zero-damage path's burn (turns, waits, dark rooms at 2), not the geometric shortest path; slack is `max(235%, 268% − 2%·depth) + 8%` per room beyond 4.
 - Hearts start at 3 on every floor (2 under the Frail curse); a potion never takes them above 3.
 
 ### Rule decisions (Phase 3; later phases must not contradict)
@@ -356,6 +356,7 @@ Trapsetter options, always available to survivors: spikes, dart slit, false stai
 ### Crowd modifiers
 
 - Rank the nine compass zones by yesterday's deaths. Budget weights: 2.2, 1.6, 1.2, then 0.8; zones with no deaths get 0.6.
+  *Phase 5:* the weights split the budget between rooms (each room gets its zone's share) and scale room capacity, normalised to the mean weight. A room in a zone weighted above the mean may hold any family (this relaxes floor-shape rule 3 there). Tested: a painted zone with a room holds about 32% of hazards, against 12% unpainted.
 - With zero deaths, weights are uniform and the intro says so. Never fabricate crowd data.
 - Yesterday's top-killing family gets 1.5× purchase weight.
 - Player traps: each survivor picks a zone and a type. At most 12 materialise per floor, chosen by seeded shuffle and placed on a seeded valid tile. The rest add weight to their zone.
@@ -363,19 +364,21 @@ Trapsetter options, always available to survivors: spikes, dart slit, false stai
 
 ### Curses (the crowd's vote; numbers in `content.ts`)
 
-| Curse | Effect | Win-rate cost (skill 60, floors 1–21) |
+| Curse | Effect | Win-rate cost (skill 60, floors 1–28, 90 seeds each) |
 |---|---|---|
-| Short Wick | torch 90% (never below gate 2) | −6 |
+| Short Wick | torch 90% (never below gate 2) | −5 |
 | Overrun | budget and room capacity 160% | −4 |
-| Deep Dark | light radius −1, never below 2; dark rooms keep their own radius | −7 |
-| Light Sleepers | enemies wake 2 tiles further; room-1 safety uses the cursed range | −1 (weak: see Phase 5 report) |
-| Frail | start with 2 hearts | −5 |
+| Deep Dark | light radius −1, never below 2; dark rooms keep their own radius | −6 |
+| Light Sleepers | enemies wake 4 tiles further (light-waking imps also wake within 4); room 1 keeps the normal range, only the entrance tile is kept beyond the cursed one | −4 (peaks at +4: longer ranges push enemies away from the entrance) |
+| Frail | start with 2 hearts | −6 |
 
 ### Fairness gates (a failing floor is regenerated with `seed + 1`)
 
 1. A zero-damage path exists, ignoring enemies. Use BFS over (x, y, turn mod cycle length) so breathing traps count.
 2. That path needs at most 70% of the torch.
-3. `bot(skill = 1.0)` finishes with at least one heart. *Phase 5:* this bot plays with the map (fog off, hidden hazards known, gate 1's shunned tiles), because the gate is a proof the floor can be beaten. The curve bot stays blind: it reads only what a player sees.
+3. `bot(skill = 1.0)` finishes with at least one heart.
+   *Phase 5:* past `RETRY_CAP` (25) rejections the generator falls back to a lighter floor (half budget, no player traps; then an empty floor, which always passes), because a day with no floor is the worst outcome. Tests treat any fallback as a bug; 2,000 floors use none.
+   *Phase 5:* this bot plays with the map (fog off, hidden hazards known, gate 1's shunned tiles), because the gate is a proof the floor can be beaten. The curve bot stays blind: it reads only what a player sees.
 
 ### Measuring the curve
 
@@ -757,6 +760,8 @@ The test for every animation: would a person drawing this frame by frame have do
 ## Later
 
 (Claude Code appends out-of-phase ideas here, one line each.)
+
+- Curve rises after torch pricing: 9→10 (+10 on list A, +20 on B, 50 seeds) and 25→26 (+28 on A, +36 on B; depth 25 is 25% on 200 seeds). Both are torch-driven band effects; revisit once real deaths exist.
 
 ## Sources
 

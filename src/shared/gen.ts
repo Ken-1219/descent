@@ -14,8 +14,8 @@ export type Trap = { zone: number; kind: 'spikes' | 'dart' | 'stairs' };
 export type Mods = { curses: readonly Curse[]; deaths: readonly number[]; topFamily: Family | null; traps: readonly Trap[] };
 export const NO_MODS: Mods = { curses: [], deaths: [0, 0, 0, 0, 0, 0, 0, 0, 0], topFamily: null, traps: [] };
 export type SafePath = { burn: number; log: readonly Action[] };
-/** `bought`: instances purchased per family (the hazard census). */
-export type Generated = { floor: Floor; rooms: readonly Rect[]; showcase: readonly Family[]; bought: Partial<Record<Family, number>>; rejected: number; safe: SafePath };
+/** `bought`: instances purchased per family (the hazard census). `fallback`: 0 normally; 1 or 2 when the retry cap was hit (see generate). */
+export type Generated = { floor: Floor; rooms: readonly Rect[]; showcase: readonly Family[]; bought: Partial<Record<Family, number>>; rejected: number; fallback: number; safe: SafePath };
 
 const COSTS: Record<Family, Record<Tier, { cost: number }>> = {
   spikes: SPIKES, goblins: GOBLINS, imps: IMPS, mechanisms: MECHANISMS, skeletons: SKELETONS, pits: PITS, dark: DARK,
@@ -166,16 +166,22 @@ const cursePct = (mods: Mods, key: 'budgetPct' | 'torchPct') => mods.curses.redu
 export const budgetFor = (depth: number, mods: Mods = NO_MODS) =>
   Math.floor(((BUDGET.base + BUDGET.step * Math.min(depth, BUDGET.capDepth)) * cursePct(mods, 'budgetPct')) / 100);
 
-/** generate(depth, seed, mods): a fair floor, retrying with seed + 1 up to RETRY_CAP times. */
-export function generate(depth: number, seed: number, mods: Mods = NO_MODS): Generated {
-  for (let k = 0; k <= RETRY_CAP; k++) {
-    const g = attempt(depth, seed + k, mods);
-    if (g) return { ...g, rejected: k };
+/**
+ * generate(depth, seed, mods): a fair floor, retrying with seed + 1 up to `cap` times. A day with no floor is the worst
+ * outcome, so hitting the cap falls back to lighter floors: level 1 halves the budget and drops player traps; level 2
+ * spends nothing (an empty floor always passes the gates). Tests treat any fallback as a generator bug.
+ */
+export function generate(depth: number, seed: number, mods: Mods = NO_MODS, cap = RETRY_CAP): Generated {
+  for (let fallback = 0; fallback <= 2; fallback++) {
+    for (let k = 0; k <= cap; k++) {
+      const g = attempt(depth, seed + k, mods, fallback);
+      if (g) return { ...g, rejected: k + fallback * (cap + 1), fallback };
+    }
   }
-  throw new Error(`generate(${depth}, ${seed}): no fair floor in ${RETRY_CAP + 1} seeds`);
+  throw new Error(`generate(${depth}, ${seed}): no floor even empty`);
 }
 
-function attempt(depth: number, seed: number, mods: Mods): Omit<Generated, 'rejected'> | null {
+function attempt(depth: number, seed: number, mods: Mods, fallback: number): Omit<Generated, 'rejected' | 'fallback'> | null {
   const rnd = mulberry32(hash(`descent:${depth}:${seed}`));
   const int = (n: number) => (n > 0 ? rnd() % n : 0);
   const pickW = <T>(items: readonly T[], weight: (x: T) => number): T | undefined => {
@@ -269,15 +275,16 @@ function attempt(depth: number, seed: number, mods: Mods): Omit<Generated, 'reje
 
   // Crowd: survivors' traps shuffled by seed; the first TRAP_MAX materialise, the rest weight their zone.
   // Seeded shuffle: sort by a random key per trap (ties keep their order).
-  const traps = mods.traps.map((t, i) => ({ t, i, key: rnd() })).sort((a, b) => a.key - b.key || a.i - b.i).map((x) => x.t);
+  const traps = (fallback ? [] : mods.traps).map((t, i) => ({ t, i, key: rnd() })).sort((a, b) => a.key - b.key || a.i - b.i).map((x) => x.t);
   const zones = zoneWeights(mods.deaths);
   for (const t of traps.slice(TRAP_MAX)) zones[t.zone] = (zones[t.zone] ?? 0) + CROWD.overflowTrapWeight;
 
   // Placement rules shared by every instance.
   const free = (p: Pos) => at(p) === '.' && !same(p, entrance) && !inside(room1, p) && dist(p, entrance) > ENTRANCE_CLEAR;
-  // Room 1 stays beyond every wake range, including a Light Sleepers curse's longer one.
+  // Room 1 stays beyond the normal wake range. Under Light Sleepers only the entrance tile is kept out of the longer range,
+  // so nothing is awake on turn 0 but the curse still bites (checking all of room 1 would cancel it).
   const wakeBonus = mods.curses.reduce((v, c) => v + CURSES[c].wakeDelta, 0);
-  const foeOk = (p: Pos) => free(p) && toRoom(p, room1) >= ROOM1_ENEMY_GAP + wakeBonus;
+  const foeOk = (p: Pos) => free(p) && toRoom(p, room1) >= ROOM1_ENEMY_GAP && dist(p, entrance) >= ROOM1_ENEMY_GAP + wakeBonus;
   const pickIn = (r: Rect, ok: (p: Pos) => boolean) => {
     const c = cells(r).filter(ok);
     return c[int(c.length)] ?? null;
@@ -346,7 +353,7 @@ function attempt(depth: number, seed: number, mods: Mods): Omit<Generated, 'reje
   };
 
   // Budget: the showcase first, then weighted purchases, each family at most 40% of the budget.
-  const budget = budgetFor(depth, mods);
+  const budget = fallback === 0 ? budgetFor(depth, mods) : fallback === 1 ? Math.floor(budgetFor(depth, mods) / 2) : 0;
   const cap = Math.floor((budget * BUDGET.familyCapPct) / 100);
   const spent: Partial<Record<Family, number>> = {};
   const bought: Partial<Record<Family, number>> = {};
@@ -354,15 +361,32 @@ function attempt(depth: number, seed: number, mods: Mods): Omit<Generated, 'reje
   const fixedSpikes = SPIKES[tiers.spikes ?? 1].period === 0;
   const filled = new Map<Rect, number>();
   const freshIn = new Map<Rect, number>(); // new-family instances per room: it shows alone, then combines (rules 2-3)
-  // A heavy crowd zone gets more room (never less elsewhere), so painted deaths move hazards toward it, not just their order.
+  // Capacity follows the crowd weight both ways (2.2× in the deadliest zone, 0.6× where nobody died), so painted deaths
+  // move hazards toward a zone rather than only reordering them.
   const perInstance = TILES_PER_INSTANCE[Math.min(band, TILES_PER_INSTANCE.length - 1)] ?? 4;
-  const crowdPct = (r: Rect) => Math.max(100, ((zones[zoneOf(centre(r), side)] ?? CROWD.uniformWeight) * 100) / CROWD.uniformWeight);
+  // Relative to the floor's own mean room weight, so the total stays put and only its distribution moves.
+  const later = rooms.filter((r) => r !== room1);
+  const weightOf = (r: Rect) => zones[zoneOf(centre(r), side)] ?? CROWD.uniformWeight;
+  const totalWeight = later.reduce((n, r) => n + weightOf(r), 0);
+  const meanWeight = Math.max(1, Math.floor(totalWeight / Math.max(1, later.length)));
+  const crowdPct = (r: Rect) => Math.floor((weightOf(r) * 100) / meanWeight);
   const capacity = (r: Rect) => Math.max(1, Math.floor((r.w * r.h * crowdPct(r) * cursePct(mods, 'budgetPct')) / (perInstance * 100 * 100)));
-  const freshCap = (r: Rect) => Math.floor((FRESH_PER_ROOM * crowdPct(r)) / 100);
-  const buy = (f: Family, r: Rect) => {
+  const freshCap = (r: Rect) => Math.max(1, Math.floor((FRESH_PER_ROOM * crowdPct(r)) / 100));
+  // A room in a zone the crowd painted (weight above uniform) may host any family: the crowd outweighs rule 3's pairing there.
+  const crowded = (r: Rect) => crowdPct(r) > 100;
+  // §8 budget weights: each later room gets a share of the budget in proportion to its zone's crowd weight, so painted
+  // deaths move spending (not only capacity) toward the deadly zone.
+  const share = (r: Rect) => Math.floor((budget * weightOf(r)) / Math.max(1, totalWeight));
+  const roomSpent = new Map<Rect, number>();
+  const costOf = (f: Family) => {
     const tier = tiers[f];
-    const cost = tier ? COSTS[f][tier].cost : 0;
+    return tier ? COSTS[f][tier].cost : 0;
+  };
+  const buy = (f: Family, r: Rect, showcase = false) => {
+    const tier = tiers[f];
+    const cost = costOf(f);
     const room = filled.get(r) ?? 0;
+    if (!showcase && (roomSpent.get(r) ?? 0) + cost > share(r)) return false;
     if (fresh.includes(f) && (freshIn.get(r) ?? 0) >= freshCap(r)) return false;
     if (!tier || total + cost > budget || (spent[f] ?? 0) + cost > cap || room >= capacity(r)) return false;
     const before = rows;
@@ -373,6 +397,7 @@ function attempt(depth: number, seed: number, mods: Mods): Omit<Generated, 'reje
       return false;
     }
     filled.set(r, room + 1);
+    roomSpent.set(r, (roomSpent.get(r) ?? 0) + cost);
     if (fresh.includes(f)) freshIn.set(r, (freshIn.get(r) ?? 0) + 1);
     bought[f] = (bought[f] ?? 0) + 1;
     spent[f] = (spent[f] ?? 0) + cost;
@@ -381,14 +406,14 @@ function attempt(depth: number, seed: number, mods: Mods): Omit<Generated, 'reje
   };
   fresh.forEach((f, i) => {
     const showRoom = rooms[order[split ? 1 + i : 1] ?? r1];
-    if (showRoom) buy(f, showRoom);
+    if (showRoom) buy(f, showRoom, true);
   });
   // A room that is full (capacity, or its share of the new family) is not a candidate, so filling the crowd's favourite
   // rooms never ends the spending early.
   const roomsFor = (f: Family) =>
     allowed.filter(([k, fs]) => {
       const r = rooms[k];
-      return r && fs.includes(f) && (filled.get(r) ?? 0) < capacity(r) && (!fresh.includes(f) || (freshIn.get(r) ?? 0) < freshCap(r));
+      return r && (fs.includes(f) || (crowded(r) && k !== r1)) && (filled.get(r) ?? 0) < capacity(r) && (roomSpent.get(r) ?? 0) + costOf(f) <= share(r) && (!fresh.includes(f) || (freshIn.get(r) ?? 0) < freshCap(r));
     }).map(([k]) => k);
   for (let fails = 0; fails < PLACE_TRIES; ) {
     const options = FAMILIES.filter((f) => {
@@ -403,7 +428,6 @@ function attempt(depth: number, seed: number, mods: Mods): Omit<Generated, 'reje
   }
 
   // Items, then survivors' traps, then decoration.
-  const later = rooms.filter((r) => r !== room1);
   for (let n = Math.min(ITEM_RULE.max, ITEM_RULE.base + Math.floor(band / ITEM_RULE.bandStep)); n > 0; n--) {
     const kind = pickW(ITEM_KINDS, (k) => ITEM_WEIGHT[k]);
     const r = later[int(later.length)];

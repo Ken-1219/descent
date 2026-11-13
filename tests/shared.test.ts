@@ -270,11 +270,11 @@ import { lightRadius, tells } from '../src/shared/sim';
 
 const TABLES = { spikes: SPIKES, goblins: GOBLINS, imps: IMPS, mechanisms: MECHANISMS, skeletons: SKELETONS, pits: PITS, dark: DARK };
 
-test('tier table: every cost is a whole budget point from 1 to 8 (set from measured lethality) and every frame exists', () => {
+test('tier table: every cost is a whole budget point from 1 to 16 (set from measured lethality) and every frame exists', () => {
   for (const f of FAMILIES) {
     for (const t of TIERS) {
       const c = TABLES[f][t].cost;
-      expect(Number.isInteger(c) && c >= 1 && c <= 8, `${f} T${t} cost ${c}`).toBe(true);
+      expect(Number.isInteger(c) && c >= 1 && c <= 16, `${f} T${t} cost ${c}`).toBe(true);
     }
   }
   const all = [...FAMILIES.flatMap((f) => TIERS.map((t) => TABLES[f][t])), ...Object.values(TRAPS), ...Object.values(ITEMS)];
