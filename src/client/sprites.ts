@@ -287,3 +287,40 @@ export function drawAnim(
   t.globalCompositeOperation = 'source-over';
   ctx.drawImage(tintCanvas, dx - 16, y - 32);
 }
+
+export type Light = { x: number; y: number; r: number; tint: Token };
+
+export const rgba = (t: Token, a: number) => {
+  const [r, g, b] = rgb(PALETTE[t]);
+  return `rgba(${r}, ${g}, ${b}, ${a})`;
+};
+
+const FLOOR_VARIANTS: readonly PackName[] = ['floor-crack', 'floor-chip'];
+/** A stable floor tile per position: mostly plain, a few cracked or chipped. */
+export const floorTile = (x: number, y: number): PackName => FLOOR_VARIANTS[(x * 7 + y * 3) % 9] ?? 'floor';
+
+/** Darkness at `dark` alpha with soft holes cut at each light, then a warm or cold wash. Decoration only: fog decides visibility. */
+export function shine(ctx: CanvasRenderingContext2D, w: number, h: number, lights: readonly Light[], dark: number): void {
+  const [layer, d] = canvas2d(w, h);
+  d.fillStyle = rgba('ink-0', dark);
+  d.fillRect(0, 0, w, h);
+  d.globalCompositeOperation = 'destination-out';
+  for (const l of lights) {
+    const g = d.createRadialGradient(l.x, l.y, 0, l.x, l.y, l.r);
+    g.addColorStop(0, rgba('ink-0', 1));
+    g.addColorStop(0.5, rgba('ink-0', 0.75));
+    g.addColorStop(1, rgba('ink-0', 0));
+    d.fillStyle = g;
+    d.fillRect(0, 0, w, h);
+  }
+  ctx.drawImage(layer, 0, 0);
+  ctx.globalCompositeOperation = 'soft-light';
+  for (const l of lights) {
+    const g = ctx.createRadialGradient(l.x, l.y, 0, l.x, l.y, l.r);
+    g.addColorStop(0, rgba(l.tint, 0.7));
+    g.addColorStop(1, rgba(l.tint, 0));
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, w, h);
+  }
+  ctx.globalCompositeOperation = 'source-over';
+}

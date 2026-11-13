@@ -380,3 +380,100 @@ h3 {
     transition: none !important;
   }
 }
+
+/* Game screen. Portrait: HUD, map, controls in the bottom thumb zone. */
+.play {
+  height: 100dvh;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-areas: 'hud' 'stage' 'controls';
+  overflow: hidden;
+}
+.play .hud {
+  grid-area: hud;
+  padding-top: env(safe-area-inset-top);
+}
+.hud__wick {
+  flex: 1;
+  display: flex;
+  min-width: 0;
+  max-width: 360px;
+}
+.stage {
+  grid-area: stage;
+  display: grid;
+  place-items: center;
+  min-height: 0;
+  overflow: hidden;
+  touch-action: none;
+  user-select: none;
+}
+.stage canvas {
+  display: block;
+}
+.controls {
+  grid-area: controls;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: var(--pad);
+  padding: var(--gap) var(--pad) calc(var(--pad) + env(safe-area-inset-bottom));
+  touch-action: none;
+  user-select: none;
+}
+.item-btn {
+  width: 72px;
+  height: 56px;
+}
+.keyhints {
+  display: none;
+  margin: 0 auto;
+  color: var(--pale);
+}
+
+/* Desktop: no touch controls, key hints instead. */
+@media (hover: hover) and (pointer: fine) {
+  .controls .dpad,
+  .controls .item-btn {
+    display: none;
+  }
+  .keyhints {
+    display: block;
+  }
+}
+
+/* Landscape phone: controls beside the map. */
+@media (orientation: landscape) and (max-height: 500px) {
+  .play {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-areas: 'hud hud' 'stage controls';
+  }
+  .controls {
+    flex-direction: column-reverse;
+    justify-content: center;
+    align-items: center;
+    padding: var(--gap) calc(var(--pad) + env(safe-area-inset-right)) var(--gap) var(--pad);
+  }
+}
+
+/* End overlay: one primary action at the bottom of the panel. */
+.end {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: end center;
+  padding: var(--pad) var(--pad) calc(var(--pad) * 2 + env(safe-area-inset-bottom));
+  background: color-mix(in srgb, var(--ink-0) 82%, transparent);
+}
+.end[hidden] {
+  display: none;
+}
+.end__panel {
+  width: min(100%, 360px);
+  display: grid;
+  gap: var(--pad);
+}
+.end__panel .btn {
+  width: 100%;
+}

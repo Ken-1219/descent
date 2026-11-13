@@ -10,6 +10,7 @@ Read PLAN.md first. Do one phase per session, then stop at its gate.
 - Redis: strings, hashes, sorted sets, numbers, bitfields, transactions — no sets/lists. Set-if-absent: `redis.set(k, v, { nx: true })`, `redis.hSetNX`. Storage 100 MB unpublished / 5 GB published; 5 MB per request.
 - Reddit: `reddit.getSnoovatarUrl(username)`, `reddit.setUserFlair({ subredditName, username, text })`, `setUserFlairBatch`.
 - Scheduler: `devvit.json` → `"scheduler": { "tasks": { "<name>": { "endpoint": "/internal/...", "cron": "0 10 * * *" } } }`.
+- Phaser 4: `setTintFill()` is a no-op. Flash a sprite with `setTint(c).setTintMode(Phaser.TintModes.FILL)`. `Scene.lights` is Phaser's lights manager, so don't name a field `lights`.
 - Tests: `const test = createDevvitTest()` from `@devvit/test/server/vitest`; inside `test()`, the normal `redis`/`reddit` imports from `@devvit/web/server` hit a per-test in-memory mock (no `redis` fixture arg).
 
 ## Always

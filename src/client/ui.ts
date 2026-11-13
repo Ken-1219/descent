@@ -86,3 +86,41 @@ export const ghostCard = (g: GhostCard) => {
     el('div', 'ghost-card__votes', trust, liar)
   );
 };
+
+export type HudView = { hearts: number; hasKey: boolean; torch: number; torchMax: number; depth: number };
+
+/** Builds the HUD once; `update` replaces only the pieces whose value changed. */
+export const createHud = (root: HTMLElement, lowPct: number, maxHearts: number) => {
+  let last: HudView | null = null;
+  const floor = el('span', 'hud__floor');
+  const parts = { hearts: el('span'), key: el('span'), item: el('span'), wick: el('span', 'hud__wick') };
+  root.replaceChildren(floor, parts.hearts, parts.key, parts.item, parts.wick);
+  parts.item.replaceChildren(slot('Item slot empty'));
+  return (v: HudView) => {
+    if (v.depth !== last?.depth) {
+      floor.textContent = String(v.depth);
+      floor.setAttribute('aria-label', `Floor ${v.depth}`);
+    }
+    if (v.hearts !== last?.hearts) parts.hearts.replaceChildren(hearts(v.hearts, maxHearts));
+    if (v.hasKey !== last?.hasKey) parts.key.replaceChildren(v.hasKey ? slot('Key held', iconCanvas('key', 2)) : slot('No key'));
+    if (v.torch !== last?.torch) parts.wick.replaceChildren(wick(v.torch, v.torchMax, v.torch * 100 <= v.torchMax * lowPct));
+    last = v;
+  };
+};
+
+/** D-pad on the right thumb, item on the left; key hints replace both on desktop. */
+export const controls = (root: HTMLElement) => {
+  const item = button('Item', 'item-btn');
+  item.dataset.act = 'I';
+  item.setAttribute('aria-label', 'Use item');
+  root.replaceChildren(item, el('p', 'keyhints', 'Arrows move. Space waits. E uses item.'), dpad());
+};
+
+/** End overlay: headline, one line, one primary action at the bottom. */
+export const endPanel = (root: HTMLElement, headline: string, line: string, onAgain: () => void) => {
+  const again = button('Descend again', 'btn--primary');
+  again.addEventListener('click', onAgain);
+  root.replaceChildren(el('div', 'plate end__panel', el('h1', 'title', headline), el('p', '', line), again));
+  root.hidden = false;
+  again.focus();
+};

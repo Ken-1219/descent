@@ -1,3 +1,5 @@
+import type { Floor } from './sim';
+
 export const TILE = 16;
 
 export const PALETTE = {
@@ -53,4 +55,31 @@ export const LIGHT: Record<'dim' | 'remembered', Record<Token, Token>> = {
     gilt: 'ink-2',
     bile: 'ink-2',
   },
+};
+
+// ---- Phase 3: run tuning ----
+
+export const HEARTS = 3;
+export const TORCH_RADIUS = 4;
+export const TORCH_LOW_RADIUS = 3;
+export const TORCH_LOW_PCT = 20;
+export const TORCH_OUT_RADIUS = 1;
+export const TORCH_OUT_DRAIN = 2;
+export const GOBLIN_SIGHT = 4;
+export const GOBLIN_HP = 1;
+
+export const FLOOR_0: Floor = {
+  depth: 0,
+  torch: 120,
+  mercy: true,
+  rows: [
+    '#####T#####T#####',
+    '#.....#.........#',
+    '#.@...D...^.....#',
+    '#...k.#...^..g..#',
+    '#.....#...^.....#',
+    '#######.........#',
+    '#>..............#',
+    '#################',
+  ],
 };

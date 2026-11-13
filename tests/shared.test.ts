@@ -1,5 +1,7 @@
 import { test, expect } from 'vitest';
-import { LIGHT, PALETTE, type Token } from '../src/shared/content';
+import { FLOOR_0, HEARTS, LIGHT, PALETTE, type Token } from '../src/shared/content';
+import { hash, mulberry32, pick } from '../src/shared/rng';
+import { replay, start, step, visibility, type Action, type Event, type Floor, type State } from '../src/shared/sim';
 import { SPRITES, type SpriteDef } from '../src/client/art';
 import { ANIMS, PACK, contrast, frameAt, tokenAt, type Anim } from '../src/client/sprites';
 
@@ -99,4 +101,160 @@ test('frameAt wraps loops and clamps one-shots', () => {
   const loop: Anim = { frames, ms: [100, 200], loop: true };
   expect([0, 99, 100, 299, 300].map((t) => frameAt(loop, t))).toEqual([0, 0, 1, 1, 0]);
   expect(frameAt({ ...loop, loop: false }, 1000)).toBe(1);
+});
+
+// ---- Phase 3: rng + sim ----
+
+const ACTIONS: readonly Action[] = ['U', 'D', 'L', 'R', 'W', 'I'];
+const floor = (rows: string[], torch = 50, mercy = false): Floor => ({ depth: 1, rows, torch, mercy });
+const run = (s: State, log: readonly Action[]) => {
+  const events: Event[] = [];
+  for (const a of log) {
+    const r = step(s, a);
+    s = r.state;
+    events.push(...r.events);
+  }
+  return { state: s, events };
+};
+const randomLog = (seed: number, n: number) => {
+  const next = mulberry32(seed);
+  return Array.from({ length: n }, () => pick(next, ACTIONS));
+};
+
+test('mulberry32 repeats, returns uint32 integers; hash differs', () => {
+  const a = mulberry32(1), b = mulberry32(1);
+  const xs = Array.from({ length: 20 }, () => a());
+  expect(Array.from({ length: 20 }, () => b())).toEqual(xs);
+  for (const x of xs) expect(Number.isInteger(x) && x >= 0 && x < 2 ** 32).toBe(true);
+  expect(hash('a')).not.toBe(hash('b'));
+});
+
+test('wall bump is blocked and costs no turn or torch', () => {
+  const s = start(floor(['###', '#@#', '###']));
+  const r = step(s, 'U');
+  expect(r.events).toEqual([{ t: 'blocked', at: { x: 1, y: 0 } }]);
+  expect(r.state.turn).toBe(0);
+  expect(r.state.torch).toBe(s.torch);
+});
+
+test('key then door: door event, key used, tile opens, player stays', () => {
+  const s = start(floor(['#####', '#@kD#', '#####']));
+  const locked = step(s, 'R');
+  expect(locked.events.map((e) => e.t)).toContain('key');
+  expect(locked.state.hasKey).toBe(true);
+  const r = step(locked.state, 'R');
+  expect(r.events[0]).toEqual({ t: 'door', at: { x: 3, y: 1 } });
+  expect(r.state.hasKey).toBe(false);
+  expect(r.state.tiles[1]).toBe('#../#');
+  expect(r.state.pos).toEqual({ x: 2, y: 1 });
+  expect(r.state.turn).toBe(2);
+  const noKey = step(start(floor(['####', '#@D#', '####'])), 'R');
+  expect(noKey.events).toEqual([{ t: 'locked', at: { x: 2, y: 1 } }]);
+  expect(noKey.state.turn).toBe(0);
+});
+
+test('spikes hurt', () => {
+  const r = step(start(floor(['####', '#@^#', '####'])), 'R');
+  expect(r.events).toContainEqual({ t: 'hurt', amount: 1, cause: 'spikes' });
+  expect(r.state.hearts).toBe(HEARTS - 1);
+});
+
+test('goblin alerts (no move), then chases, then attacks when adjacent', () => {
+  let s = start(floor(['######', '#@..g#', '######']));
+  const t1 = step(s, 'W');
+  expect(t1.events).toEqual([{ t: 'alert', id: 0 }]);
+  expect(t1.state.enemies[0]).toMatchObject({ x: 4, mode: 'alert' });
+  s = t1.state;
+  const t2 = step(s, 'W');
+  expect(t2.events).toEqual([{ t: 'enemyMove', id: 0, from: { x: 4, y: 1 }, to: { x: 3, y: 1 } }]);
+  const t3 = step(t2.state, 'W');
+  expect(t3.events).toEqual([{ t: 'enemyMove', id: 0, from: { x: 3, y: 1 }, to: { x: 2, y: 1 } }]);
+  const t4 = step(t3.state, 'W');
+  expect(t4.events).toEqual([{ t: 'enemyAttack', id: 0 }, { t: 'hurt', amount: 1, cause: 'goblin' }]);
+  const kill = step(t4.state, 'R');
+  expect(kill.events.slice(0, 2)).toEqual([{ t: 'attack', id: 0, at: { x: 2, y: 1 } }, { t: 'kill', id: 0, at: { x: 2, y: 1 } }]);
+  expect(kill.state.enemies).toEqual([]);
+});
+
+test('torch out, then dark damage every 2 turns on a non-mercy floor', () => {
+  const { state, events } = run(start(floor(['###', '#@#', '###'], 2)), ['W', 'W', 'W', 'W', 'W', 'W']);
+  expect(events.filter((e) => e.t === 'torchOut')).toHaveLength(1);
+  expect(events.filter((e) => e.t === 'hurt')).toEqual([
+    { t: 'hurt', amount: 1, cause: 'dark' },
+    { t: 'hurt', amount: 1, cause: 'dark' },
+  ]);
+  expect(state.hearts).toBe(HEARTS - 2);
+  expect(state.torch).toBe(0);
+});
+
+test('dead beats won; ended runs ignore steps', () => {
+  const s0 = start(floor(['#####', '#@>g#', '#####']));
+  const s: State = { ...s0, hearts: 1, enemies: s0.enemies.map((e) => ({ ...e, mode: 'chase' as const })) };
+  const r = step(s, 'R');
+  expect(r.state.ended).toEqual({ kind: 'dead', cause: 'goblin' });
+  expect(r.events.map((e) => e.t)).not.toContain('won');
+  expect(step(r.state, 'L')).toEqual({ state: r.state, events: [] });
+  const win = step(start(floor(['####', '#@>#', '####'])), 'R');
+  expect(win.state.ended?.kind).toBe('won');
+  expect(win.events.at(-1)).toEqual({ t: 'won' });
+});
+
+test('fog: start lit, walls block, seen tiles are remembered', () => {
+  const s = start(floor(['#####', '#@#.#', '#####']));
+  const v = visibility(s);
+  expect(v[1 * 5 + 1]).toBe(2);
+  expect(v[1 * 5 + 2]).toBe(2);
+  expect(v[1 * 5 + 3]).toBe(0);
+  const f = start(FLOOR_0);
+  const w = FLOOR_0.rows[0]?.length ?? 0;
+  expect(visibility(f)[1 * w + 1]).toBe(2);
+  const away = run(f, ['R', 'R', 'R']).state;
+  expect(visibility(away)[1 * w + 1]).toBe(1);
+});
+
+test('replay equals folding step, and is stable', () => {
+  for (let i = 0; i < 50; i++) {
+    const log = randomLog(i + 1, 200);
+    expect(replay(FLOOR_0, log)).toEqual(run(start(FLOOR_0), log).state);
+  }
+  const log = randomLog(7, 200);
+  const first = JSON.stringify(replay(FLOOR_0, log));
+  for (let i = 0; i < 100; i++) expect(JSON.stringify(replay(FLOOR_0, log))).toBe(first);
+});
+
+test('Floor 0 cannot kill', () => {
+  for (let i = 0; i < 300; i++) {
+    let s = start(FLOOR_0);
+    for (const a of randomLog(1000 + i, 400)) {
+      s = step(s, a).state;
+      expect(s.hearts).toBeGreaterThanOrEqual(1);
+    }
+    expect(s.ended?.kind).not.toBe('dead');
+  }
+});
+
+test('Floor 0 is finishable in <= 45 turns (BFS over sim states)', () => {
+  const key = (s: State) => JSON.stringify([s.pos, s.hasKey, s.tiles, s.enemies, s.hearts]);
+  let frontier: { s: State; log: Action[] }[] = [{ s: start(FLOOR_0), log: [] }];
+  const seen = new Set([key(frontier[0]!.s)]);
+  let found: Action[] | null = null;
+  while (!found && frontier.length) {
+    const next: typeof frontier = [];
+    for (const { s, log } of frontier) {
+      for (const a of ['U', 'D', 'L', 'R'] as const) {
+        const r = step(s, a).state;
+        if (r.ended?.kind === 'won') { found = [...log, a]; break; }
+        const k = key(r);
+        if (r.ended || seen.has(k)) continue;
+        seen.add(k);
+        next.push({ s: r, log: [...log, a] });
+      }
+      if (found) break;
+    }
+    frontier = next;
+  }
+  expect(found).not.toBeNull();
+  const end = replay(FLOOR_0, found ?? []);
+  expect(end.ended?.kind).toBe('won');
+  expect(end.turn).toBeLessThanOrEqual(45);
 });

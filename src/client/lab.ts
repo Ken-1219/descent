@@ -1,6 +1,6 @@
 // LOCAL ONLY: Design Lab. Never a Devvit entrypoint.
 import { PALETTE, TILE, type Token } from '../shared/content';
-import { ANIMS, buildAtlas, contrast, drawAnim, drawFrame, drawPack, frameAt, iconCanvas, loadPack, type Anim, type Atlas, type PackName } from './sprites';
+import { ANIMS, floorTile, rgba, shine, type Light, buildAtlas, contrast, drawAnim, drawFrame, drawPack, frameAt, iconCanvas, loadPack, type Anim, type Atlas, type PackName } from './sprites';
 import { button, dpad, el, ghostCard, hearts, plate, slot, wick } from './ui';
 
 const panel = document.getElementById('panel');
@@ -16,45 +16,6 @@ const caption = (text: string) => el('p', 'lab__caption', text);
 const ROOM = ['TTTTTTTTT', 'WWfWWWfWW', 'W.......W', 'W..^^..sW', 'W.@...*.W', 'Wc...^^.W', 'W.....>.W', 'TTTTTTTTT'];
 const PROPS: Record<string, PackName> = { '^': 'spikes', c: 'crate', s: 'skull', '>': 'stairs' };
 const DARK = 0.86;
-type Light = { x: number; y: number; r: number; tint: Token };
-
-const rgba = (t: Token, a: number) => {
-  const h = PALETTE[t];
-  return `rgba(${parseInt(h.slice(1, 3), 16)}, ${parseInt(h.slice(3, 5), 16)}, ${parseInt(h.slice(5, 7), 16)}, ${a})`;
-};
-
-const FLOOR_VARIANTS: readonly PackName[] = ['floor-crack', 'floor-chip'];
-const floorAt = (x: number, y: number): PackName => FLOOR_VARIANTS[(x * 7 + y * 3) % 9] ?? 'floor';
-
-// Darkness with soft holes cut at each light, then a warm or cold wash on top.
-const shine = (ctx: CanvasRenderingContext2D, w: number, h: number, lights: Light[]) => {
-  const dark = el('canvas');
-  dark.width = w;
-  dark.height = h;
-  const d = dark.getContext('2d');
-  if (!d) return;
-  d.fillStyle = rgba('ink-0', DARK);
-  d.fillRect(0, 0, w, h);
-  d.globalCompositeOperation = 'destination-out';
-  for (const l of lights) {
-    const g = d.createRadialGradient(l.x, l.y, 0, l.x, l.y, l.r);
-    g.addColorStop(0, rgba('ink-0', 1));
-    g.addColorStop(0.5, rgba('ink-0', 0.75));
-    g.addColorStop(1, rgba('ink-0', 0));
-    d.fillStyle = g;
-    d.fillRect(0, 0, w, h);
-  }
-  ctx.drawImage(dark, 0, 0);
-  ctx.globalCompositeOperation = 'soft-light';
-  for (const l of lights) {
-    const g = ctx.createRadialGradient(l.x, l.y, 0, l.x, l.y, l.r);
-    g.addColorStop(0, rgba(l.tint, 0.7));
-    g.addColorStop(1, rgba(l.tint, 0));
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, w, h);
-  }
-  ctx.globalCompositeOperation = 'source-over';
-};
 
 const mockRoom = (atlas: Atlas, pack: HTMLCanvasElement, canvas: HTMLCanvasElement) => {
   const ctx = canvas.getContext('2d');
@@ -76,7 +37,7 @@ const mockRoom = (atlas: Atlas, pack: HTMLCanvasElement, canvas: HTMLCanvasEleme
         }
         return;
       }
-      drawPack(ctx, pack, floorAt(x, y), px, py);
+      drawPack(ctx, pack, floorTile(x, y), px, py);
       const prop = PROPS[ch];
       if (prop) drawPack(ctx, pack, prop, px, py);
       if (ch === '*') {
@@ -89,7 +50,7 @@ const mockRoom = (atlas: Atlas, pack: HTMLCanvasElement, canvas: HTMLCanvasEleme
       }
     })
   );
-  shine(ctx, canvas.width, canvas.height, lights);
+  shine(ctx, canvas.width, canvas.height, lights, DARK);
 };
 
 // Integer zoom only: the largest of 2×–4× that fits the panel.
