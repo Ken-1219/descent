@@ -240,7 +240,7 @@ export const SCENES: readonly Scene[] = [
   }),
   cell('pits', 3, {
     caption: 'Chains crack underfoot and fall next turn.',
-    rows: ['##########', '#..OOOO..#', '#@.,,,,.>#', '#..OOOO..#', '##########'],
+    rows: ['##########', '#OOOOOOOO#', '#@.,,,,.>#', '#OOOOOOOO#', '##########'],
     log: 'RRRWR',
     hurt: [[4, 'pit']],
     end: 'won',

@@ -3,7 +3,7 @@ import { FAMILIES, PALETTE, TILE, type Token } from '../shared/content';
 import { SCENES, type Scene } from '../shared/scenes';
 import { start, step, visibility, type Event, type State } from '../shared/sim';
 import {
-  ANIMS, LOCK_MS, choreograph, enemyLook, floorTile, HURT, marks, px, py, rgba, shine, tileLook, type Light, buildAtlas, contrast, drawAnim,
+  ANIMS, LOCK_MS, choreograph, links, enemyLook, floorTile, HURT, marks, px, py, rgba, shine, tileLook, type Light, buildAtlas, contrast, drawAnim,
   drawFrame, drawPack, frameAt, iconCanvas, loadPack, type Anim, type Atlas, type PackName,
 } from './sprites';
 import { button, dpad, el, ghostCard, hearts, plate, slot, wick } from './ui';
@@ -359,6 +359,8 @@ const drawTurn = (ctx: CanvasRenderingContext2D, atlas: Atlas, pack: HTMLCanvasE
   actors.push({ y: hero.y, draw: () => drawAnim(ctx, atlas, pack, heroAnim, heroAnim.loop ? now : elapsed, hero.x - TILE / 2, hero.y - TILE) });
   actors.sort((a, b) => a.y - b.y);
   for (const a of actors) a.draw();
+  ctx.fillStyle = PALETTE.bone;
+  for (const dots of links(s)) for (const d of dots) ctx.fillRect(d.x, d.y, 1, 1);
   for (const st of turn.streaks) {
     if (elapsed < st.at || elapsed > st.until) continue;
     const f = Math.min(1, (elapsed - st.at) / ((st.until - st.at) * 0.6));
@@ -375,7 +377,7 @@ const drawTurn = (ctx: CanvasRenderingContext2D, atlas: Atlas, pack: HTMLCanvasE
   });
 };
 
-type Player = { sc: Scene; run: Run; ctx: CanvasRenderingContext2D; fig: HTMLElement; t: number; elapsed: number; paused: boolean; speed: number };
+type Player = { sc: Scene; run: Run; ctx: CanvasRenderingContext2D; fig: HTMLElement; t: number; elapsed: number; paused: boolean; speed: number; wick: HTMLElement | null; shown: number };
 let players: Player[] = [];
 let bestiaryGen = 0;
 
@@ -393,6 +395,10 @@ const tickBestiary = (atlas: Atlas, pack: HTMLCanvasElement, gen: number, last: 
       p.elapsed = 0;
     }
     p.fig.dataset.turn = String(p.t);
+    // Dark rooms burn the torch: their cells carry the HUD wick, redrawn when the turn changes.
+    const s = p.run.states[p.t];
+    if (p.wick && s && p.shown !== p.t) p.wick.replaceChildren(wick(s.torch, s.floor.torch));
+    p.shown = p.t;
     drawTurn(p.ctx, atlas, pack, p.run, p.t, p.elapsed, now);
   }
   requestAnimationFrame(() => tickBestiary(atlas, pack, gen, now));
@@ -411,11 +417,12 @@ const sceneCell = (sc: Scene, zoom: number) => {
   const stepBtn = button('Step');
   const slow = button('¼×');
   slow.setAttribute('aria-pressed', 'false');
-  const fig = el('figure', 'beast', c, el('figcaption', 'beast__caption', sc.tier ? `T${sc.tier}. ${sc.caption}` : sc.caption), el('p', 'beast__meta muted', `${sc.id} · cost ${sc.cost} · ${sc.log.length} turns`), el('div', 'beast__controls', pause, stepBtn, slow));
+  const wickBox = sc.family === 'dark' ? el('div', 'beast__wick') : null;
+  const fig = el('figure', 'beast', c, ...(wickBox ? [wickBox] : []), el('figcaption', 'beast__caption', sc.tier ? `T${sc.tier}. ${sc.caption}` : sc.caption), el('p', 'beast__meta muted', `${sc.id} · cost ${sc.cost} · ${sc.log.length} turns`), el('div', 'beast__controls', pause, stepBtn, slow));
   fig.dataset.scene = sc.id;
   const ctx = c.getContext('2d');
   if (!ctx) return fig;
-  const p: Player = { sc, run: runScene(sc), ctx, fig, t: 0, elapsed: 0, paused: false, speed: 1 };
+  const p: Player = { sc, run: runScene(sc), ctx, fig, t: 0, elapsed: 0, paused: false, speed: 1, wick: wickBox, shown: -1 };
   const setPaused = (on: boolean) => {
     p.paused = on;
     pause.textContent = on ? 'Play' : 'Pause';

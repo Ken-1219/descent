@@ -3,7 +3,7 @@ import * as Phaser from 'phaser';
 import { PALETTE, TILE, type Token } from '../shared/content';
 import { lightRadius, visibility, type Event, type State } from '../shared/sim';
 import {
-  ANIMS, PACK, buildAtlas, choreograph, enemyLook, floorTile, frameAt, HURT, loadPack, marks, px, py, rgba, RUN, shine, tileLook,
+  ANIMS, PACK, buildAtlas, links, choreograph, enemyLook, floorTile, frameAt, HURT, loadPack, marks, px, py, rgba, RUN, shine, tileLook,
   type Anim, type Frame, type Key, type Light, type Streak,
 } from './sprites';
 
@@ -54,6 +54,7 @@ export class DescentScene extends Phaser.Scene {
   private streaks: Streak[] = [];
   private streakAt = 0;
   private streakGfx: Phaser.GameObjects.Graphics | null = null;
+  private linkGfx: Phaser.GameObjects.Graphics | null = null;
   private fog: Phaser.GameObjects.Graphics | null = null;
   private glow: Phaser.Textures.CanvasTexture | null = null;
   private glowAt = '';
@@ -129,6 +130,7 @@ export class DescentScene extends Phaser.Scene {
     );
     this.hero = this.actor(state.pos.x, state.pos.y, 5, ANIMS['hero-idle']);
     this.streakGfx = this.add.graphics().setDepth(1998);
+    this.linkGfx = this.add.graphics().setDepth(1997);
     this.fog = this.add.graphics().setDepth(2000);
     if (this.textures.exists('glow')) this.textures.remove('glow');
     this.glow = this.textures.createCanvas('glow', w * TILE, state.tiles.length * TILE);
@@ -205,6 +207,11 @@ export class DescentScene extends Phaser.Scene {
       this.digits.get(e.id)?.destroy();
       this.digits.delete(e.id);
       if (look.digit) this.digits.set(e.id, this.image({ src: 'own', name: look.digit }, e.x, e.y, depth(e.y, 7)).setVisible(vis[e.y * w + e.x] === 2));
+    }
+    const lg = this.linkGfx;
+    if (lg) {
+      lg.clear().fillStyle(color('bone'), 1);
+      for (const dots of links(state)) for (const d of dots) lg.fillRect(d.x, d.y, 1, 1);
     }
     for (const img of this.markImgs) img.destroy();
     this.markImgs = marks(state).map((m) => this.image(m.frame, m.x, m.y, depth(m.y, 6)));

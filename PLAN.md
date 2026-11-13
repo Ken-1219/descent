@@ -94,7 +94,7 @@ The ladder applied to Descent:
 |---|---|
 | Menus, HUD, text | DOM + CSS (native platform) |
 | UI animation | CSS `steps()` |
-| Pathfinding | One BFS in `gen.ts`, reused for solvability, the bot and enemy chase |
+| Pathfinding | One BFS in `grid.ts`, reused for solvability, the bot and enemy chase |
 | Randomness | One mulberry32 in `rng.ts` |
 | Sound | WebAudio oscillators, about 40 lines |
 | Persistence | Redis hashes and sorted sets, no wrapper layer |
@@ -322,6 +322,23 @@ Trapsetter options, always available to survivors: spikes, dart slit, false stai
 
 - Torch out: vision shrinks to 1 tile and you lose 1 heart every 2 turns in the dark.
 - Bumping a wall or a locked door costs no turn and no torch.
+
+### Rule decisions (Phase 4; approved, binding)
+
+1. Tiers are per floor and per family (`Floor.tiers`, default 1); each tier's numbers are written out in full in `content.ts`.
+2. Enemy attacks aim at a tile: the wind-up marks it, the attack lands next turn, so stepping away dodges. This includes the Floor 0 goblin.
+3. T1 imps wake within 4 tiles even through walls; T4 imps wake only when your light reaches their tile.
+4. Every dart arms one turn and fires the next. Darts and arrows hit the first creature in their path, enemies included. A Trapsetter slit arms when you step into its line.
+5. Buried spikes surface when you stand next to them, then stay up.
+6. A T1 skeleton walks onto spikes and collapses. Bumping a pile resets its countdown. Piles block movement. A pair's second pile joins the first pile's countdown.
+7. A fall lands on the safe tile within 3 that is nearest the stairs. T2 crumbling floor falls after you step off. A T3 chain cracks under you and falls the next turn.
+8. False stairs cost 1 heart and crumble to floor. All Trapsetter damage has cause `trap`.
+9. A potion at full hearts is still used up. Lamp oil adds 20 turns, capped at the floor's torch. Traps and items cost 0 (outside the budget).
+10. A gate won't close on something standing in it.
+11. Dark-room vision applies only while you stand inside the room. T3 dark rooms use T2's rules and hold another family.
+12. A den spawns an idle goblin, which glints before it chases.
+13. Imp dives arc only 1 px.
+14. Cracks are reserved for danger (no cracked-floor decoration). Blood corner marks always mean "hurts next turn". Plates use the blue pack art; the red one reads as a blood tell.
 
 ### Floor shape
 

@@ -137,10 +137,10 @@ export const SKELETONS: Record<Tier, Priced & { sight: number; rebuild: number; 
 
 /** crumble 'leave' = falls after you step off; 'stand' = cracks under you and falls next turn. hidden = looks like floor. */
 export const PITS: Record<Tier, Priced & { crumble: 'none' | 'leave' | 'stand'; hidden: boolean }> = {
-  1: { crumble: 'none', hidden: false, cost: 1, frames: ['hole'] },
-  2: { crumble: 'leave', hidden: false, cost: 2, frames: ['crumble', 'hole'] },
-  3: { crumble: 'stand', hidden: false, cost: 3, frames: ['chain', 'chain-crack', 'hole'] },
-  4: { crumble: 'none', hidden: true, cost: 5, frames: ['mortar', 'hole'] },
+  1: { crumble: 'none', hidden: false, cost: 1, frames: ['pit'] },
+  2: { crumble: 'leave', hidden: false, cost: 2, frames: ['crumble', 'pit'] },
+  3: { crumble: 'stand', hidden: false, cost: 3, frames: ['chain', 'chain-crack', 'pit'] },
+  4: { crumble: 'none', hidden: true, cost: 5, frames: ['mortar', 'pit'] },
 };
 export const PIT_DAMAGE = 1;
 /** A fall lands on the safe tile within this Manhattan distance that is nearest the stairs. */

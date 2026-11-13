@@ -12,7 +12,7 @@ export const NAMES = [
   'hero', 'hero-flicker', 'wisp', 'wisp-b', 'ghost', 'ghost-b', 'torch-0', 'torch-1', 'torch-2',
   'death-1', 'death-2', 'death-3', 'death-4', 'death-5', 'death-6', 'death-7', 'death-8', 'death-9',
   'heart', 'heart-lost', 'key', 'flame', 'arrow-up', 'arrow-left',
-  'slit', 'missing-step', 'crack', 'mortar', 'bars', 'chain', 'chain-crack', 'crumble', 'den', 'brazier', 'brazier-lit',
+  'slit', 'missing-step', 'steps', 'pit', 'crack', 'mortar', 'bars', 'chain', 'chain-crack', 'crumble', 'den', 'brazier', 'brazier-lit',
   'mark-aim', 'mark-line', 'mark-glint', 'mark-hungry', 'mark-eyes', 'trap-mark', 'digit-1', 'digit-2', 'digit-3', 'digit-4',
 ] as const;
 export type SpriteName = (typeof NAMES)[number];
@@ -226,12 +226,21 @@ const tile = (...rows: string[]): string[] => Array.from({ length: TILE }, (_, y
 
 // Dart slit: a dark letterbox in the wall with a stone lip.
 const SLIT = tile('', '', '', '', '', '....ssssssss....', '...soooooooos...', '...okkkkkkkko...', '...soooooooos...', '....ssssssss....');
-// False stairs: the graded pack stairs are an ink-1 wedge; a notch of floor tone takes one step out of its edge.
-const MISSING_STEP = tile('', '', '', '', '', '', '........nnnn....', '.........nnn....', '.........nnn....');
+// Stairs: the graded pack stairs are a dark wedge, so pale edges draw its three steps. False stairs leave the middle one out.
+const STEP_A = ['....wwwwwwwwwww.', '....w...........', '....w...........'];
+const STEP_B = ['........wwwwwww.', '........w.......', '........w.......'];
+const STEP_C = ['............www.', '............w...', '............w...'];
+const STEPS = tile('', '', '', ...STEP_A, ...STEP_B, ...STEP_C);
+// The missing step is a black gap where its edge should be.
+const MISSING_STEP = tile('', '', '', ...STEP_A, '........ooooooo.', '........ooooooo.', '........oo......', ...STEP_C);
+// Open pit: black, with only its far wall catching light. No brick rim, so a row of pits reads as a chasm, not a wall.
+const PIT = tile('.oooooooooooooo.', 'onnnnnnnnnnnnnno', 'okkkkkkkkkkkkkko', 'okkkknkkkkkkknko', ...Array.from({ length: 11 }, () => 'oooooooooooooooo'), '.oooooooooooooo.');
 // Buried spikes: a hairline crack with four pin-pricks where the tips wait.
-const CRACK = tile('', '', '', '.....o..........', '......o.....o...', '......o....o....', '...o...o..o..o..', '........oo......', '........o.......', '.......o........', '...o..o.....o...', '.....o..........');
+// An X of hairline cracks joining the four holes where the spike tips wait (pale glints).
+const CRACK = tile('', '', '', '....o......o....', '...opo....opo...', '....oo....oo....', '.....o....o.....', '......oooo......', '.....o....o.....', '....oo....oo....', '...opo....opo...', '....o......o....');
 // Hidden pit: one grout line is missing from the top edge.
-const MORTAR = tile('...nnnnnnnnnn...');
+// The whole top grout line is gone and the middle sags: the floor here is hollow.
+const MORTAR = tile('nnnnnnnnnnnnnnnn', '', '', '', '...k........k...', '....k......k....', '.....kkkkkk.....');
 // Gate: iron bars standing in the open doorway (the pack's open door frame sits under them).
 const BARS: readonly string[] = [
   '.osssssssssssso.', '.oppppppppppppo.', '.osssssssssssso.',
@@ -253,7 +262,8 @@ const BRAZIER_LIT = tile('', '.......e........', '......ee..e.....', '.....eege.
 const MARK_AIM = tile('', '.rrr........rrr.', '.r............r.', '.r............r.', '', '', '', '', '', '', '', '', '.r............r.', '.r............r.', '.rrr........rrr.');
 const MARK_LINE = tile('', '', '', '', '', '', '', '......rrrr......', '......rrrr......');
 const MARK_GLINT = tile('', '', '', '', '', '', '', '', '', '', '', '', '', '', '.......rr.......', '.......rr.......');
-const MARK_HUNGRY = tile('', '', '', '', '', '', '', '', '', '', '', '', '', '', '....rr....rr....', '....rr....rr....');
+// Starving: "!!" over its head the turn before it moves twice.
+const MARK_HUNGRY = tile('', '', '', '', '', '', '', '', '.....rr.rr......', '.....rr.rr......', '.....rr.rr......', '.....rr.rr......', '', '.....rr.rr......');
 // Left by a survivor: a small wisp carving in the corner, never glowing.
 const TRAP_MARK = tile('', '', '', '', '', '', '', '', '', '', '', '', '.............t..', '............ttt.');
 // Pile countdown, top-right: bone digits, the last one in blood (rebuilds next turn).
@@ -383,6 +393,8 @@ export const SPRITES: Record<SpriteName, SpriteDef> = {
   },
   slit: { map: SLIT, key: ART },
   'missing-step': { map: MISSING_STEP, key: ART },
+  steps: { map: STEPS, key: ART },
+  pit: { map: PIT, key: ART },
   crack: { map: CRACK, key: ART },
   mortar: { map: MORTAR, key: ART },
   bars: { map: BARS, key: ART },

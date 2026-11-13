@@ -1,4 +1,4 @@
-import { LIGHT, PALETTE, PITS, TILE, LEVELS, type Level, type Token } from '../shared/content';
+import { LIGHT, PALETTE, PITS, SKELETONS, TILE, LEVELS, type Level, type Token } from '../shared/content';
 import { spikeStage, tells, tierOf, type Enemy, type Event, type Kind, type Pos, type State } from '../shared/sim';
 import { NAMES, SPRITES, type SpriteDef, type SpriteName } from './art';
 
@@ -125,7 +125,6 @@ export const PACK = {
   'spikes-1': [32, 192, 16, 16], // f1: tips showing
   'spikes-2': [48, 192, 16, 16], // f2: half-raised, the breathing tell
   spikes: [64, 192, 16, 16], // floor_spikes_anim_f3: fully raised
-  hole: [96, 144, 16, 16],
   'plate-blue': [48, 208, 16, 16],
   'plate-blue-down': [64, 208, 16, 16],
   stairs: [80, 192, 16, 16],
@@ -175,7 +174,7 @@ export const PACK = {
 export type PackName = keyof typeof PACK;
 
 // Stone is graded onto our ink ramp so the dungeon reads cold; danger onto blood. Actors keep their art.
-const STONE: readonly PackName[] = ['floor', 'floor-crack', 'floor-chip', 'wall-top', 'wall', 'wall-hole', 'stairs', 'hole'];
+const STONE: readonly PackName[] = ['floor', 'floor-crack', 'floor-chip', 'wall-top', 'wall', 'wall-hole', 'stairs'];
 const DANGER: readonly PackName[] = ['spikes-0', 'spikes-1', 'spikes-2', 'spikes'];
 const RAMP: readonly Token[] = ['ink-0', 'ink-1', 'ink-2', 'stone', 'pale'];
 
@@ -365,9 +364,9 @@ export function tileLook(s: State, x: number, y: number): Prop[] {
       return [flat(P(st === 2 ? 'spikes' : st === 1 ? 'spikes-2' : 'spikes-0'))];
     }
     case 'x': return [flat(P('spikes')), flat(O('trap-mark'))];
-    case 'O': return [flat(P('hole'))];
-    case ',': return PITS[tierOf(s, 'pits')].crumble === 'stand' ? [flat(P('hole')), flat(O('chain'))] : [flat(O('crumble'))];
-    case ';': return [flat(P('hole')), flat(O('chain-crack'))];
+    case 'O': return [flat(O('pit'))];
+    case ',': return PITS[tierOf(s, 'pits')].crumble === 'stand' ? [flat(O('pit')), flat(O('chain'))] : [flat(O('crumble'))];
+    case ';': return [flat(O('pit')), flat(O('chain-crack'))];
     // One plate look for every tier: the pack's red button would read as a blood tell. The slit and its line warn of darts.
     case '_': return [flat(P(on ? 'plate-blue-down' : 'plate-blue'))];
     case 'H': return [stand(still(P('door-open'))), stand(still(O('bars')))];
@@ -375,7 +374,9 @@ export function tileLook(s: State, x: number, y: number): Prop[] {
     case 'D': return [stand(still(P('door')))];
     case 'S': case 's': return [stand(still(O('slit')))];
     case 'Z': case 'z': return [stand(still(O('slit'))), stand(still(O('trap-mark')))];
-    case 'F': case '>': return [flat(P('stairs'))];
+    case '>': return [flat(P('stairs')), flat(O('steps'))];
+    // False stairs carry their tell in the art itself: the middle step edge is missing.
+    case 'F': return [flat(P('stairs')), flat(O('missing-step'))];
     case 'G': return [flat(O('den'))];
     case 'Y': return [stand(still(O('brazier')))];
     case 'y': return [stand(still(O('brazier-lit')))];
@@ -401,13 +402,24 @@ const MARK: Partial<Record<ReturnType<typeof tells>[number]['kind'], { name: Spr
   spawn: { name: 'mark-eyes' },
   crack: { name: 'crack' },
   mortar: { name: 'mortar' },
-  'missing-step': { name: 'missing-step' },
 };
 export const marks = (s: State): Mark[] =>
   tells(s).flatMap((t) => {
     const m = MARK[t.kind];
     return m ? [{ frame: O(m.name), x: t.x, y: m.above ? t.y - 1 : t.y }] : [];
   });
+
+/** A skeleton pair sharing one rebuild timer: dot positions (canvas px) of a bone link between them while either is a pile. */
+export function links(s: State): Pos[][] {
+  if (!SKELETONS[tierOf(s, 'skeletons')].shared) return [];
+  return s.enemies.flatMap((e) => {
+    const mate = s.enemies.find((o) => o.kind === 'skeleton' && o.pack === e.pack && o.id > e.id);
+    if (e.kind !== 'skeleton' || !mate || (e.mode !== 'pile' && mate.mode !== 'pile')) return [];
+    const [ax, ay, bx, by] = [px(e.x), py(e.y) - 5, px(mate.x), py(mate.y) - 5];
+    const n = Math.max(1, Math.floor(Math.max(Math.abs(bx - ax), Math.abs(by - ay)) / 3));
+    return [Array.from({ length: n + 1 }, (_, i) => ({ x: Math.round(ax + ((bx - ax) * i) / n), y: Math.round(ay + ((by - ay) * i) / n) }))];
+  });
+}
 
 const IDLE: Record<Kind, Anim> = { goblin: ANIMS['goblin-idle'], imp: ANIMS['imp-idle'], skeleton: ANIMS['skelet-idle'] };
 export const RUN: Record<Kind, Anim> = { goblin: ANIMS['goblin-run'], imp: ANIMS['imp-run'], skeleton: ANIMS['skelet-run'] };
