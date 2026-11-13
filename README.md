@@ -38,5 +38,5 @@ Both fonts are self-hosted and licensed under the SIL Open Font License 1.1; the
 
 ### Sprites
 
-- Dungeon tiles and characters: 16x16 DungeonTileset II by 0x72 (https://0x72.itch.io/dungeontileset-ii), CC0 1.0, in `src/client/assets/atlas.png`. Thank you, 0x72.
-- The hero, wisp and UI icons are drawn for Descent.
+- Dungeon tiles, items and creatures: 16x16 DungeonTileset II v1.7 by 0x72 (https://0x72.itch.io/dungeontileset-ii), CC0 1.0, in `src/client/assets/atlas.png`. Floors, walls, stairs, doors, spikes, the goblin, imp, skeleton and the Warden (`big_zombie`), potions and the bomb all come from it, with the pack's own animation frames. Thank you, 0x72.
+- Drawn for Descent: the hero, the wisp, the wall torch, the death-to-wisp frames and the UI icons.

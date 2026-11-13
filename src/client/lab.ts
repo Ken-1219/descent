@@ -1,6 +1,6 @@
 // LOCAL ONLY: Design Lab. Never a Devvit entrypoint.
 import { PALETTE, TILE, type Token } from '../shared/content';
-import { buildAtlas, contrast, drawFrame, drawPack, iconCanvas, loadPack, type Atlas, type PackName } from './sprites';
+import { ANIMS, buildAtlas, contrast, drawAnim, drawFrame, drawPack, frameAt, iconCanvas, loadPack, type Anim, type Atlas, type PackName } from './sprites';
 import { button, dpad, el, ghostCard, hearts, plate, slot, wick } from './ui';
 
 const panel = document.getElementById('panel');
@@ -71,7 +71,7 @@ const mockRoom = (atlas: Atlas, pack: HTMLCanvasElement, canvas: HTMLCanvasEleme
       if (ch === 'W' || ch === 'f') {
         drawPack(ctx, pack, 'wall', px, py);
         if (ch === 'f') {
-          drawFrame(ctx, atlas, 'flame', 'lit', px, py);
+          drawFrame(ctx, atlas, 'torch-0', 'lit', px, py);
           centre(x, y, 2.4, 'ember');
         }
         return;
@@ -91,30 +91,6 @@ const mockRoom = (atlas: Atlas, pack: HTMLCanvasElement, canvas: HTMLCanvasEleme
   );
   shine(ctx, canvas.width, canvas.height, lights);
 };
-
-// Hero candidates side by side, each standing on a floor tile at 4×.
-const HEROES: [string, PackName | null][] = [['Cleric (ours)', null], ['Knight', 'knight'], ['Wizard', 'wizard'], ['Elf', 'elf'], ['Dwarf', 'dwarf'], ['Lizard', 'lizard']];
-const heroLineup = (atlas: Atlas, pack: HTMLCanvasElement) =>
-  el(
-    'div',
-    'legend',
-    ...HEROES.map(([label, name]) => {
-      const c = el('canvas');
-      c.width = TILE;
-      c.height = TILE * 2;
-      c.style.width = `${TILE * 4}px`;
-      c.style.height = `${TILE * 8}px`;
-      const ctx = c.getContext('2d');
-      if (ctx) {
-        ctx.fillStyle = PALETTE['ink-1'];
-        ctx.fillRect(0, 0, c.width, c.height);
-        drawPack(ctx, pack, 'floor', 0, TILE);
-        if (name) drawPack(ctx, pack, name, 0, TILE);
-        else drawFrame(ctx, atlas, 'hero', 'lit', 0, TILE);
-      }
-      return el('figure', 'legend__cell', c, el('figcaption', '', label));
-    })
-  );
 
 // Integer zoom only: the largest of 2×–4× that fits the panel.
 const fitZoom = (canvas: HTMLCanvasElement, note: HTMLElement) => {
@@ -143,17 +119,12 @@ const tokensTab = () => {
   room.height = ROOM.length * TILE;
   room.setAttribute('aria-label', 'Mock room: cleric with torch, wall torches, spikes, a wisp, stairs');
   const note = caption('');
-  const heroes = el('div');
   addEventListener('resize', () => fitZoom(room, note));
   queueMicrotask(() => fitZoom(room, note));
-  void loadPack().then((pack) => {
-    mockRoom(atlas, pack, room);
-    heroes.replaceChildren(heroLineup(atlas, pack));
-  });
+  void loadPack().then((pack) => mockRoom(atlas, pack, room));
 
   return [
     section('The room', room, note),
-    section('Hero options', heroes),
     section('Palette', swatches),
     section(
       'Type',
@@ -201,9 +172,167 @@ const kitTab = () => {
   ];
 };
 
+// ---- Cast tab ----
+
+// Cells are 32×40 source px: room for the 32×36 Warden; the standing tile's origin is (8, 24).
+const CW = 32;
+const CH = 40;
+const OX = 8;
+const OY = CH - TILE;
+const still = (name: PackName): Anim => ({ frames: [{ src: 'pack', name }], ms: [1000], loop: true });
+
+const CAST: [string, Anim][] = [
+  ['Delver', ANIMS['hero-idle']],
+  ['Wisp', ANIMS['wisp-float']],
+  ['Your ghost', ANIMS['ghost-float']],
+  ['Goblin', ANIMS['goblin-idle']],
+  ['Imp', ANIMS['imp-idle']],
+  ['Skeleton', ANIMS['skelet-idle']],
+  ['Bone pile', still('skull')],
+  ['Warden', ANIMS['warden-idle']],
+  ['Potion', ANIMS['potion-bob']],
+  ['Lamp oil', ANIMS['oil-bob']],
+  ['Bomb', ANIMS['bomb-fuse']],
+  ['Key', ANIMS['key-bob']],
+  ['Wall torch', ANIMS['torch-flame']],
+  ['Stairs', still('stairs')],
+  ['Door', still('door')],
+  ['Open door', still('door-open')],
+];
+
+const DARK_CAST: (keyof typeof ANIMS)[] = ['hero-idle', 'wisp-float', 'goblin-idle'];
+
+type Cell = { ctx: CanvasRenderingContext2D; anim: Anim; phase: number; floor: boolean; dark: number; silhouette: boolean; shuffle: boolean; pause: number };
+let cells: Cell[] = [];
+let ticking = 0;
+
+const cellCanvas = (zoom: number) => {
+  const c = el('canvas');
+  c.width = CW;
+  c.height = CH;
+  c.style.width = `${CW * zoom}px`;
+  c.style.height = `${CH * zoom}px`;
+  return c;
+};
+
+const figure = (c: HTMLCanvasElement, label: string) => el('figure', 'legend__cell', c, el('figcaption', '', label));
+
+// The torch flame never loops: shuffled frames with random holds (cosmetic randomness, client only).
+const torchState = new WeakMap<Cell, { frame: number; until: number }>();
+const torchFrame = (cell: Cell, now: number) => {
+  const s = torchState.get(cell) ?? { frame: 0, until: 0 };
+  if (now >= s.until) {
+    s.frame = (s.frame + 1 + Math.floor(Math.random() * 2)) % 3;
+    s.until = now + 84 + Math.floor(Math.random() * 57);
+  }
+  torchState.set(cell, s);
+  return s.frame;
+};
+
+const paintCell = (cell: Cell, atlas: Atlas, pack: HTMLCanvasElement, now: number) => {
+  const { ctx } = cell;
+  ctx.clearRect(0, 0, CW, CH);
+  if (!cell.silhouette) {
+    ctx.fillStyle = PALETTE['ink-1'];
+    ctx.fillRect(0, 0, CW, CH);
+  }
+  if (cell.floor) {
+    drawPack(ctx, pack, 'floor', 0, OY);
+    drawPack(ctx, pack, 'floor', TILE, OY);
+  }
+  const total = cell.anim.ms.reduce((a, b) => a + b, 0);
+  const t = now + cell.phase;
+  const elapsed = cell.anim.loop ? t : t % (total + cell.pause);
+  if (cell.shuffle) {
+    const frame = cell.anim.frames[torchFrame(cell, now)];
+    if (frame) drawAnim(ctx, atlas, pack, { frames: [frame], ms: [1000], loop: true }, 0, OX, OY);
+  } else drawAnim(ctx, atlas, pack, cell.anim, elapsed, OX, OY);
+  if (cell.silhouette) {
+    // Silhouette gate: every opaque pixel becomes ink-0 on a pale plate.
+    ctx.globalCompositeOperation = 'source-atop';
+    ctx.fillStyle = PALETTE['ink-0'];
+    ctx.fillRect(0, 0, CW, CH);
+    ctx.globalCompositeOperation = 'destination-over';
+    ctx.fillStyle = PALETTE.pale;
+    ctx.fillRect(0, 0, CW, CH);
+    ctx.globalCompositeOperation = 'source-over';
+  }
+  if (cell.dark > 0) {
+    ctx.fillStyle = rgba('ink-0', cell.dark);
+    ctx.fillRect(0, 0, CW, CH);
+  }
+};
+
+const tick = (atlas: Atlas, pack: HTMLCanvasElement, gen: number) => {
+  if (gen !== ticking || !document.body.contains(cells[0]?.ctx.canvas ?? null)) return;
+  const now = performance.now();
+  for (const c of cells) paintCell(c, atlas, pack, now);
+  requestAnimationFrame(() => tick(atlas, pack, gen));
+};
+
+const castCell = (anim: Anim, zoom: number, opts: Partial<Omit<Cell, 'ctx' | 'anim'>> = {}) => {
+  const c = cellCanvas(zoom);
+  const ctx = c.getContext('2d');
+  if (ctx) {
+    cells.push({
+      ctx, anim,
+      phase: Math.floor(Math.random() * 2000),
+      floor: true, dark: 0, silhouette: false, shuffle: anim === ANIMS['torch-flame'], pause: 900,
+      ...opts,
+    });
+  }
+  return c;
+};
+
+// Every frame side by side with its ms, for the §15.4 frame-by-frame review.
+const filmstrip = (name: string, anim: Anim, atlas: Atlas, pack: HTMLCanvasElement) => {
+  const strip = el('div', 'legend');
+  let at = 0;
+  anim.frames.forEach((_, i) => {
+    const c = cellCanvas(2);
+    const ctx = c.getContext('2d');
+    if (ctx) {
+      ctx.fillStyle = PALETTE['ink-1'];
+      ctx.fillRect(0, 0, CW, CH);
+      drawPack(ctx, pack, 'floor', 0, OY);
+      drawPack(ctx, pack, 'floor', TILE, OY);
+      drawAnim(ctx, atlas, pack, anim, at, OX, OY);
+    }
+    strip.append(figure(c, `${anim.ms[i] ?? 0} ms`));
+    at += anim.ms[i] ?? 0;
+  });
+  const film = el('div', '', el('h3', 'lab__caption', `${name}, ${frameAt(anim, at - 1) + 1} frames, ${at} ms`), strip);
+  film.dataset.film = name;
+  return film;
+};
+
+const castTab = () => {
+  cells = [];
+  const gen = ++ticking;
+  const box = el('div', '', caption('Loading the pack...'));
+  void loadPack().then((pack) => {
+    const atlas = buildAtlas();
+    const death = ANIMS['hero-death'];
+    box.replaceChildren(
+      section('Silhouettes at 2×', el('div', 'legend', ...CAST.map(([label, anim]) => figure(castCell(anim, 2, { silhouette: true, floor: false }), label)))),
+      section('Death to wisp', el('div', 'legend', figure(castCell(death, 2, { phase: 0 }), '2×'), figure(castCell(death, 4, { phase: 0 }), '4×'))),
+      section('Sizes', el('div', 'legend', ...[1, 2, 4].map((z) => figure(castCell(ANIMS['hero-idle'], z), `${z}×`)))),
+      section(
+        'In the dark',
+        el('div', 'legend', ...[0, 0.5, 0.86].flatMap((dark) => DARK_CAST.map((k) => figure(castCell(ANIMS[k], 2, { dark }), `${k.split('-')[0]}, ${dark}`)))),
+      ),
+      section('Animations', el('div', 'legend', ...Object.entries(ANIMS).map(([k, anim]) => figure(castCell(anim, 2), k)))),
+      section('Filmstrips', ...Object.entries(ANIMS).map(([k, anim]) => filmstrip(k, anim, atlas, pack))),
+    );
+    requestAnimationFrame(() => tick(atlas, pack, gen));
+  });
+  return [box];
+};
+
 const TABS: [string, string, () => Node[]][] = [
   ['tokens', 'Tokens', tokensTab],
   ['kit', 'Kit', kitTab],
+  ['cast', 'Cast', castTab],
 ];
 
 const show = () => {
