@@ -149,7 +149,7 @@ src/client/
   style.css                 tokens and all UI CSS
   local.ts                  LOCAL ONLY: fake endpoints on localStorage, fixtures, advanceDay
   lab.html     lab.ts       LOCAL ONLY: Design Lab
-  assets/                   atlas.png, fonts/*.woff2, icon
+  assets/                   atlas.png, fonts/*.woff2, fonts/OFL.txt, icon
 src/server/
   index.ts                  Hono routes, thin
   game.ts                   Redis reads/writes: runs, ghosts, votes, traps, souls, boards
