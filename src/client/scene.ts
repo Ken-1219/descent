@@ -56,6 +56,8 @@ export class DescentScene extends Phaser.Scene {
   private torchLights: Light[] = [];
   private endDeath: (() => void) | null = null;
   private reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  /** Screen shakes played so far (read by the dev hook to check reduced motion). */
+  shakes = 0;
 
   constructor(state: State) {
     super('descent');
@@ -226,7 +228,10 @@ export class DescentScene extends Phaser.Scene {
         hero.anim = ANIMS['hero-hurt'];
         hero.after = ANIMS['hero-idle'];
         hero.t0 = now;
-        if (!this.reduced && !instant) this.cameras.main.shake(SHAKE_MS, SHAKE_PX / this.cameras.main.width);
+        if (!this.reduced && !instant) {
+          this.cameras.main.shake(SHAKE_MS, SHAKE_PX / this.cameras.main.width);
+          this.shakes++;
+        }
       } else if (e.t === 'key' || e.t === 'door') {
         const i = e.at.y * (next.tiles[0]?.length ?? 0) + e.at.x;
         const prop = this.props.get(i);

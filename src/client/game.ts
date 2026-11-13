@@ -2,7 +2,7 @@
 // Boot, input router, HUD wiring and the dev hook. Rules live in src/shared/sim.ts; this file only sends actions.
 import * as Phaser from 'phaser';
 import { FLOOR_0, HEARTS, PALETTE, TILE, TORCH_LOW_PCT } from '../shared/content';
-import { start, step, type Action, type End, type Pos } from '../shared/sim';
+import { start, step, type Action, type End, type Floor, type Pos } from '../shared/sim';
 import { DescentScene } from './scene';
 import { controls, createHud, endPanel } from './ui';
 
@@ -28,7 +28,8 @@ const KEYS: Record<string, Action> = {
 };
 const isAction = (s: string | undefined): s is Action => ACTIONS.some((a) => a === s);
 
-let state = start(FLOOR_0);
+let floor: Floor = FLOOR_0;
+let state = start(floor);
 const hud = createHud($('hud'), TORCH_LOW_PCT, HEARTS);
 const view = () => hud({ hearts: state.hearts, hasKey: state.hasKey, torch: state.torch, torchMax: state.floor.torch, depth: state.floor.depth });
 controls(pad);
@@ -82,7 +83,7 @@ const finish = (ended: End) => {
 function again() {
   end.hidden = true;
   queued = null;
-  state = start(FLOOR_0);
+  state = start(floor);
   scene.reset(state);
   view();
   settle();
@@ -167,11 +168,11 @@ void scene.ready.then(() => performance.mark('descent:interactive'));
 // ---- dev hook for Playwright (§10). Dev builds only; never in the Devvit bundle. ----
 type DescentHook = {
   ready: Promise<void>;
-  state: () => { pos: Pos; hearts: number; torch: number; turn: number; floor: number; ended: End | null; hasKey: boolean };
+  state: () => { pos: Pos; hearts: number; torch: number; turn: number; floor: number; ended: End | null; hasKey: boolean; enemies: { id: number; mode: string; x: number; y: number }[] };
   act: (a: Action) => Promise<void>;
-  load: (depth: number) => void;
+  load: (depth: number, opts?: { mercy?: boolean; torch?: number }) => void;
   skipAnim: (on: boolean) => void;
-  metrics: () => { inputToMotion: number };
+  metrics: () => { inputToMotion: number; shakes: number };
 };
 declare global {
   interface Window {
@@ -181,18 +182,23 @@ declare global {
 if (import.meta.env.DEV) {
   window.__descent = {
     ready: scene.ready,
-    state: () => ({ pos: { ...state.pos }, hearts: state.hearts, torch: state.torch, turn: state.turn, floor: state.floor.depth, ended: state.ended, hasKey: state.hasKey }),
+    state: () => ({
+      pos: { ...state.pos }, hearts: state.hearts, torch: state.torch, turn: state.turn, floor: state.floor.depth, ended: state.ended, hasKey: state.hasKey,
+      enemies: state.enemies.map((e) => ({ id: e.id, mode: e.mode, x: e.x, y: e.y })),
+    }),
     act: (a) =>
       new Promise((resolve) => {
         waiters.push(resolve);
         act(a);
         settle();
       }),
-    load: (depth) => {
+    // Floor 0 variants for testing lethal paths (mercy off, short torch). Dev builds only.
+    load: (depth, opts = {}) => {
       if (depth !== 0) throw new Error('Phase 3 has only Floor 0');
+      floor = { ...FLOOR_0, ...opts };
       again();
     },
     skipAnim: (on) => (skipAnim = on),
-    metrics: () => ({ inputToMotion }),
+    metrics: () => ({ inputToMotion, shakes: scene.shakes }),
   };
 }
