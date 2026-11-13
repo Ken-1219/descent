@@ -118,3 +118,11 @@ How each hazard is modelled. Nothing is modelled more kindly than the sim:
   - wait out bone piles from a spot out of their line
   - jump into a seen pit to escape when cornered (rule 7: 1 heart, lands nearer the stairs)
   - break dithering loops with bold, seeded random steps
+
+## Follow-ups after the gate (user answers, Nov 13)
+- F1. **Walkable piles** (rule 6 amended): a pile is floor for everyone; at 0 it rises once its tile is empty; no bump reset. The one-skeleton cap is removed, and the bot's pile-luring logic with it.
+- F2. **Gate 3 plays with the map:** fog off, hidden hazards known, the same shunned tiles as gate 1, enemies read by their tells. The curve bot stays blind. Both bots fight through an enemy in the way rather than wait behind it.
+- F3. **Costs from lethality:** hearts lost per 100 instances by the skill-60 bot, two passes, clamped 1–8 (table in content.ts). Divers (T2 imps) cost 6; harmless upgrades (gates, dark rooms) cost 1.
+- F4. **Slack** is back to a difficulty knob: `max(160%, 250% − 2%·depth)`, with no room bonus (supersedes D1). Exploration is now the blind player's problem, as it should be.
+- F5. **Curses:** five, as data. Win-rate costs are −4 to −9 (table in PLAN §8). Every curse passes the gates.
+- F6. **Divers:** 79 of 99 diver hits on the map bot came with no escape tile. A diver lined up along a corridor marks up to 6 tiles and you can move one, so the depth-9 dip is the diver rule in corridors more than the bot. The costs now limit how many divers a floor gets.

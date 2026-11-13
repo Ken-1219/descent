@@ -270,12 +270,11 @@ import { lightRadius, tells } from '../src/shared/sim';
 
 const TABLES = { spikes: SPIKES, goblins: GOBLINS, imps: IMPS, mechanisms: MECHANISMS, skeletons: SKELETONS, pits: PITS, dark: DARK };
 
-test('tier table: costs follow §8 (1, 2, 3, 5; enemies +1) and every frame exists', () => {
-  const base = [0, 1, 2, 3, 5];
+test('tier table: every cost is a whole budget point from 1 to 8 (set from measured lethality) and every frame exists', () => {
   for (const f of FAMILIES) {
     for (const t of TIERS) {
-      const enemy = f === 'goblins' || f === 'imps' || f === 'skeletons';
-      expect(TABLES[f][t].cost, `${f} T${t}`).toBe((base[t] ?? 0) + (enemy ? 1 : 0));
+      const c = TABLES[f][t].cost;
+      expect(Number.isInteger(c) && c >= 1 && c <= 8, `${f} T${t} cost ${c}`).toBe(true);
     }
   }
   const all = [...FAMILIES.flatMap((f) => TIERS.map((t) => TABLES[f][t])), ...Object.values(TRAPS), ...Object.values(ITEMS)];
@@ -400,4 +399,18 @@ test('imp randomness comes from the seeded rng in the state', () => {
   expect(a.rng).not.toBe(sc.floor.seed);
   expect(replay(sc.floor, sc.log)).toEqual(a);
   expect(b.rng).not.toBe(a.rng);
+});
+
+test('a bone pile is floor for everyone; at 0 it rises only once its tile is empty', () => {
+  let s = start({ ...floor(['######', '#@K..#', '######']), tiers: { skeletons: 1 } });
+  s = step(s, 'R').state; // strike: pile at (2,1), countdown shows 4
+  expect(s.enemies[0]).toMatchObject({ mode: 'pile', timer: 4 });
+  s = step(s, 'R').state; // walk onto the pile
+  expect(s.pos).toEqual({ x: 2, y: 1 });
+  for (let i = 0; i < 5; i++) s = step(s, 'W').state; // stand on it past 0: it stays down
+  expect(s.enemies[0]).toMatchObject({ mode: 'pile', timer: 0 });
+  expect(tells(s).some((t) => t.kind === 'rebuild')).toBe(true);
+  const off = step(s, 'R'); // step off: it gets up that turn
+  expect(off.state.enemies[0]?.mode).toBe('chase');
+  expect(off.events).toContainEqual({ t: 'rebuild', id: 0 });
 });

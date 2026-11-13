@@ -189,12 +189,12 @@ export const SCENES: readonly Scene[] = [
 
   // ---- Skeletons ----
   cell('skeletons', 1, {
-    caption: 'Struck down, it rebuilds four turns later.',
+    caption: 'Knock it down, step over; it rises.',
     rows: ['##########', '#@.......#', '#......K>#', '##########'],
-    log: 'RRRWWWDRRRRD',
+    log: 'RRRWWWDDRRRR',
     hurt: [],
     end: 'won',
-    at: [{ turn: 7, enemy: [0, 'pile', 4, 2] }, { turn: 10, tell: [4, 2, 'rebuild'] }, { turn: 11, enemy: [0, 'chase', 4, 2] }],
+    at: [{ turn: 7, enemy: [0, 'pile', 4, 2] }, { turn: 8, pos: [4, 2] }, { turn: 10, tell: [4, 2, 'rebuild'] }, { turn: 11, enemy: [0, 'chase', 4, 2] }],
   }),
   cell('skeletons', 2, {
     caption: 'Rebuilds in three. Walks around spikes.',

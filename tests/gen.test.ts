@@ -1,7 +1,7 @@
 import { test, expect } from 'vitest';
 import { CURSES, FAMILIES, GATE_TORCH_PCT, ROOM1_ENEMY_GAP, ENTRANCE_CLEAR, TRAP_MAX, type Family } from '../src/shared/content';
 import { NO_MODS, budgetFor, generate, isWardenFloor, safePath, showcaseFamilies, strandFree, tiersFor, zoneOf, zoneWeights, type Mods } from '../src/shared/gen';
-import { start } from '../src/shared/sim';
+import { lightRadius, start } from '../src/shared/sim';
 
 const all = (t: number) => {
   const out: Partial<Record<Family, number>> = {};
@@ -32,7 +32,7 @@ test('Warden hook on position 7; showcase is the new family, rotating once nothi
 });
 
 test('same inputs give an identical floor', () => {
-  const mods: Mods = { curses: ['crowded'], deaths: [5, 0, 0, 2, 0, 0, 0, 0, 9], topFamily: 'goblins', traps: [{ zone: 4, kind: 'spikes' }, { zone: 8, kind: 'dart' }] };
+  const mods: Mods = { curses: ['overrun'], deaths: [5, 0, 0, 2, 0, 0, 0, 0, 9], topFamily: 'goblins', traps: [{ zone: 4, kind: 'spikes' }, { zone: 8, kind: 'dart' }] };
   for (const [d, s] of [[1, 7], [15, 123], [28, 9]] as const) {
     expect(JSON.stringify(generate(d, s, mods))).toBe(JSON.stringify(generate(d, s, mods)));
     expect(JSON.stringify(generate(d, s))).toBe(JSON.stringify(generate(d, s)));
@@ -57,9 +57,9 @@ test('painted deaths pull hazards toward that zone', { timeout: 20_000 }, () => 
   expect(hazards(heavy, 8)).toBeGreaterThan(hazards(NO_MODS, 8));
 });
 
-test('curses: crowded raises the budget; short wick shortens the torch but never below gate 2', () => {
-  expect(budgetFor(22, { ...NO_MODS, curses: ['crowded'] })).toBe(Math.floor((budgetFor(22) * CURSES.crowded.budgetPct) / 100));
-  expect(budgetFor(22, { ...NO_MODS, curses: ['crowded'] })).toBeGreaterThan(budgetFor(22));
+test('curses: overrun raises the budget; short wick shortens the torch but never below gate 2', () => {
+  expect(budgetFor(22, { ...NO_MODS, curses: ['overrun'] })).toBe(Math.floor((budgetFor(22) * CURSES.overrun.budgetPct) / 100));
+  expect(budgetFor(22, { ...NO_MODS, curses: ['overrun'] })).toBeGreaterThan(budgetFor(22));
   for (let s = 1; s <= 5; s++) {
     const g = generate(30, s, { ...NO_MODS, curses: ['short-wick'] });
     expect(g.safe.burn * 100).toBeLessThanOrEqual(GATE_TORCH_PCT * g.floor.torch);
@@ -123,4 +123,25 @@ test('generate(28) stays under 20 ms on average, including retries', { timeout: 
   const mean = ms.reduce((a, b) => a + b, 0) / ms.length;
   console.log(`generate(28): mean ${mean.toFixed(1)} ms, median ${ms[25]?.toFixed(1)} ms, max ${ms[49]?.toFixed(1)} ms`);
   expect(mean).toBeLessThan(20);
+});
+
+test('every curse: floors still pass the gates; Frail starts on 2 hearts; Deep Dark keeps the radius at 2 or more; Light Sleepers widens room-1 safety', () => {
+  for (const c of Object.keys(CURSES) as (keyof typeof CURSES)[]) {
+    for (const d of [1, 9, 15, 22, 30]) {
+      const g = generate(d, 7, { ...NO_MODS, curses: [c] });
+      expect(g.floor.curses).toEqual([c]);
+      expect(safePath(g.floor), `${c} d${d}`).not.toBeNull();
+      expect(strandFree(g.floor), `${c} d${d}`).toBe(true);
+    }
+  }
+  expect(start(generate(5, 1, { ...NO_MODS, curses: ['frail'] }).floor).hearts).toBe(2);
+  expect(lightRadius(start(generate(5, 1, { ...NO_MODS, curses: ['deep-dark'] }).floor))).toBe(3);
+  const g = generate(15, 3, { ...NO_MODS, curses: ['light-sleepers'] });
+  const s0 = start(g.floor);
+  const room1 = g.rooms.find((r) => s0.pos.x >= r.x && s0.pos.x < r.x + r.w && s0.pos.y >= r.y && s0.pos.y < r.y + r.h);
+  for (const e of s0.enemies) {
+    if (!room1) break;
+    const gap = Math.max(0, room1.x - e.x, e.x - (room1.x + room1.w - 1)) + Math.max(0, room1.y - e.y, e.y - (room1.y + room1.h - 1));
+    expect(gap).toBeGreaterThanOrEqual(ROOM1_ENEMY_GAP + CURSES['light-sleepers'].wakeDelta);
+  }
 });

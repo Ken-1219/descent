@@ -1,7 +1,7 @@
 // The difficulty bot (§8). It plays like a player who knows the rules and reads only what the screen shows:
 // tiles it has seen, tells(), and hidden hazards it learned from their tells. No hidden-map access.
-import { BOT_MAX_ACTIONS, IMPS, SPIKES } from './content';
-import { DIRS, blocks, dist, width, type Pos } from './grid';
+import { BOT_MAX_ACTIONS, IMPS, MECHANISMS, SPIKES, TRAPS } from './content';
+import { DIRS, blocks, dist, find, slitLine, width, type Pos } from './grid';
 import { mulberry32 } from './rng';
 import { lightRadius, spikeStage, start, step, tells, tierOf, visibility, type Action, type Floor, type State } from './sim';
 
@@ -14,19 +14,23 @@ const UNKNOWN_COST = 2;
 const DARK_COST = 3;
 /** Timed spikes cost extra, so it goes around them when it can and times its crossing when it can't. */
 const SPIKE_COST = 4;
-/** A bone pile in the way: plan through it (it will get up) but never bump it, which would only reset its countdown. */
-const PILE_COST = 6;
 /** Dithering: standing on the same tile this often in the last RECENT turns makes it bold for BOLD_TURNS (it takes the hit). */
 const RECENT = 12;
 /** A seen pit is a way out at a price: a heart, and the fall lands nearer the stairs (rule 7). Only with hearts to spare. */
 const PIT_COST = 12;
+/** An enemy in the way is fought through (moving into it is a bump attack), at a price. */
+const FIGHT_COST = 4;
 const DITHER = 4;
 const BOLD_TURNS = 6;
 
 const toward = (from: Pos, to: Pos): Action => DIRS.find((d) => from.x + d.dx === to.x && from.y + d.dy === to.y)?.a ?? 'W';
 
-/** Plays `floor`. With probability skillPct/100 each turn it takes its best known step; otherwise it steps greedily toward its target. */
-export function bot(floor: Floor, skillPct: number, seed: number): { state: State; log: Action[] } {
+/**
+ * Plays `floor`. With probability skillPct/100 each turn it takes its best known step; otherwise it steps greedily toward its target.
+ * sight 'player' (the curve): it sees what the screen shows. sight 'map' (gate 3, a proof the floor can be beaten): fog off,
+ * hidden hazards known, and it shuns what gate 1 shuns (plates, open gates, slit lines); enemies are still read by their tells.
+ */
+export function bot(floor: Floor, skillPct: number, seed: number, sight: 'player' | 'map' = 'player'): { state: State; log: Action[] } {
   const roll = mulberry32(seed);
   let s = start(floor);
   const w = width(s.tiles);
@@ -38,8 +42,16 @@ export function bot(floor: Floor, skillPct: number, seed: number): { state: Stat
   const learned = new Set<number>(); // tiles whose hidden-hazard tell was seen (membership only)
   const darkness = new Set<number>(); // tiles where it stood and its light shrank to one while the torch burned
   const log: Action[] = [];
+  const map = sight === 'map';
+  const shunned = new Set<number>();
+  if (map) {
+    for (const p of find(s.tiles, '_h')) shunned.add(p.y * w + p.x);
+    for (const p of find(s.tiles, 'SsZz')) {
+      const range = 'Ss'.includes(s.tiles[p.y]?.[p.x] ?? '') ? MECHANISMS[tierOf(s, 'mechanisms')].range : TRAPS.dart.range;
+      for (const q of slitLine(s.tiles, p, range)) shunned.add(q.y * w + q.x);
+    }
+  }
   let aim = -1; // the unknown tile it is exploring toward, kept until revealed so it doesn't dither between two
-  let luring: Pos | null = null; // a bone pile it is waiting out, until it gets up
   const recent: number[] = [];
   let bold = 0;
 
@@ -49,7 +61,7 @@ export function bot(floor: Floor, skillPct: number, seed: number): { state: Stat
     if (recent.length > RECENT) recent.shift();
     if (bold > 0) bold--;
     else if (recent.filter((i) => i === recent[recent.length - 1]).length >= DITHER) bold = BOLD_TURNS;
-    const vis = visibility(s);
+    const vis = map ? s.tiles.flatMap((row) => [...row].map(() => 2)) : visibility(s);
     const tl = tells(s);
     for (const t of tl) if (t.kind === 'crack' || t.kind === 'mortar' || t.kind === 'missing-step') learned.add(t.y * w + t.x);
     const marked = new Set(tl.filter((t) => MARKED.has(t.kind)).map((t) => t.y * w + t.x));
@@ -59,13 +71,13 @@ export function bot(floor: Floor, skillPct: number, seed: number): { state: Stat
       [...row].map((c, x) => {
         const i = y * w + x;
         if (!vis[i]) return '?';
-        return (c === 'u' || c === 'o' || c === 'F') && !learned.has(i) ? (c === 'F' ? '>' : '.') : c;
+        return (c === 'u' || c === 'o' || c === 'F') && !learned.has(i) && !map ? (c === 'F' ? '>' : '.') : c;
       }),
     );
     const onMap = (p: Pos) => p.x >= 0 && p.y >= 0 && p.x < w && p.y < s.tiles.length;
     const look = (p: Pos): string => (onMap(p) ? (seenAs[p.y * w + p.x] ?? '#') : '#');
     const occupant: (State['enemies'][number] | undefined)[] = [];
-    for (const e of s.enemies) occupant[e.y * w + e.x] = e;
+    for (const e of s.enemies) if (e.mode !== 'pile') occupant[e.y * w + e.x] = e; // piles are floor (rule 6)
     const enemyAt = (p: Pos) => (onMap(p) ? occupant[p.y * w + p.x] : undefined);
     const hurtsNext = (p: Pos) => {
       const c = look(p);
@@ -104,10 +116,9 @@ export function bot(floor: Floor, skillPct: number, seed: number): { state: Stat
           const qc = look(q);
           const pit = (qc === 'O' || qc === 'o') && s.hearts >= 2;
           if ((qc !== '?' && blocks(qc)) || (AVOID.includes(qc) && !pit)) continue;
-          const foe = enemyAt(q);
-          if ((qc === '^' && fixed) || (foe && foe.mode !== 'pile')) continue;
           const j = q.y * w + q.x;
-          const nc = c + (qc === '?' ? UNKNOWN_COST : qc === '^' ? SPIKE_COST : pit ? PIT_COST : 1) + (darkness.has(j) ? DARK_COST : 0) + (foe ? PILE_COST : 0);
+          if ((qc === '^' && fixed) || shunned.has(j)) continue;
+          const nc = c + (qc === '?' ? UNKNOWN_COST : qc === '^' ? SPIKE_COST : pit ? PIT_COST : 1) + (darkness.has(j) ? DARK_COST : 0) + (enemyAt(q) ? FIGHT_COST : 0);
           const old = cost[j] ?? -1;
           if (old >= 0 && old <= nc) continue;
           cost[j] = nc;
@@ -128,12 +139,9 @@ export function bot(floor: Floor, skillPct: number, seed: number): { state: Stat
     if (aim >= 0 && (cost[aim] ?? -1) >= 0 && !vis[aim]) explore = aim; // keep heading for the same unknown tile
     aim = stairs < 0 ? explore : -1;
     const target = hunt >= 0 && hunt !== me ? hunt : stairs >= 0 ? stairs : explore;
-    const charging = hunt >= 0 && target === hunt && s.hearts >= 2;
     const path: Pos[] = [];
     for (let k = target; k >= 0 && k !== me; k = parent[k] ?? -1) path.unshift({ x: k % w, y: Math.floor(k / w) });
     const firstPos = path[0] && parent[path[0].y * w + path[0].x] === me ? path[0] : null;
-    if (luring && enemyAt(luring)?.mode !== 'pile') luring = null;
-    const pileAhead: Pos | undefined = luring ?? path.slice(0, 2).find((p) => enemyAt(p)?.mode === 'pile');
     const goal = target >= 0 ? { x: target % w, y: Math.floor(target / w) } : null;
 
     let a: Action = 'W';
@@ -155,31 +163,12 @@ export function bot(floor: Floor, skillPct: number, seed: number): { state: Stat
         a = toward(s.pos, moves[roll() % moves.length] ?? s.pos); // dithering: a random step breaks the loop
       } else if (bold && adjacent[0]) a = toward(s.pos, adjacent[0]);
       else if (darkness.has(me) && around.some((p) => look(p) === 'Y')) a = toward(s.pos, around.find((p) => look(p) === 'Y') ?? s.pos); // light the brazier
-      else if (hurtsNext(s.pos) && safeStep && !charging) a = toward(s.pos, safeStep);
+      else if (hurtsNext(s.pos) && safeStep) a = toward(s.pos, safeStep);
       else if (adjacent[0] && !hurtsNext(s.pos)) a = toward(s.pos, adjacent[0]);
-      else if (pileAhead && (firstPos || luring)) {
-        luring = pileAhead;
-        // A bone pile blocks the way. Never bump it (that resets it). Wait out of its row and column, 3+ tiles off,
-        // so when it gets up it must come out into the open to reach or line up with you.
-        // Prefer a spot out of its row and column; failing that, any spot 3+ tiles back.
-        let lure = -1, lureRank = 0;
-        for (let k = 0; k < cost.length; k++) {
-          const c = cost[k] ?? -1;
-          if (c < 0) continue;
-          const p = { x: k % w, y: Math.floor(k / w) };
-          if (look(p) === '?' || enemyAt(p) || dist(p, pileAhead) < 3) continue;
-          const rank = (p.x === pileAhead.x || p.y === pileAhead.y ? 1000 : 0) + c;
-          if (lure < 0 || rank < lureRank) [lure, lureRank] = [k, rank];
-        }
-        let step = lure;
-        while (step >= 0 && parent[step] !== me) step = parent[step] ?? -1;
-        const next = step >= 0 ? { x: step % w, y: Math.floor(step / w) } : null;
-        a = next && !hurtsNext(next) && !enemyAt(next) ? toward(s.pos, next) : 'W';
-      }
-      // Charging a ranged foe it accepts one marked step; otherwise it waits out danger or sidesteps it.
+      // Step along the plan unless that tile hurts next turn: then wait, or sidestep if standing still hurts too.
       else if (firstPos) {
         const jump = 'Oo'.includes(look(firstPos)) && s.hearts >= 2 && !marked.has(firstPos.y * w + firstPos.x); // the planned way out
-        a = !hurtsNext(firstPos) || jump || (charging && !AVOID.includes(look(firstPos))) ? toward(s.pos, firstPos) : !hurtsNext(s.pos) ? 'W' : safeStep ? toward(s.pos, safeStep) : 'W';
+        a = !hurtsNext(firstPos) || jump ? toward(s.pos, firstPos) : !hurtsNext(s.pos) ? 'W' : safeStep ? toward(s.pos, safeStep) : 'W';
       }
       else if (adjacent[0]) a = toward(s.pos, adjacent[0]);
     }

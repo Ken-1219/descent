@@ -1,6 +1,6 @@
 // Floor generator (§8): BSP rooms, the tier cycle, budget spending, floor shape, crowd weights, player traps, fairness gates.
 import {
-  BUDGET, CROWD, CURSES, CYCLE, DARK, ENTRANCE_CLEAR, FAMILIES, FAMILY_MAX_INSTANCES, FAMILY_POS, FAMILY_WEIGHT, GATE_TORCH_PCT, GOBLINS, GRID, IMPS,
+  BUDGET, CROWD, CURSES, CYCLE, DARK, ENTRANCE_CLEAR, FAMILIES, FAMILY_POS, FAMILY_WEIGHT, GATE_TORCH_PCT, GOBLINS, GRID, IMPS,
   ITEM_RULE, ITEM_WEIGHT, MAX_TIER, MECHANISMS, PITS, PLACE_TRIES, RETRY_CAP, ROOM1_ENEMY_GAP, ROOMS, SKELETONS, SLACK, SPIKES,
   TIERS, TILES_PER_INSTANCE, TRAP_MAX, TRAPS, WARDEN_POS, type Curse, type Family, type Item, type Tier,
 } from './content';
@@ -14,7 +14,8 @@ export type Trap = { zone: number; kind: 'spikes' | 'dart' | 'stairs' };
 export type Mods = { curses: readonly Curse[]; deaths: readonly number[]; topFamily: Family | null; traps: readonly Trap[] };
 export const NO_MODS: Mods = { curses: [], deaths: [0, 0, 0, 0, 0, 0, 0, 0, 0], topFamily: null, traps: [] };
 export type SafePath = { burn: number; log: readonly Action[] };
-export type Generated = { floor: Floor; rooms: readonly Rect[]; showcase: readonly Family[]; rejected: number; safe: SafePath };
+/** `bought`: instances purchased per family (the hazard census). */
+export type Generated = { floor: Floor; rooms: readonly Rect[]; showcase: readonly Family[]; bought: Partial<Record<Family, number>>; rejected: number; safe: SafePath };
 
 const COSTS: Record<Family, Record<Tier, { cost: number }>> = {
   spikes: SPIKES, goblins: GOBLINS, imps: IMPS, mechanisms: MECHANISMS, skeletons: SKELETONS, pits: PITS, dark: DARK,
@@ -267,7 +268,9 @@ function attempt(depth: number, seed: number, mods: Mods): Omit<Generated, 'reje
 
   // Placement rules shared by every instance.
   const free = (p: Pos) => at(p) === '.' && !same(p, entrance) && !inside(room1, p) && dist(p, entrance) > ENTRANCE_CLEAR;
-  const foeOk = (p: Pos) => free(p) && toRoom(p, room1) >= ROOM1_ENEMY_GAP;
+  // Room 1 stays beyond every wake range, including a Light Sleepers curse's longer one.
+  const wakeBonus = mods.curses.reduce((v, c) => v + CURSES[c].wakeDelta, 0);
+  const foeOk = (p: Pos) => free(p) && toRoom(p, room1) >= ROOM1_ENEMY_GAP + wakeBonus;
   const pickIn = (r: Rect, ok: (p: Pos) => boolean) => {
     const c = cells(r).filter(ok);
     return c[int(c.length)] ?? null;
@@ -345,12 +348,12 @@ function attempt(depth: number, seed: number, mods: Mods): Omit<Generated, 'reje
   const filled = new Map<Rect, number>();
   // A room's capacity scales with its zone's crowd weight, so painted deaths move hazards, not just their order.
   const perInstance = TILES_PER_INSTANCE[Math.min(band, TILES_PER_INSTANCE.length - 1)] ?? 4;
-  const capacity = (r: Rect) => Math.max(1, Math.floor((r.w * r.h * (zones[zoneOf(centre(r), side)] ?? CROWD.uniformWeight)) / (perInstance * CROWD.uniformWeight)));
+  const capacity = (r: Rect) => Math.max(1, Math.floor((r.w * r.h * (zones[zoneOf(centre(r), side)] ?? CROWD.uniformWeight) * cursePct(mods, 'budgetPct')) / (perInstance * CROWD.uniformWeight * 100)));
   const buy = (f: Family, r: Rect) => {
     const tier = tiers[f];
     const cost = tier ? COSTS[f][tier].cost : 0;
     const room = filled.get(r) ?? 0;
-    if (!tier || total + cost > budget || (spent[f] ?? 0) + cost > cap || (bought[f] ?? 0) >= (FAMILY_MAX_INSTANCES[f] ?? budget) || room >= capacity(r)) return false;
+    if (!tier || total + cost > budget || (spent[f] ?? 0) + cost > cap || room >= capacity(r)) return false;
     const before = rows;
     if (!place(f, tier, r)) return false;
     if (!routed(rows, entrance, stairs, fixedSpikes)) {
@@ -369,7 +372,7 @@ function attempt(depth: number, seed: number, mods: Mods): Omit<Generated, 'reje
   for (let fails = 0; fails < PLACE_TRIES; ) {
     const options = FAMILIES.filter((f) => {
       const tier = tiers[f];
-      return tier && total + COSTS[f][tier].cost <= budget && (spent[f] ?? 0) + COSTS[f][tier].cost <= cap && (bought[f] ?? 0) < (FAMILY_MAX_INSTANCES[f] ?? budget) && allowed.some(([, fs]) => fs.includes(f));
+      return tier && total + COSTS[f][tier].cost <= budget && (spent[f] ?? 0) + COSTS[f][tier].cost <= cap && allowed.some(([, fs]) => fs.includes(f));
     });
     const f = pickW(options, (x) => Math.floor((FAMILY_WEIGHT[x] * (mods.topFamily === x ? CROWD.topFamilyPct : 100)) / 100));
     if (!f) break;
@@ -405,14 +408,14 @@ function attempt(depth: number, seed: number, mods: Mods): Omit<Generated, 'reje
   put(entrance, '@');
 
   // Torch and fairness gates, on the finished floor.
-  const floor: Floor = { depth, rows, torch: 1, mercy: false, seed, tiers, dark: darkRooms };
+  const floor: Floor = { depth, rows, torch: 1, mercy: false, seed, tiers, dark: darkRooms, ...(mods.curses.length ? { curses: mods.curses } : {}) };
   const safe = safePath(floor);
   if (!safe) return null;
   const slack = Math.max(SLACK.minPct, SLACK.startPct - SLACK.perDepthPct * depth) + SLACK.perRoomPct * (rooms.length - ROOMS.base);
   const torch = Math.max(ceilDiv(safe.burn * slack * cursePct(mods, 'torchPct'), 100 * 100), ceilDiv(safe.burn * 100, GATE_TORCH_PCT));
   const done: Floor = { ...floor, torch };
   if (safe.burn * 100 > GATE_TORCH_PCT * torch || !verified(done, safe.log) || !strandFree(done)) return null;
-  const run = bot(done, 100, seed).state;
+  const run = bot(done, 100, seed, 'map').state; // gate 3 is a proof: the bot plays with the map
   if (run.ended?.kind !== 'won' || run.hearts < 1) return null;
-  return { floor: done, rooms, showcase: fresh, safe };
+  return { floor: done, rooms, showcase: fresh, bought, safe };
 }

@@ -203,6 +203,8 @@ export class DescentScene extends Phaser.Scene {
       a.ox = look.dx;
       a.oy = look.dy;
       a.img.setVisible(vis[e.y * w + e.x] === 2);
+      // A pile is floor (rule 6): it lies under whoever stands on it.
+      a.img.setDepth(depth(e.y, e.mode === 'pile' ? 3 : 5));
       if (e.mode !== 'pile' && e.x !== state.pos.x) a.img.setFlipX(state.pos.x < e.x);
       this.digits.get(e.id)?.destroy();
       this.digits.delete(e.id);

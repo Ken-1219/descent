@@ -1,4 +1,6 @@
 import {
+  CURSE_MIN_RADIUS,
+  CURSES,
   DARK,
   GOBLIN_HP,
   GOBLINS,
@@ -18,6 +20,7 @@ import {
   TORCH_OUT_RADIUS,
   TORCH_RADIUS,
   TRAPS,
+  type Curse,
   type Family,
   type Item,
   type Tier,
@@ -37,6 +40,8 @@ export type Floor = {
   seed?: number;
   tiers?: Partial<Record<Family, Tier>>;
   dark?: readonly Rect[];
+  /** Active curses (the crowd's vote); content.ts holds what each one changes. */
+  curses?: readonly Curse[];
 };
 export type Kind = 'goblin' | 'imp' | 'skeleton';
 export type Mode = 'idle' | 'alert' | 'chase' | 'windup' | 'pile';
@@ -101,6 +106,8 @@ type Hit = { amount: number; cause: string; at: Pos };
 const ITEM_AT: Record<string, Item> = { p: 'potion', l: 'oil', b: 'bomb' };
 const ITEM_CHAR: Record<Item, string> = { potion: 'p', oil: 'l', bomb: 'b' };
 export const tierOf = (s: { floor: Floor }, f: Family): Tier => s.floor.tiers?.[f] ?? 1;
+/** The summed effect of the floor's curses on one number. */
+export const curse = (f: Floor, key: 'radiusDelta' | 'wakeDelta' | 'heartsDelta'): number => (f.curses ?? []).reduce((v, c) => v + CURSES[c][key], 0);
 const inside = (r: Rect, p: Pos): boolean => p.x >= r.x && p.x < r.x + r.w && p.y >= r.y && p.y < r.y + r.h;
 
 
@@ -123,7 +130,8 @@ function darkRoom(s: State, p: Pos): Rect | undefined {
 export function lightRadius(state: State): number {
   if (state.torch <= 0) return TORCH_OUT_RADIUS;
   if (darkRoom(state, state.pos)) return DARK[tierOf(state, 'dark')].radius;
-  return state.torch * 100 <= state.floor.torch * TORCH_LOW_PCT ? TORCH_LOW_RADIUS : TORCH_RADIUS;
+  const base = state.torch * 100 <= state.floor.torch * TORCH_LOW_PCT ? TORCH_LOW_RADIUS : TORCH_RADIUS;
+  return Math.max(Math.min(base, CURSE_MIN_RADIUS), base + curse(state.floor, 'radiusDelta'));
 }
 
 function lit(state: State): number[] {
@@ -167,7 +175,7 @@ export function start(floor: Floor): State {
   const buried = SPIKES[floor.tiers?.spikes ?? 1].buried;
   const tiles = floor.rows.map((row) => row.replace(/[@giK]/g, '.').replace(/\^/g, buried ? 'u' : '^'));
   return withSeen({
-    floor, tiles, pos, hearts: HEARTS, torch: floor.torch, turn: 0, hasKey: false, item: null, seen: [], enemies,
+    floor, tiles, pos, hearts: HEARTS + curse(floor, 'heartsDelta'), torch: floor.torch, turn: 0, hasKey: false, item: null, seen: [], enemies,
     clocks: [], rng: (floor.seed ?? 0) >>> 0, nextId: enemies.length, darkTurns: 0, ended: null,
   });
 }
@@ -184,7 +192,8 @@ export function step(state: State, action: Action): { state: State; events: Even
   const hits: Hit[] = [];
   const from = state.pos;
   const put = (p: Pos, c: string) => (d.tiles = setTile(d.tiles, p.x, p.y, c));
-  const enemyAt = (p: Pos) => d.enemies.find((e) => same(e, p));
+  // A bone pile is floor for everyone (rule 6): only standing enemies block, take blows or stop darts.
+  const enemyAt = (p: Pos) => d.enemies.find((e) => e.mode !== 'pile' && same(e, p));
   const free = (p: Pos) => !same(d.pos, p) && !enemyAt(p);
   const kill = (e: Enemy) => {
     d.enemies = d.enemies.filter((o) => o.id !== e.id);
@@ -248,8 +257,7 @@ export function step(state: State, action: Action): { state: State; events: Even
     const target = enemyAt(to);
     if (target) {
       events.push({ t: 'attack', id: target.id, at: to });
-      if (target.mode === 'pile') target.timer = SKELETONS[tierOf(d, 'skeletons')].rebuild + 1;
-      else if (target.kind === 'skeleton') collapse(target);
+      if (target.kind === 'skeleton') collapse(target);
       else if (--target.hp <= 0) kill(target);
     } else if (c === 'D') {
       if (!d.hasKey) return { state, events: [{ t: 'locked', at: to }] };
@@ -401,7 +409,7 @@ export function step(state: State, action: Action): { state: State; events: Even
       // The dive follows the marked line and overshoots: anyone on it is hit; it lands on the last free tile.
       let end: Pos = { x: e.x, y: e.y }, prev = end;
       for (const p of e.aim) {
-        if (blocks(tileAt(d.tiles, p.x, p.y)) || d.enemies.some((o) => o.id !== e.id && same(o, p))) break;
+        if (blocks(tileAt(d.tiles, p.x, p.y)) || enemyAt(p)) break;
         if (same(p, d.pos)) hits.push({ amount: 1, cause: 'imp', at: p });
         prev = end;
         end = p;
@@ -416,10 +424,10 @@ export function step(state: State, action: Action): { state: State; events: Even
   const wakes = (e: Enemy): boolean => {
     if (e.kind === 'imp') {
       const t = IMPS[tierOf(d, 'imps')];
-      return t.wake === 'light' ? litNow[e.y * w + e.x] === 1 : dist(e, d.pos) <= t.wakeDist;
+      return t.wake === 'light' ? litNow[e.y * w + e.x] === 1 : dist(e, d.pos) <= t.wakeDist + curse(d.floor, 'wakeDelta');
     }
     const sight = e.kind === 'goblin' ? GOBLINS[tierOf(d, 'goblins')].sight : SKELETONS[tierOf(d, 'skeletons')].sight;
-    return dist(e, d.pos) <= sight && lineOfSight(d.tiles, e, d.pos);
+    return dist(e, d.pos) <= sight + curse(d.floor, 'wakeDelta') && lineOfSight(d.tiles, e, d.pos);
   };
   const packWakes = (e: Enemy) => (e.kind === 'goblin' ? GOBLINS[tierOf(d, 'goblins')].packWake : e.kind === 'imp' && IMPS[tierOf(d, 'imps')].packWake);
 
@@ -491,7 +499,9 @@ export function step(state: State, action: Action): { state: State; events: Even
     const e = d.enemies.find((o) => o.id === id);
     if (!e || woke.includes(id)) continue;
     if (e.mode === 'pile') {
-      if (--e.timer <= 0) {
+      // At 0 it gets up, but not under someone: like a gate (rule 10) it waits for the first turn its tile is empty.
+      e.timer = Math.max(0, e.timer - 1);
+      if (e.timer === 0 && free(e)) {
         e.mode = 'chase';
         events.push({ t: 'rebuild', id });
       }
@@ -555,7 +565,7 @@ function landing(d: State, pit: Pos): Pos {
   d.tiles.forEach((row, y) => {
     for (let x = 0; x < row.length; x++) {
       const p = { x, y };
-      if (dist(p, pit) > PIT_DROP || !safe(row[x] ?? '#') || d.enemies.some((e) => same(e, p)) || score(p) < 0) continue;
+      if (dist(p, pit) > PIT_DROP || !safe(row[x] ?? '#') || d.enemies.some((e) => e.mode !== 'pile' && same(e, p)) || score(p) < 0) continue;
       if (!best || score(p) < score(best)) best = p;
     }
   });
@@ -594,7 +604,7 @@ export function tells(s: State): Tell[] {
   for (const e of s.enemies) {
     const at = (kind: TellKind, cause: string) => out.push({ kind, x: e.x, y: e.y, cause });
     if (e.mode === 'alert') at('alert', e.kind);
-    if (e.mode === 'pile' && e.timer === 1) at('rebuild', 'skeleton');
+    if (e.mode === 'pile' && e.timer <= 1) at('rebuild', 'skeleton');
     if (e.kind === 'goblin' && starve && e.mode !== 'idle' && (s.turn + 1) % starve === 0) at('hungry', 'goblin');
     if (e.mode === 'windup') {
       const cause = e.kind === 'skeleton' && SKELETONS[tierOf(s, 'skeletons')].range ? 'arrow' : e.kind;

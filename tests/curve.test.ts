@@ -15,11 +15,17 @@ test('win-rate curve at skill 60 on two seed lists', { timeout: 60_000 }, () => 
   const a = curve(1);
   const b = curve(1001);
   console.log(`depth  ${a.map((_, i) => String(i + 1).padStart(3)).join('')}\nlist A ${a.map((v) => String(v).padStart(3)).join('')}\nlist B ${b.map((v) => String(v).padStart(3)).join('')}`);
-  // What holds today (the §8 targets of ~80% → ~35% do not yet; see the Phase 5 report):
-  expect(a[0]).toBeGreaterThanOrEqual(70); // depth 1 is gentle
-  expect(Math.min(...a, ...b)).toBeGreaterThanOrEqual(25); // never under 25%
-  const early = (c: number[]) => c.slice(0, 7).reduce((x, y) => x + y, 0) / 7;
-  const late = (c: number[]) => c.slice(21).reduce((x, y) => x + y, 0) / 7;
-  expect(late(a)).toBeLessThan(early(a)); // the last band is harder than the first
-  expect(late(b)).toBeLessThan(early(b));
+  // §8 target: a straight line from ~80% at depth 1 to ~35% at 28. Fifty seeds can't judge single depths (SE ~7 points),
+  // so the slope is judged on band averages: floors 1–21 within 10 points of the line's band means (75, 63, 52); from 22 on
+  // it keeps falling and never goes under 25%.
+  const bands = (c: number[]) => [0, 1, 2, 3].map((k) => c.slice(7 * k, 7 * k + 7).reduce((x, y) => x + y, 0) / 7);
+  console.log(`bands A ${bands(a).map(Math.round).join(' / ')} · B ${bands(b).map(Math.round).join(' / ')} (target 75 / 63 / 52 / 40)`);
+  for (const c of [a, b]) {
+    const [b0 = 0, b1 = 0, b2 = 0, b3 = 0] = bands(c);
+    expect(Math.abs(b0 - 75)).toBeLessThanOrEqual(10);
+    expect(Math.abs(b1 - 63)).toBeLessThanOrEqual(10);
+    expect(Math.abs(b2 - 52)).toBeLessThanOrEqual(10);
+    expect(b3).toBeLessThan(b2);
+    expect(Math.min(...c)).toBeGreaterThanOrEqual(25);
+  }
 });

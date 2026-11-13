@@ -319,8 +319,10 @@ Trapsetter options, always available to survivors: spikes, dart slit, false stai
 | Rooms | `4 + min(band, 5)` | 4 | 5 | 6 | 7 | 7 |
 
 - Instance cost by tier: 1, 2, 3, 5. Enemies cost one more. No family takes over 40% of the budget.
+  *Phase 5:* each tier cell's cost is set in `content.ts` from its measured lethality (one point per 5 hearts lost per 100 instances by the skill-60 bot, clamped 1–8); budget `8 + 4·min(depth, 35)`; family cap 30%.
 - `torch = ceil(shortestPath × slack)`, so the torch is fair by construction on any layout.
-- Hearts stay at 3 on every floor.
+  *Phase 5:* the torch comes from the zero-damage path's burn (turns, waits, dark rooms at 2), not the geometric shortest path; slack is `max(160%, 250% − 2%·depth)`.
+- Hearts start at 3 on every floor (2 under the Frail curse); a potion never takes them above 3.
 
 ### Rule decisions (Phase 3; later phases must not contradict)
 
@@ -334,7 +336,7 @@ Trapsetter options, always available to survivors: spikes, dart slit, false stai
 3. T1 imps wake within 4 tiles even through walls; T4 imps wake only when your light reaches their tile.
 4. Every dart arms one turn and fires the next. Darts and arrows hit the first creature in their path, enemies included. A Trapsetter slit arms when you step into its line.
 5. Buried spikes surface when you stand next to them, then stay up.
-6. A T1 skeleton walks onto spikes and collapses. Bumping a pile resets its countdown. Piles block movement. A pair's second pile joins the first pile's countdown.
+6. A T1 skeleton walks onto spikes and collapses. A bone pile is floor for everyone: you knock it down, pass, and it gets up behind you. At 0 it rebuilds if its tile is empty, otherwise on the first turn it is (like rule 10). A pair's second pile joins the first pile's countdown. (Amended after Phase 5: piles used to block movement and a bump reset them; that walled off corridors.)
 7. A fall lands on the safe tile within 3 that is nearest the stairs. T2 crumbling floor falls after you step off. A T3 chain cracks under you and falls the next turn.
 8. False stairs cost 1 heart and crumble to floor. All Trapsetter damage has cause `trap`.
 9. A potion at full hearts is still used up. Lamp oil adds 20 turns, capped at the floor's torch. Traps and items cost 0 (outside the budget).
@@ -359,11 +361,21 @@ Trapsetter options, always available to survivors: spikes, dart slit, false stai
 - Player traps: each survivor picks a zone and a type. At most 12 materialise per floor, chosen by seeded shuffle and placed on a seeded valid tile. The rest add weight to their zone.
 - Souls: +1 when your trap hurts someone, +3 when it kills, +1 per Liar vote from a player who died that day. Honour: +1 per Trust vote.
 
+### Curses (the crowd's vote; numbers in `content.ts`)
+
+| Curse | Effect | Win-rate cost (skill 60, floors 1–21) |
+|---|---|---|
+| Short Wick | torch 90% (never below gate 2) | −9 |
+| Overrun | budget and room capacity 140% | −7 |
+| Deep Dark | light radius −1, never below 2; dark rooms keep their own radius | −6 |
+| Light Sleepers | enemies wake 2 tiles further; room-1 safety uses the cursed range | −6 |
+| Frail | start with 2 hearts | −4 |
+
 ### Fairness gates (a failing floor is regenerated with `seed + 1`)
 
 1. A zero-damage path exists, ignoring enemies. Use BFS over (x, y, turn mod cycle length) so breathing traps count.
 2. That path needs at most 70% of the torch.
-3. `bot(skill = 1.0)` finishes with at least one heart.
+3. `bot(skill = 1.0)` finishes with at least one heart. *Phase 5:* this bot plays with the map (fog off, hidden hazards known, gate 1's shunned tiles), because the gate is a proof the floor can be beaten. The curve bot stays blind: it reads only what a player sees.
 
 ### Measuring the curve
 
