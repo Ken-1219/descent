@@ -37,19 +37,17 @@ const heartOutline: Layer = {
 // Placeholders; Phase 2 owns the final bitmaps.
 export const SPRITES: Record<SpriteName, SpriteDef> = {
   hero: {
-    // The Delver: white-hooded cleric, 16×22 like the pack's heroes (the hood rises above the tile).
+    // The Delver: white-hooded cleric, 16×19, the same height as the pack's heroes (19–21 px).
     // Face in hood shadow with two ember eyes, gilt sash, robe shaded away from the torch,
     // torch with a gilt core, ember flame, ember-deep cup and handle, gripped in a bone hand.
     map: [
       '....oooo........',
       '...owwwwoo......',
-      '..owwwwwwwo.....',
       '..owwppwwwwo....',
       '.owwpwwooooo....',
       '.owpwwokkkko....',
       '.owpwokkkkko..o.',
       '.owpwokekkeo.oeo',
-      '.owpwokkkkkooego',
       '.owppwokkkoooggo',
       '.owwppwoooowoeeo',
       '..owwwwwwwwooddo',
@@ -57,7 +55,6 @@ export const SPRITES: Record<SpriteName, SpriteDef> = {
       '.owpwwwwwwpo.odo',
       '.ospwwwwwwpo.odo',
       '.ospwwwwwwpo..o.',
-      '.osspwwwwwpo....',
       '.osspwwwwwpo....',
       '.ossspwwwppo....',
       '..osssspppo.....',
