@@ -4,3 +4,5 @@ dist
 .env
 
 *.md
+docs/
+.claude/
