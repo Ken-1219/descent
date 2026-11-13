@@ -57,6 +57,7 @@ body {
 }
 
 canvas {
+  flex-shrink: 0;
   image-rendering: pixelated;
 }
 

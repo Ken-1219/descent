@@ -23,7 +23,7 @@ Everything in the pipeline is code-drawn: 1-bit bitmaps written as strings, rast
 ## Pipeline rules
 
 - A sprite is up to two layers, each a 16×16 grid of `#`/`.` with one palette token, plus an optional `bg` token fill. Flipping is allowed through draw options; rotation is not.
-- Light levels follow a brightness ladder (ink-0 < ink-1 < ink-2 < stone < pale < bone). `lit` keeps the token. `dim` steps every neutral down one rung, and `remembered` steps down two and drops all colour. Lit floor is stone, dim ink-2, remembered ink-1, unseen ink-0. Walls are always one rung above the floor. (Revised after the gate review.) `edge` is a checkerboard ((x+y) even takes lit, odd takes dim). `unseen` is not drawn; the background stays ink-0.
+- Light levels (revised twice at the gate): the floor is flagstones, ink-2 slabs with ink-1 grooves. In dim light the slabs drop to ink-1 and the grooves vanish, so the torch's pool is the only place the stone shows. Walls are ink-2 bricks with ink-0 grooves that survive every level, and stone top faces that dim away. No dots or cracks. `dim` drops each neutral one rung; `remembered` also drops all colour.
   - `dim`: bone and pale become stone; stone becomes ink-1, so mortar and cracks survive in shadow; gilt and bile become ink-2; ember becomes ember-deep. Wisp and blood keep their colour, so the dead and danger still read in shadow.
   - `remembered`: ink-1 and ink-2 become ink-1; every other token becomes ink-2.
 - `buildAtlas()` returns `{ canvas, frames: Record<"name@level", {x, y}> }`. In Phase 3, Phaser will take it with `textures.addCanvas` plus frame adds.

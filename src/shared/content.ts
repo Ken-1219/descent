@@ -21,29 +21,29 @@ export type Level = 'lit' | 'dim' | 'edge' | 'remembered';
 
 export const LEVELS: readonly Level[] = ['lit', 'dim', 'edge', 'remembered'];
 
-// Light is a brightness ladder: ink-0 < ink-1 < ink-2 < stone < pale < bone.
-// Dim steps every neutral down one rung; remembered steps down two and drops all colour.
-// The dead (wisp) and danger (blood) keep their colour in dim light.
+// Light: lit keeps every token. Dim drops each neutral one rung (ink-2 > ink-1, stone > ink-2,
+// pale and bone > stone); remembered also drops all colour. The dead (wisp) and danger (blood)
+// keep their colour in dim light.
 export const LIGHT: Record<'dim' | 'remembered', Record<Token, Token>> = {
   dim: {
     'ink-0': 'ink-0',
-    'ink-1': 'ink-0',
+    'ink-1': 'ink-1',
     'ink-2': 'ink-1',
     stone: 'ink-2',
     pale: 'stone',
-    bone: 'pale',
+    bone: 'stone',
     ember: 'ember-deep',
     'ember-deep': 'ember-deep',
     wisp: 'wisp',
     blood: 'blood',
-    gilt: 'pale',
+    gilt: 'stone',
     bile: 'stone',
   },
   remembered: {
     'ink-0': 'ink-0',
-    'ink-1': 'ink-0',
-    'ink-2': 'ink-0',
-    stone: 'ink-1',
+    'ink-1': 'ink-1',
+    'ink-2': 'ink-1',
+    stone: 'ink-2',
     pale: 'ink-2',
     bone: 'ink-2',
     ember: 'ink-2',
