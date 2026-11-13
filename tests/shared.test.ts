@@ -1,6 +1,7 @@
 import { test, expect } from 'vitest';
 import { LIGHT, PALETTE, type Token } from '../src/shared/content';
-import { ANIMS, PACK, SPRITES, contrast, frameAt, tokenAt, type Anim, type SpriteDef } from '../src/client/sprites';
+import { SPRITES, type SpriteDef } from '../src/client/art';
+import { ANIMS, PACK, contrast, frameAt, tokenAt, type Anim } from '../src/client/sprites';
 
 const tokens = Object.keys(PALETTE);
 const isToken = (t: string): t is Token => tokens.includes(t);

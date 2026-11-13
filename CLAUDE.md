@@ -20,11 +20,11 @@ Read PLAN.md first. Do one phase per session, then stop at its gate.
 - The phase report lists every assumption made, so I can change any of them later.
 - You are allowed to run npm commands, (preferred use bun, if it supports)
 - Always pick the best option available which is best in architecture wise as well as developer wise.
-- Superpowers may write only inside docs/superpowers/. Where Superpowers and Ponytail disagree, Ponytail and the file whitelist win.
+- Superpowers may write only inside docs/superpowers/. Where Superpowers and Ponytail disagree, Ponytail and the file map win.
 - Tests first for src/shared and src/server. Visual work (sprites, CSS, screens) is verified by the Playwright check loop instead.
 - Work on the main branch, one commit per phase. No git worktrees.
 - Ponytail full mode. Run /ponytail-review before each phase commit.
-- Files: only those in PLAN.md §5. A new file needs a one-line "file request" approved by the user.
+- Files: PLAN.md §5 is the file map, not a hard whitelist. Create a new file when its code is independent of every existing file, or when a file passes about 600 lines and has a part that can move out cleanly. Add each new file to §5 with a one-line purpose and list it in the phase report. No approval needed; the Never rules (no utils/helpers/types folders, barrels or one-function files) still apply.
 - Game rules live only in src/shared. The client draws, the server judges.
 - No Math.random, Date, floats, or unordered iteration in src/shared.
 - Every tuning number lives in src/shared/content.ts.
@@ -39,7 +39,7 @@ Read PLAN.md first. Do one phase per session, then stop at its gate.
 - Installed and approved: ponytail, superpowers, frontend-design, Playwright MCP (desktop and mobile).
 - You may install another plugin from the claude-plugins-official marketplace without asking, if it helps avoid generic design or improves animation. Name it and say why in the phase report. It takes effect from the next session.
 - Never install a plugin from any other marketplace or GitHub repo. Propose it in the phase report with its link and what it would add.
-- No plugin overrides PLAN.md §6 (Torchlit Ink), §15, or the file whitelist.
+- No plugin overrides PLAN.md §6 (Torchlit Ink), §15, or the file map.
 - frontend-design applies to DOM screens only (splash, HUD, end screens, Lab). It must not add frameworks, fonts beyond the two chosen, gradients, or new colours.
 - Animation uses Phaser tweens and CSS steps() only. No animation libraries.
 

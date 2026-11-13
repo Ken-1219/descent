@@ -14,7 +14,7 @@ Descent ships in 13 gated phases (0–12). Each phase ends with something visibl
   3. Screenshots are saved in `shots/phase-N/`.
   4. The report lists the exact URL(s) for you to open.
   5. `/ponytail-review` ran on the diff; its delete list is applied or answered.
-  6. No file exists outside the map in §5.
+  6. Every file is listed in the §5 map with a one-line purpose.
   7. The phase report is 15 lines or fewer: built, verified, deviations, questions.
 - Claude Code never starts the next phase unprompted. Ideas outside the phase go in a "Later" list at the bottom of this file, one line each.
 
@@ -86,7 +86,7 @@ The Redis, scheduler and test facts came from mirrored copies of Reddit's docs. 
 - The ladder: does it need to exist, does the codebase have it, the standard library, the native platform, an installed dependency, can it be one line, and only then minimum new code.
 - Before each phase commit, run `/ponytail-review` on the diff; it returns a read-only delete list.
 - Mark deliberate shortcuts with a `// ponytail:` comment naming the ceiling and the upgrade trigger. Run `/ponytail-debt` in Phase 11.
-- Ponytail is a nudge, not a guarantee: an independent 80-task test measured about 15% less code against an advertised 54%. The file whitelist in §5 is the hard control.
+- Ponytail is a nudge, not a guarantee: an independent 80-task test measured about 15% less code against an advertised 54%. The file map in §5 and its split rule are the control.
 
 The ladder applied to Descent:
 
@@ -108,7 +108,7 @@ Read PLAN.md first. Do one phase per session, then stop at its gate.
 
 ## Always
 - Ponytail full mode. Run /ponytail-review before each phase commit.
-- Files: only those in PLAN.md §5. A new file needs a one-line "file request" approved by the user.
+- Files: PLAN.md §5 is the file map, not a hard whitelist. Create a new file when its code is independent of every existing file, or when a file passes about 600 lines and has a part that can move out cleanly. Add each new file to §5 with a one-line purpose and list it in the phase report. No approval needed; the Never rules (no utils/helpers/types folders, barrels or one-function files) still apply.
 - Game rules live only in src/shared. The client draws, the server judges.
 - No Math.random, Date, floats, or unordered iteration in src/shared.
 - Every tuning number lives in src/shared/content.ts.
@@ -130,7 +130,7 @@ Read PLAN.md first. Do one phase per session, then stop at its gate.
 - Turn order is fixed: player acts → mechanisms tick → enemies act in id order → torch −1 → damage resolves → end check.
 - `step(state, action)` returns events for the view. The Phaser scene never decides a rule.
 
-## 5. File map (whitelist)
+## 5. File map
 
 ```
 PLAN.md  CLAUDE.md  README.md  devvit.json
@@ -146,7 +146,8 @@ src/client/
   game.html    game.ts      boot, screen router, input, net, debug hook
   scene.ts                  the one Phaser scene
   ui.ts                     DOM screens and HUD
-  sprites.ts                code-drawn layers, atlas frame map, tints
+  sprites.ts                pixel-map rendering, light levels, pack frames and grading, ANIMS + frameAt
+  art.ts                    pixel art drawn for Descent: hero, wisp, wall torch, death frames, UI icons
   style.css                 tokens and all UI CSS
   local.ts                  LOCAL ONLY: fake endpoints on localStorage, fixtures, advanceDay
   lab.html     lab.ts       LOCAL ONLY: Design Lab
@@ -162,7 +163,7 @@ docs/superpowers/           per-phase specs and plans written by Superpowers
 ```
 
 - Adapt names to what the template already has; never duplicate a template file.
-- Split a file only when it passes about 600 lines and has a natural seam. Report the split as a file request.
+- New files: create one when its code is independent of existing files, or when a file passes about 600 lines and has a part that can move out cleanly. Add it to this map and name it in the phase report. No approval needed.
 - `local.ts`, `lab.html` and `lab.ts` are not Devvit entrypoints and must not appear in the production bundle. Verify this in Phase 0.
 
 ## 6. Design direction: "Torchlit Ink"
