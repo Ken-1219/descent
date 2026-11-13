@@ -77,6 +77,7 @@ export class DescentScene extends Phaser.Scene {
     const ownTex = this.textures.addCanvas('own', atlas.canvas);
     for (const [name, f] of Object.entries(atlas.frames)) ownTex?.add(name, 0, f.x, f.y, TILE, TILE * 2);
     this.build(this.state);
+    this.scale.on('resize', () => this.frame());
     this.resolveReady();
   }
 
@@ -123,10 +124,18 @@ export class DescentScene extends Phaser.Scene {
     this.glow = this.textures.createCanvas('glow', w * TILE, state.tiles.length * TILE);
     this.add.image(0, 0, 'glow').setOrigin(0, 0).setDepth(1999); // under the fog: light never shows what you can't see
     this.glowAt = '';
-    const cam = this.cameras.main;
-    cam.setBounds(0, 0, w * TILE, state.tiles.length * TILE);
-    cam.startFollow(this.hero.img, true);
+    this.frame();
+    this.cameras.main.startFollow(this.hero.img, true);
     this.sync(state);
+  }
+
+  /** Camera bounds: the map, or the view centred on the map when the map is the smaller of the two. */
+  private frame() {
+    const cam = this.cameras.main;
+    const { width: vw, height: vh } = this.scale;
+    const mw = (this.state.tiles[0]?.length ?? 0) * TILE;
+    const mh = this.state.tiles.length * TILE;
+    cam.setBounds(Math.min(0, (mw - vw) / 2), Math.min(0, (mh - vh) / 2), Math.max(mw, vw), Math.max(mh, vh));
   }
 
   private placeProp(c: string, x: number, y: number, i: number) {

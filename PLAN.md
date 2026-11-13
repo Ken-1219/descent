@@ -316,6 +316,11 @@ Trapsetter options, always available to survivors: spikes, dart slit, false stai
 - `torch = ceil(shortestPath × slack)`, so the torch is fair by construction on any layout.
 - Hearts stay at 3 on every floor.
 
+### Rule decisions (Phase 3; later phases must not contradict)
+
+- Torch out: vision shrinks to 1 tile and you lose 1 heart every 2 turns in the dark.
+- Bumping a wall or a locked door costs no turn and no torch.
+
 ### Floor shape
 
 1. Room 1 is always safe.
@@ -648,7 +653,7 @@ These apply to every phase. Each rule is written so Claude Code can check it. A 
 | Splash JavaScript | under 60 KB gzipped, no Phaser | build output size |
 | Splash interactive | under 1 s at 4× CPU throttle | `performance.mark('descent:splash')` |
 | Game interactive | under 3 s at 4× CPU throttle | `performance.mark('descent:interactive')` |
-| Game total transfer | under 1.5 MB | sum of `browser_network_requests` |
+| Game total transfer | under 1.5 MB, gzipped | sum of `browser_network_requests`, measured gzipped; every report records both raw and gzipped |
 | Atlas | one PNG under 100 KB | file size |
 | Fonts | two woff2 files, preloaded, under 60 KB together | file size |
 | Input to motion | under 50 ms | timestamp in the debug hook |

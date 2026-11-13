@@ -15,9 +15,8 @@ const stage = $('stage');
 const end = $('end');
 const pad = $('controls');
 
-// The map view targets 11×9 tiles at the largest integer zoom (2–4) that fits.
-const VIEW_W = 11;
-const VIEW_H = 9;
+// The map view keeps at least 9×9 tiles at the largest integer zoom (2–4), then fills the stage with whole tiles.
+const MIN_TILES = 9;
 const SWIPE_PX = 24;
 const REPEAT_DELAY_MS = 300;
 const REPEAT_MS = 200;
@@ -38,9 +37,9 @@ view();
 const fit = () => {
   const w = stage.clientWidth;
   const h = stage.clientHeight;
-  const zoom = Math.max(2, Math.min(4, Math.floor(Math.min(w / (VIEW_W * TILE), h / (VIEW_H * TILE)))));
-  const cols = Math.max(1, Math.min(state.tiles[0]?.length ?? 1, Math.floor(w / (TILE * zoom))));
-  const rows = Math.max(1, Math.min(state.tiles.length, Math.floor(h / (TILE * zoom))));
+  const zoom = Math.max(2, Math.min(4, Math.floor(Math.min(w, h) / (MIN_TILES * TILE))));
+  const cols = Math.max(1, Math.floor(w / (TILE * zoom)));
+  const rows = Math.max(1, Math.floor(h / (TILE * zoom)));
   return { width: cols * TILE, height: rows * TILE, zoom };
 };
 
