@@ -321,5 +321,35 @@ async (page) => {
     }
   }
 
+  // 11. Phase 5: Depth tab renders without errors; painting deaths regenerates floors; ?depth=&seed= opens that floor
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const p = await ctx.newPage();
+    const labErrs = [];
+    p.on('pageerror', (e) => labErrs.push(String(e)));
+    p.on('console', (m) => { if (m.type() === 'error') labErrs.push(m.text()); });
+    await p.goto('http://localhost:5190/lab.html#depth');
+    await p.waitForSelector('.depth__compare canvas', { timeout: 20000 });
+    const floors = await p.locator('.depth__compare canvas').count();
+    const cols = await p.evaluate(() => getComputedStyle(document.querySelector('.depth__compare')).gridTemplateColumns.split(' ').length);
+    check('Depth tab: six comparison floors in two rows of three at 1x', floors === 6 && cols === 3 && (await p.evaluate(() => [...document.querySelectorAll('.depth__compare canvas')].every((c) => c.getBoundingClientRect().width === c.width))), `${floors} floors, ${cols} columns`);
+    const labels = () => p.evaluate(() => [...document.querySelectorAll('.depth__compare canvas')].map((c) => c.getAttribute('aria-label')).join('|'));
+    const before = await labels();
+    for (let i = 0; i < 3; i++) await p.locator('.compass .btn').nth(8).click();
+    check('painting deaths in a zone regenerates the floors', (await labels()) !== before, '');
+    await p.locator('input[aria-label="Depth"]').fill('22');
+    await p.waitForTimeout(200);
+    check('the depth slider redraws the big floor', (await p.locator('.depth__big').getAttribute('data-depth')) === '22', '');
+    check('Depth tab has no console errors', labErrs.length === 0, labErrs.join(' | '));
+    await ctx.close();
+    const g = await open();
+    await g.p.goto(`${URL}?depth=15&seed=123`);
+    await g.p.waitForFunction(() => window.__descent);
+    await g.p.evaluate(() => window.__descent.ready);
+    const st = await S(g.p);
+    check('game.html?depth=15&seed=123 opens that generated floor', st.floor === 15 && !st.ended, `floor ${st.floor} torch ${st.torch}`);
+    await g.ctx.close();
+  }
+
   return { passed: results.filter((r) => r.pass).length, failed: results.filter((r) => !r.pass), total: results.length, errs, results: results.map((r) => `${r.pass ? 'PASS' : 'FAIL'} ${r.name}${r.detail ? ' — ' + r.detail : ''}`) };
 }

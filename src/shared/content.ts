@@ -170,3 +170,60 @@ export const ITEMS = {
 
 /** Enemies of one kind within this Manhattan distance of each other at the start form a pack (pairs, swarms). */
 export const PACK_RADIUS = 4;
+
+// ---- Phase 5: generator and difficulty (§8). Every number the generator and the curve depend on. ----
+
+/** §8 cycle: a 7-floor band; each family arrives at its position; position 7 is the Warden (Phase 10). */
+export const CYCLE = 7;
+export const MAX_TIER = 4;
+export const WARDEN_POS = 7;
+export const FAMILY_POS: Record<Family, number> = { spikes: 1, goblins: 1, imps: 2, mechanisms: 3, skeletons: 4, pits: 5, dark: 6 };
+
+/** Grid side 15 + 2·min(band, 5); rooms 4 + min(band, 5). Rooms are BSP leaves of at least `minLeaf`, interiors at least `minRoom`. */
+export const GRID = { base: 15, step: 2, maxBand: 5 };
+export const ROOMS = { base: 4, maxBand: 5, minLeaf: 6, minRoom: 3, loops: 1 };
+
+/** Budget 8 + 4·min(depth, 35) (§8 started at 3 per depth; Phase 5 tuning); no family may take more than 30% of it (§8 allows up to 40%; 30 keeps a showcase family from flooding the floor). */
+export const BUDGET = { base: 8, step: 4, capDepth: 35, familyCapPct: 30 };
+/** Purchase weight per family (×10). */
+export const FAMILY_WEIGHT: Record<Family, number> = { spikes: 10, goblins: 10, imps: 10, mechanisms: 8, skeletons: 2, pits: 10, dark: 6 };
+
+/**
+ * Torch = ceil(burn of the zero-damage path × slack), slack = max(min, start − perDepth·depth) + perRoom per room beyond 4.
+ * §8 began at 230% falling to 150%, which assumes a known map. A first visit costs the careful bot 1.7–2.7× the safe path
+ * (median) and up to ~4× (p75 on 9-room floors), so slack covers exploration and grows with the room count (Phase 5 tuning).
+ * Gate 2: the safe path's burn ≤ 70% of the torch.
+ */
+export const SLACK = { startPct: 300, perDepthPct: 0, minPct: 300, perRoomPct: 15 };
+export const GATE_TORCH_PCT = 70;
+
+/** Compass zones ranked by yesterday's deaths: weights ×10. Zones with no deaths 6; no deaths anywhere: uniform. */
+export const CROWD = { rankWeights: [22, 16, 12], otherWeight: 8, emptyWeight: 6, uniformWeight: 10, topFamilyPct: 150, overflowTrapWeight: 2 };
+export const TRAP_MAX = 12;
+
+/** Floor shape: enemies stay beyond every wake range (4) of each room-1 tile; no hazard within 2 tiles of the entrance. */
+export const ROOM1_ENEMY_GAP = 5;
+export const ENTRANCE_CLEAR = 2;
+
+/** Items per floor: 1, plus one more every 2 bands, at most 3. Kind by weight. */
+export const ITEM_RULE = { base: 1, bandStep: 2, max: 3 };
+export const ITEM_WEIGHT: Record<Item, number> = { potion: 3, oil: 2, bomb: 1 };
+
+/** A floor failing a fairness gate is retried with seed + 1, at most this many times; hitting the cap is a generator bug. */
+export const RETRY_CAP = 25;
+
+/** Curses (the mods mechanism). Two for now; percentages apply to the torch and the budget. The torch never drops below gate 2. */
+export const CURSES = {
+  'short-wick': { torchPct: 80, budgetPct: 100 },
+  crowded: { torchPct: 100, budgetPct: 125 },
+} as const satisfies Record<string, { torchPct: number; budgetPct: number }>;
+export type Curse = keyof typeof CURSES;
+
+/** The bot never plays longer than this many actions (bumps included). */
+export const BOT_MAX_ACTIONS = 600;
+/** Budget spending stops after this many failed placements in a row (the floor is full). */
+export const PLACE_TRIES = 24;
+/** A room holds at most one instance per this many floor tiles (at least one), by band: floors fill up as you descend. */
+export const TILES_PER_INSTANCE = [10, 8, 6, 5, 5, 5];
+/** Most instances of a family per floor. Skeletons: bone piles block movement (rule 6), so several can wall off a corridor for good. */
+export const FAMILY_MAX_INSTANCES: Partial<Record<Family, number>> = { skeletons: 1 };

@@ -3,7 +3,7 @@ import * as Phaser from 'phaser';
 import { PALETTE, TILE, type Token } from '../shared/content';
 import { lightRadius, visibility, type Event, type State } from '../shared/sim';
 import {
-  ANIMS, PACK, buildAtlas, links, choreograph, enemyLook, floorTile, frameAt, HURT, loadPack, marks, px, py, rgba, RUN, shine, tileLook,
+  ANIMS, PACK, buildAtlas, links, choreograph, enemyLook, frameAt, HURT, loadPack, marks, px, py, rgba, RUN, shine, tileLook,
   type Anim, type Frame, type Key, type Light, type Streak,
 } from './sprites';
 
@@ -125,7 +125,7 @@ export class DescentScene extends Phaser.Scene {
           }
           return;
         }
-        this.add.image(px(x), py(y), 'pack', floorTile(x, y)).setOrigin(0.5, 1).setDepth(0);
+        this.add.image(px(x), py(y), 'pack', 'floor').setOrigin(0.5, 1).setDepth(0);
       }),
     );
     this.hero = this.actor(state.pos.x, state.pos.y, 5, ANIMS['hero-idle']);

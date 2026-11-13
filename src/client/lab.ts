@@ -1,9 +1,8 @@
 // LOCAL ONLY: Design Lab. Never a Devvit entrypoint.
-import { FAMILIES, PALETTE, TILE, type Token } from '../shared/content';
-import { SCENES, type Scene } from '../shared/scenes';
-import { start, step, visibility, type Event, type State } from '../shared/sim';
+import { PALETTE, TILE, type Token } from '../shared/content';
+import { bestiaryTab, caption, depthTab, figure, section } from './labfloors';
 import {
-  ANIMS, LOCK_MS, choreograph, links, enemyLook, floorTile, HURT, marks, px, py, rgba, shine, tileLook, type Light, buildAtlas, contrast, drawAnim,
+  ANIMS, rgba, shine, type Light, buildAtlas, contrast, drawAnim,
   drawFrame, drawPack, frameAt, iconCanvas, loadPack, type Anim, type Atlas, type PackName,
 } from './sprites';
 import { button, dpad, el, ghostCard, hearts, plate, slot, wick } from './ui';
@@ -12,9 +11,7 @@ const panel = document.getElementById('panel');
 const tabs = document.querySelector('.lab__tabs');
 if (!panel || !tabs) throw new Error('lab.html is missing #panel or .lab__tabs');
 
-const section = (title: string, ...kids: (Node | string)[]) => el('section', '', el('h2', '', title), ...kids);
 const row = (...kids: (Node | string)[]) => el('div', 'lab__row', ...kids);
-const caption = (text: string) => el('p', 'lab__caption', text);
 
 // Mock room: lab data, not game tuning. T wall top, W wall, f wall torch, ^ spikes, c crate, s skull,
 // > stairs, @ hero, * wisp. Light radii are in tiles.
@@ -42,7 +39,7 @@ const mockRoom = (atlas: Atlas, pack: HTMLCanvasElement, canvas: HTMLCanvasEleme
         }
         return;
       }
-      drawPack(ctx, pack, floorTile(x, y), px, py);
+      drawPack(ctx, pack, 'floor', px, py);
       const prop = PROPS[ch];
       if (prop) drawPack(ctx, pack, prop, px, py);
       if (ch === '*') {
@@ -181,7 +178,6 @@ const cellCanvas = (zoom: number) => {
   return c;
 };
 
-const figure = (c: HTMLCanvasElement, label: string) => el('figure', 'legend__cell', c, el('figcaption', '', label));
 
 // The torch flame never loops: shuffled frames with random holds (cosmetic randomness, client only).
 const torchState = new WeakMap<Cell, { frame: number; until: number }>();
@@ -295,228 +291,12 @@ const castTab = () => {
   return [box];
 };
 
-// ---- Bestiary tab: every tier-table cell, Trapsetter trap and item as its scene, looping. ----
-// The scene is the same data the Vitest case replays, drawn with the game's own look() and choreograph().
-
-const TURN_MS = 640; // one turn on screen at 1×: the 120 ms of motion, then a held beat to read the tell
-const END_HOLD_MS = 1400;
-const SLOW = 0.25;
-const UNSEEN = 0.72; // the Lab keeps unseen tiles faintly visible so the room reads; the game hides them
-const REMEMBERED = 0.45;
-
-type Run = { states: State[]; turns: Event[][] };
-const runScene = (sc: Scene): Run => {
-  const states = [start(sc.floor)];
-  const turns: Event[][] = [[]];
-  for (const a of sc.log) {
-    const r = step(states[states.length - 1] ?? states[0] as State, a);
-    states.push(r.state);
-    turns.push(r.events);
-  }
-  return { states, turns };
-};
-
-const isWallChar = (c: string) => '#TSsZz'.includes(c);
-const anyAnim = (f: Anim['frames'][number]): Anim => ({ frames: [f], ms: [1000], loop: true });
-
-/** Draws turn `t` of a run, `elapsed` ms into its motion (scaled by the cell's speed), animations at `now`. */
-const drawTurn = (ctx: CanvasRenderingContext2D, atlas: Atlas, pack: HTMLCanvasElement, run: Run, t: number, elapsed: number, now: number) => {
-  const s = run.states[t];
-  if (!s) return;
-  const prev = run.states[t - 1];
-  const events = run.turns[t] ?? [];
-  const turn = choreograph(events, s);
-  ctx.fillStyle = PALETTE['ink-0'];
-  ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-  s.tiles.forEach((row, y) => [...row].forEach((c, x) => drawPack(ctx, pack, isWallChar(c) ? 'wall' : floorTile(x, y), x * TILE, y * TILE)));
-  s.tiles.forEach((row, y) => [...row].forEach((_, x) => {
-    for (const p of tileLook(s, x, y)) drawAnim(ctx, atlas, pack, p.anim, now, x * TILE, y * TILE);
-  }));
-  for (const m of marks(s)) drawAnim(ctx, atlas, pack, anyAnim(m.frame), 0, m.x * TILE, m.y * TILE);
-  // Actors stand on tile bottoms; a motion key overrides the resting position while it runs.
-  const where = (who: 'hero' | number, x: number, y: number) => {
-    const m = turn.motions.find((o) => o.who === who);
-    const k = m && [...m.keys].reverse().find((o) => o.at <= elapsed);
-    const moving = !!m && elapsed < (m.keys.at(-1)?.at ?? 0) + LOCK_MS / 4;
-    return k ? { x: k.x, y: k.y + k.yo, moving } : { x: px(x), y: py(y), moving: false };
-  };
-  const actors: { y: number; draw: () => void }[] = [];
-  for (const e of s.enemies) {
-    const look = enemyLook(e);
-    const at = where(e.id, e.x, e.y);
-    actors.push({ y: at.y, draw: () => {
-      drawAnim(ctx, atlas, pack, look.anim, now, at.x - TILE / 2 + (at.moving ? 0 : look.dx), at.y - TILE + (at.moving ? 0 : look.dy));
-      if (look.digit) drawFrame(ctx, atlas, look.digit, 'lit', at.x - TILE / 2, at.y - TILE);
-    } });
-  }
-  for (const e of events) {
-    const gone = e.t === 'kill' ? prev?.enemies.find((o) => o.id === e.id) : undefined;
-    if (gone && elapsed < 140) actors.push({ y: py(gone.y), draw: () => drawAnim(ctx, atlas, pack, HURT[gone.kind], elapsed, px(gone.x) - TILE / 2, py(gone.y) - TILE) });
-  }
-  const hero = where('hero', s.pos.x, s.pos.y);
-  const hurt = events.some((e) => e.t === 'hurt');
-  const heroAnim = s.ended?.kind === 'dead' ? ANIMS['hero-death'] : hurt && elapsed < 224 ? ANIMS['hero-hurt'] : ANIMS['hero-idle'];
-  actors.push({ y: hero.y, draw: () => drawAnim(ctx, atlas, pack, heroAnim, heroAnim.loop ? now : elapsed, hero.x - TILE / 2, hero.y - TILE) });
-  actors.sort((a, b) => a.y - b.y);
-  for (const a of actors) a.draw();
-  ctx.fillStyle = PALETTE.bone;
-  for (const dots of links(s)) for (const d of dots) ctx.fillRect(d.x, d.y, 1, 1);
-  for (const st of turn.streaks) {
-    if (elapsed < st.at || elapsed > st.until) continue;
-    const f = Math.min(1, (elapsed - st.at) / ((st.until - st.at) * 0.6));
-    ctx.fillStyle = PALETTE.bone;
-    const [x0, y0] = [px(st.from.x), py(st.from.y) - TILE / 2];
-    const [x1, y1] = [x0 + (px(st.to.x) - x0) * f, y0 + (py(st.to.y) - TILE / 2 - y0) * f];
-    ctx.fillRect(Math.min(x0, x1), Math.min(y0, y1), Math.max(1, Math.abs(x1 - x0)), Math.max(1, Math.abs(y1 - y0)));
-  }
-  const w = s.tiles[0]?.length ?? 0;
-  visibility(s).forEach((v, i) => {
-    if (v === 2) return;
-    ctx.fillStyle = rgba('ink-0', v === 0 ? UNSEEN : REMEMBERED);
-    ctx.fillRect((i % w) * TILE, Math.floor(i / w) * TILE, TILE, TILE);
-  });
-};
-
-type Player = { sc: Scene; run: Run; ctx: CanvasRenderingContext2D; fig: HTMLElement; t: number; elapsed: number; paused: boolean; speed: number; wick: HTMLElement | null; shown: number };
-let players: Player[] = [];
-let bestiaryGen = 0;
-
-const tickBestiary = (atlas: Atlas, pack: HTMLCanvasElement, gen: number, last: number) => {
-  if (gen !== bestiaryGen || !document.body.contains(players[0]?.fig ?? null)) return;
-  const now = performance.now();
-  const dt = Math.min(100, now - last);
-  for (const p of players) {
-    const lastTurn = p.run.states.length - 1;
-    const span = p.t === lastTurn ? END_HOLD_MS : TURN_MS;
-    // Paused cells still finish the current turn's motion, so Step shows the move and then holds.
-    p.elapsed = Math.min(p.paused ? span - 1 : Infinity, p.elapsed + dt * p.speed);
-    if (!p.paused && p.elapsed >= span) {
-      p.t = p.t >= lastTurn ? 0 : p.t + 1;
-      p.elapsed = 0;
-    }
-    p.fig.dataset.turn = String(p.t);
-    // Dark rooms burn the torch: their cells carry the HUD wick, redrawn when the turn changes.
-    const s = p.run.states[p.t];
-    if (p.wick && s && p.shown !== p.t) p.wick.replaceChildren(wick(s.torch, s.floor.torch));
-    p.shown = p.t;
-    drawTurn(p.ctx, atlas, pack, p.run, p.t, p.elapsed, now);
-  }
-  requestAnimationFrame(() => tickBestiary(atlas, pack, gen, now));
-};
-
-const sceneCell = (sc: Scene, zoom: number) => {
-  const w = (sc.floor.rows[0]?.length ?? 0) * TILE;
-  const h = sc.floor.rows.length * TILE;
-  const c = el('canvas');
-  c.width = w;
-  c.height = h;
-  c.style.width = `${w * zoom}px`;
-  c.style.height = `${h * zoom}px`;
-  c.setAttribute('aria-label', `${sc.id}: ${sc.caption}`);
-  const pause = button('Pause');
-  const stepBtn = button('Step');
-  const slow = button('¼×');
-  slow.setAttribute('aria-pressed', 'false');
-  const wickBox = sc.family === 'dark' ? el('div', 'beast__wick') : null;
-  const fig = el('figure', 'beast', c, ...(wickBox ? [wickBox] : []), el('figcaption', 'beast__caption', sc.tier ? `T${sc.tier}. ${sc.caption}` : sc.caption), el('p', 'beast__meta muted', `${sc.id} · cost ${sc.cost} · ${sc.log.length} turns`), el('div', 'beast__controls', pause, stepBtn, slow));
-  fig.dataset.scene = sc.id;
-  const ctx = c.getContext('2d');
-  if (!ctx) return fig;
-  const p: Player = { sc, run: runScene(sc), ctx, fig, t: 0, elapsed: 0, paused: false, speed: 1, wick: wickBox, shown: -1 };
-  const setPaused = (on: boolean) => {
-    p.paused = on;
-    pause.textContent = on ? 'Play' : 'Pause';
-    fig.dataset.paused = String(on);
-  };
-  pause.addEventListener('click', () => setPaused(!p.paused));
-  stepBtn.addEventListener('click', () => {
-    setPaused(true);
-    p.t = p.t >= p.run.states.length - 1 ? 0 : p.t + 1;
-    p.elapsed = 0;
-  });
-  slow.addEventListener('click', () => {
-    p.speed = p.speed === 1 ? SLOW : 1;
-    slow.setAttribute('aria-pressed', String(p.speed !== 1));
-  });
-  setPaused(false);
-  players.push(p);
-  return fig;
-};
-
-// Filmstrips (§15.4): each enemy action and trap cycle, frame by frame, from the same drawTurn().
-const FILMS: [string, string, number, number][] = [
-  ['goblin wind-up and lunge', 'goblins-1', 3, 5],
-  ['goblin double move', 'goblins-4', 2, 3],
-  ['goblin den spawn', 'goblins-3', 5, 6],
-  ['imp flight', 'imps-1', 3, 4],
-  ['imp dive', 'imps-2', 6, 7],
-  ['skeleton collapse and rebuild', 'skeletons-1', 7, 11],
-  ['archer shot', 'skeletons-3', 4, 5],
-  ['breathing spikes', 'spikes-2', 0, 3],
-  ['spike wave', 'spikes-3', 3, 5],
-  ['buried spikes', 'spikes-4', 1, 3],
-  ['dart plate', 'mechanisms-3', 3, 4],
-  ['gate slam', 'mechanisms-2', 4, 5],
-  ['timed gate', 'mechanisms-4', 5, 6],
-  ['crumbling floor', 'pits-2', 3, 4],
-  ['chain falls', 'pits-3', 2, 4],
-  ['hidden pit', 'pits-4', 2, 3],
-  ['brazier', 'dark-4', 7, 8],
-  ['Trapsetter dart', 'trap-dart', 1, 2],
-  ['false stairs', 'trap-stairs', 2, 3],
-  ['bomb', 'item-bomb', 2, 3],
-];
-const FILM_AT = [0, 24, 48, 72, 96, 119];
-
-const film = (name: string, sc: Scene, from: number, to: number, atlas: Atlas, pack: HTMLCanvasElement) => {
-  const run = runScene(sc);
-  const strip = el('div', 'legend');
-  for (let t = from; t <= to; t++) {
-    const moving = choreograph(run.turns[t] ?? [], run.states[t] ?? run.states[0] as State).lock > 0;
-    for (const at of moving ? FILM_AT : [TURN_MS - 1]) {
-      const c = el('canvas');
-      c.width = (sc.floor.rows[0]?.length ?? 0) * TILE;
-      c.height = sc.floor.rows.length * TILE;
-      c.style.width = `${c.width * 2}px`;
-      c.style.height = `${c.height * 2}px`;
-      const ctx = c.getContext('2d');
-      if (ctx) drawTurn(ctx, atlas, pack, run, t, at, 0);
-      strip.append(figure(c, `t${t} +${at} ms`));
-    }
-  }
-  const box = el('div', '', el('h3', 'lab__caption', `${name} (${sc.id})`), strip);
-  box.dataset.film = sc.id;
-  return box;
-};
-
-const bestiaryTab = () => {
-  players = [];
-  const gen = ++bestiaryGen;
-  const box = el('div', '', caption('Loading the pack...'));
-  void loadPack().then((pack) => {
-    const atlas = buildAtlas();
-    const zoom = panel.clientWidth >= 10 * TILE * 2 ? 2 : 1;
-    const byId = (id: string) => SCENES.find((s) => s.id === id);
-    box.replaceChildren(
-      ...FAMILIES.map((f) =>
-        section(f[0]?.toUpperCase() + f.slice(1), el('div', 'bestiary', ...SCENES.filter((s) => s.family === f).map((sc) => sceneCell(sc, zoom)))),
-      ),
-      section('Trapsetter and items', el('div', 'bestiary', ...SCENES.filter((s) => s.family === 'trap' || s.family === 'item').map((sc) => sceneCell(sc, zoom)))),
-      section('Filmstrips', ...FILMS.flatMap(([name, id, a, b]) => {
-        const sc = byId(id);
-        return sc ? [film(name, sc, a, b, atlas, pack)] : [];
-      })),
-    );
-    requestAnimationFrame((t) => tickBestiary(atlas, pack, gen, t));
-  });
-  return [box];
-};
-
 const TABS: [string, string, () => Node[]][] = [
   ['tokens', 'Tokens', tokensTab],
   ['kit', 'Kit', kitTab],
   ['cast', 'Cast', castTab],
   ['bestiary', 'Bestiary', bestiaryTab],
+  ['depth', 'Depth', depthTab],
 ];
 
 const show = () => {

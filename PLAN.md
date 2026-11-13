@@ -139,8 +139,9 @@ src/shared/
   content.ts                palette, obstacle/enemy/item/curse/carving tables, tuning
   rng.ts                    mulberry32, rand (pure step for state-held rng), hash, pick, shuffle
   grid.ts                   tile-grid geometry: what a map char blocks, line of sight, BFS, rays (gen.ts reuses the BFS)
-  gen.ts                    generate(depth, seed, mods), budget, crowd weights, fairness gates
-  sim.ts                    State, step(), tells(), replay(), score(), bot()
+  gen.ts                    tiersFor(), generate(depth, seed, mods), budget, crowd weights, player traps, fairness gates, safePath()
+  bot.ts                    bot(floor, skill, seed): plays from what a player can see (visibility + tells); gate 3 and the curve
+  sim.ts                    State, step(), tells(), replay(), score()
   scenes.ts                 one scene per tier-table cell, trap and item: map, log, expected outcome (tests, Lab, ?scene= in dev only)
   api.ts                    wire types (reuse the template's shared types file if one exists)
 src/client/
@@ -152,7 +153,8 @@ src/client/
   art.ts                    pixel art drawn for Descent: hero, wisp, wall torch, death frames, UI icons
   style.css                 tokens and all UI CSS
   local.ts                  LOCAL ONLY: fake endpoints on localStorage, fixtures, advanceDay
-  lab.html     lab.ts       LOCAL ONLY: Design Lab
+  lab.html     lab.ts       LOCAL ONLY: Design Lab (Tokens, Kit, Cast, tab router)
+  labfloors.ts              LOCAL ONLY: Lab tabs that draw floors: Bestiary and Depth
   assets/                   atlas.png, fonts/*.woff2, fonts/OFL.txt, icon
 src/server/
   index.ts                  Hono routes, thin
@@ -160,6 +162,8 @@ src/server/
   rollover.ts               daily job and mod menu actions
 tests/
   shared.test.ts  server.test.ts
+  gen.test.ts               tiers, determinism, crowd, curses, traps, 2,000-floor gates, generate() timing
+  curve.test.ts             bot win-rate curve on two seed lists (own file so Vitest runs it in parallel)
   play.mcp.js               end-to-end browser check run through the Playwright MCP (rules, input, death, resize)
 shots/                      gitignored
 docs/superpowers/           per-phase specs and plans written by Superpowers

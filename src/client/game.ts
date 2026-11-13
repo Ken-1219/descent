@@ -28,11 +28,15 @@ const KEYS: Record<string, Action> = {
 };
 const isAction = (s: string | undefined): s is Action => ACTIONS.some((a) => a === s);
 
-// Scenes (one per tier-table cell) load in dev builds only: game.html?scene=goblins-2. Production never imports them.
+// Dev builds only: game.html?scene=goblins-2 opens a scene; game.html?depth=15&seed=123 opens a generated floor (§15.2).
+// Production never imports the scenes, the generator or the bot.
 const SCENES = import.meta.env.DEV ? (await import('../shared/scenes')).SCENES : [];
+const GEN = import.meta.env.DEV ? await import('../shared/gen') : null;
 const sceneFloor = (id: string | null) => SCENES.find((s) => s.id === id)?.floor;
+const depthFloor = (depth: number, seed: number) => (GEN && depth > 0 ? GEN.generate(depth, seed).floor : undefined);
 
-let floor: Floor = sceneFloor(new URLSearchParams(location.search).get('scene')) ?? FLOOR_0;
+const params = new URLSearchParams(location.search);
+let floor: Floor = sceneFloor(params.get('scene')) ?? depthFloor(Number(params.get('depth')), Number(params.get('seed') ?? 1)) ?? FLOOR_0;
 let state = start(floor);
 let pack: HTMLCanvasElement | null = null;
 void loadPack().then((p) => {
@@ -194,8 +198,8 @@ type DescentHook = {
   ready: Promise<void>;
   state: () => { pos: Pos; hearts: number; torch: number; turn: number; floor: number; ended: End | null; hasKey: boolean; item: string | null; enemies: { id: number; mode: string; x: number; y: number }[] };
   act: (a: Action) => Promise<void>;
-  /** Floor 0 (with test options) or a scene by id. */
-  load: (depth: number | string, opts?: { mercy?: boolean; torch?: number }) => void;
+  /** Floor 0 (with test options), a scene by id, or a generated floor (depth > 0, opts.seed). */
+  load: (depth: number | string, opts?: { mercy?: boolean; torch?: number; seed?: number }) => void;
   skipAnim: (on: boolean) => void;
   /** Every scene's id and action log, for e2e checks that replay them by keyboard or taps. */
   scenes: () => { id: string; log: Action[] }[];
@@ -221,9 +225,10 @@ if (import.meta.env.DEV) {
       }),
     // Floor 0 variants for testing lethal paths (mercy off, short torch). Dev builds only.
     load: (target, opts = {}) => {
-      const scene = typeof target === 'string' ? sceneFloor(target) : undefined;
-      if (target !== 0 && !scene) throw new Error(`no floor ${target}: Floor 0 or a scene id`);
-      floor = scene ?? { ...FLOOR_0, ...opts };
+      const picked = typeof target === 'string' ? sceneFloor(target) : depthFloor(target, opts.seed ?? 1);
+      if (target !== 0 && !picked) throw new Error(`no floor ${target}: Floor 0, a scene id, or a depth`);
+      const { seed: _, ...floorOpts } = opts;
+      floor = picked ?? { ...FLOOR_0, ...floorOpts };
       again();
     },
     skipAnim: (on) => (skipAnim = on),

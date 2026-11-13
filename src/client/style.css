@@ -301,6 +301,7 @@ h3 {
 }
 .lab__tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--gap);
 }
 .lab__tabs .btn[aria-selected='true'] {
@@ -506,4 +507,67 @@ h3 {
   display: flex;
   flex-wrap: wrap;
   gap: var(--gap);
+}
+
+/* Lab Depth tab: two rows of three comparison floors at 1×; a 3×3 compass. */
+.depth__controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--pad);
+}
+.depth__controls input[type='range'] {
+  flex: 1;
+  min-width: 160px;
+  min-height: var(--tap);
+  accent-color: var(--ember);
+}
+.depth__controls input[type='number'] {
+  width: 96px;
+  min-height: var(--tap);
+  background: var(--ink-2);
+  color: var(--bone);
+  border: var(--line) solid var(--bone);
+  font: inherit;
+  padding: 0 var(--gap);
+}
+.depth__big,
+.depth__floor {
+  margin: 0;
+  display: grid;
+  gap: var(--gap);
+  justify-items: start;
+}
+.depth__floor {
+  width: min-content; /* the canvas sets the width; the census wraps under it */
+}
+.depth__compare {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 352px), 1fr));
+  gap: var(--pad);
+}
+@media (min-width: 1100px) {
+  .depth__compare {
+    grid-template-columns: repeat(3, max-content);
+  }
+}
+.compass {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--gap);
+  max-width: 480px;
+}
+.compass .btn {
+  min-width: 0;
+  padding: 0 var(--gap);
+}
+.curve {
+  display: grid;
+  gap: var(--gap);
+  overflow-x: auto;
+}
+.curve__table th,
+.curve__table td {
+  padding: 0 var(--gap);
+  text-align: right;
 }

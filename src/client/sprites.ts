@@ -116,8 +116,6 @@ export function contrast(a: string, b: string): number {
 // 0x72 DungeonTileset II (CC0), assets/atlas.png: [x, y, w, h]. Tall frames are bottom-aligned to the tile.
 export const PACK = {
   floor: [16, 64, 16, 16],
-  'floor-crack': [32, 64, 16, 16],
-  'floor-chip': [48, 80, 16, 16],
   'wall-top': [32, 0, 16, 16],
   wall: [32, 16, 16, 16],
   'wall-hole': [48, 32, 16, 16],
@@ -174,7 +172,7 @@ export const PACK = {
 export type PackName = keyof typeof PACK;
 
 // Stone is graded onto our ink ramp so the dungeon reads cold; danger onto blood. Actors keep their art.
-const STONE: readonly PackName[] = ['floor', 'floor-crack', 'floor-chip', 'wall-top', 'wall', 'wall-hole', 'stairs'];
+const STONE: readonly PackName[] = ['floor', 'wall-top', 'wall', 'wall-hole', 'stairs'];
 const DANGER: readonly PackName[] = ['spikes-0', 'spikes-1', 'spikes-2', 'spikes'];
 const RAMP: readonly Token[] = ['ink-0', 'ink-1', 'ink-2', 'stone', 'pale'];
 
@@ -312,10 +310,6 @@ export const rgba = (t: Token, a: number) => {
   return `rgba(${r}, ${g}, ${b}, ${a})`;
 };
 
-// Cracks are kept for danger (crumbling floor, buried spikes), so decoration only chips the floor.
-const FLOOR_VARIANTS: readonly PackName[] = ['floor-chip'];
-/** A stable floor tile per position: mostly plain, a few chipped. */
-export const floorTile = (x: number, y: number): PackName => FLOOR_VARIANTS[(x * 7 + y * 3) % 9] ?? 'floor';
 
 /** Darkness at `dark` alpha with soft holes cut at each light, then a warm or cold wash. Decoration only: fog decides visibility. */
 export function shine(ctx: CanvasRenderingContext2D, w: number, h: number, lights: readonly Light[], dark: number): void {
