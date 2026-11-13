@@ -52,4 +52,4 @@ Everything in the pipeline is code-drawn: 1-bit bitmaps written as strings, rast
 - B5. OFL licence text is credited in the README with copyright lines and a link. A file request for `fonts/OFL.txt` is in the report.
 - B6. `contrast()` uses floats and lives in `sprites.ts`, a client file, not `src/shared`.
 - B7. The Lab tab is remembered in `location.hash`.
-- B8. Placeholder hero, wisp and tile bitmaps are drawn for the mock room. Phase 2 owns their final form.
+- B8. Placeholder wisp and tile bitmaps are drawn for the mock room; Phase 2 owns their final form. The hero failed review three times, so under the two-strike rule it uses Kenney 1-Bit Pack tile 24,1 (CC0), converted to our bitmap format with an ember flame on the staff. The pack itself is not in the repo.

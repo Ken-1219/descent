@@ -35,3 +35,7 @@ Both fonts are self-hosted and licensed under the SIL Open Font License 1.1; the
 
 - Jacquard 24: Copyright 2023 The Soft Type Project Authors (https://github.com/scfried/soft-type-jacquard)
 - Pixelify Sans: Copyright 2021 The Pixelify Sans Project Authors (https://github.com/eifetx/Pixelify-Sans)
+
+### Sprites
+
+- Hero sprite: Kenney's 1-Bit Pack (https://kenney.nl/assets/1-bit-pack), CC0 1.0. Thank you, Kenney.
