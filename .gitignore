@@ -6,3 +6,6 @@ dist
 *.md
 docs/
 .claude/
+shots/
+.playwright-mcp/
+.auth/
