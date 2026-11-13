@@ -61,3 +61,4 @@ The user chose a shaded CC0 pack over 1-bit sprites after reviewing mockups. Cha
 - The light bands are replaced in the Lab room by an `ink-0` darkness layer with soft radial glows (`ember` for the hero and wall torches, `wisp` for wisps). `LIGHT` tables remain for our bitmaps and for fog of war in Phase 3.
 - `SpriteDef` gains a pixel-map form (`map` + `key`). The hero is a white-hooded cleric drawn that way. The pack's knight, wizard, elf, dwarf and lizard are shown beside it in the Lab as alternatives.
 - PLAN.md §3 (row 12), §6 and §7 are updated to match.
+- The cleric was redrawn at 16×22 to match the pack heroes' proportions: a hood fold, ember eyes in hood shadow, a gilt sash, the robe lit on the torch side, and a torch with a gilt core and an ember-deep handle. Atlas cells are now two tiles high, and sprites stand bottom-aligned on their tile.

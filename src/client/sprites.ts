@@ -37,26 +37,32 @@ const heartOutline: Layer = {
 // Placeholders; Phase 2 owns the final bitmaps.
 export const SPRITES: Record<SpriteName, SpriteDef> = {
   hero: {
-    // The Delver: white-hooded cleric, face lost in shadow but for two ember eyes, torch held
-    // out on the right. Outline (o) and three robe shades (w, p, s) carry the read at 16 px;
-    // the robe is shaded away from the torch.
+    // The Delver: white-hooded cleric, 16×22 like the pack's heroes (the hood rises above the tile).
+    // Face in hood shadow with two ember eyes, gilt sash, robe shaded away from the torch,
+    // torch with a gilt core, ember flame, ember-deep cup and handle, gripped in a bone hand.
     map: [
-      '......ooo.......',
-      '.....owwwo......',
-      '....owwwwwo.....',
-      '...owwwwwwwo.o..',
-      '...owpkkkpwooeo.',
-      '..owpkkkkkpwoego',
-      '..owkkekekkwoeeo',
-      '..owpkkkkkpwodo.',
-      '..owwpkkkpwwowo.',
-      '.owwwwwwwwwwwwo.',
-      '.opwwwwwwwwposo.',
-      '.opwwwwwwwwposo.',
-      '.ospwwwwwwpso.o.',
-      '.ospwwwwwwpso...',
-      '.osspwwwwpsso...',
-      '..oooooooooo....',
+      '....oooo........',
+      '...owwwwoo......',
+      '..owwwwwwwo.....',
+      '..owwppwwwwo....',
+      '.owwpwwooooo....',
+      '.owpwwokkkko....',
+      '.owpwokkkkko..o.',
+      '.owpwokekkeo.oeo',
+      '.owpwokkkkkooego',
+      '.owppwokkkoooggo',
+      '.owwppwoooowoeeo',
+      '..owwwwwwwwooddo',
+      '.owgggggggwoowwo',
+      '.owpwwwwwwpo.odo',
+      '.ospwwwwwwpo.odo',
+      '.ospwwwwwwpo..o.',
+      '.osspwwwwwpo....',
+      '.osspwwwwwpo....',
+      '.ossspwwwppo....',
+      '..osssspppo.....',
+      '..osso.osso.....',
+      '..ooo..ooo......',
     ],
     key: { o: 'ink-0', w: 'bone', p: 'pale', s: 'stone', k: 'ink-1', e: 'ember', d: 'ember-deep', g: 'gilt' },
   },
@@ -191,14 +197,19 @@ export function tokenAt(def: SpriteDef, level: Level, x: number, y: number): Tok
   return def.bg === undefined ? null : shade(def.bg, level, x, y);
 }
 
+/** Sprites may be taller than a tile (up to CELL); they stand bottom-aligned on their tile. */
+const CELL = TILE * 2;
+const heightOf = (def: SpriteDef) => ('map' in def ? def.map.length : TILE);
+
 const paint = (
   ctx: CanvasRenderingContext2D, name: SpriteName, level: Level,
   ox: number, oy: number, zoom: number, flip: Flip,
 ): void => {
   const def = SPRITES[name];
-  for (let y = 0; y < TILE; y++) {
+  const h = heightOf(def);
+  for (let y = 0; y < h; y++) {
     for (let x = 0; x < TILE; x++) {
-      const t = tokenAt(def, level, flip.flipX ? TILE - 1 - x : x, flip.flipY ? TILE - 1 - y : y);
+      const t = tokenAt(def, level, flip.flipX ? TILE - 1 - x : x, flip.flipY ? h - 1 - y : y);
       if (t === null) continue;
       ctx.fillStyle = PALETTE[t];
       ctx.fillRect(ox + x * zoom, oy + y * zoom, zoom, zoom);
@@ -217,15 +228,15 @@ const canvas2d = (w: number, h: number): [HTMLCanvasElement, CanvasRenderingCont
 
 export type Atlas = { canvas: HTMLCanvasElement; frames: Record<string, { x: number; y: number }> };
 
-/** One column per level, one row per sprite; frame key `${name}@${level}`. */
+/** One column per level, one CELL-high row per sprite; frame key `${name}@${level}`. */
 export function buildAtlas(): Atlas {
-  const [canvas, ctx] = canvas2d(TILE * LEVELS.length, TILE * NAMES.length);
+  const [canvas, ctx] = canvas2d(TILE * LEVELS.length, CELL * NAMES.length);
   const frames: Atlas['frames'] = {};
   NAMES.forEach((name, row) => {
     LEVELS.forEach((level, col) => {
       const x = col * TILE;
-      const y = row * TILE;
-      paint(ctx, name, level, x, y, 1, {});
+      const y = row * CELL;
+      paint(ctx, name, level, x, y + CELL - heightOf(SPRITES[name]), 1, {});
       frames[`${name}@${level}`] = { x, y };
     });
   });
@@ -239,15 +250,15 @@ export function drawFrame(
   const f = atlas.frames[`${name}@${level}`];
   if (!f) return;
   ctx.save();
-  ctx.translate(dx + (opts.flipX ? TILE : 0), dy + (opts.flipY ? TILE : 0));
+  ctx.translate(dx + (opts.flipX ? TILE : 0), dy + TILE - CELL + (opts.flipY ? CELL : 0));
   ctx.scale(opts.flipX ? -1 : 1, opts.flipY ? -1 : 1);
-  ctx.drawImage(atlas.canvas, f.x, f.y, TILE, TILE, 0, 0, TILE, TILE);
+  ctx.drawImage(atlas.canvas, f.x, f.y, TILE, CELL, 0, 0, TILE, CELL);
   ctx.restore();
 }
 
 /** Lit sprite at `zoom`× as its own canvas (16·zoom px). */
 export function iconCanvas(name: SpriteName, zoom: number, opts: Flip = {}): HTMLCanvasElement {
-  const [canvas, ctx] = canvas2d(TILE * zoom, TILE * zoom);
+  const [canvas, ctx] = canvas2d(TILE * zoom, heightOf(SPRITES[name]) * zoom);
   paint(ctx, name, 'lit', 0, 0, zoom, opts);
   return canvas;
 }

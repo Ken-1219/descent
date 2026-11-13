@@ -20,10 +20,11 @@ test('light tables map every token to a token', () => {
   for (const v of Object.values(LIGHT.remembered)) expect(['ink-0', 'ink-1', 'ink-2']).toContain(v);
 });
 
-test('sprites are 16x16: 1-2 layer bitmaps, or pixel maps whose every char has a token', () => {
+test('sprites are 16 wide: 16x16 1-2 layer bitmaps, or pixel maps up to 32 tall whose every char has a token', () => {
   for (const def of Object.values(SPRITES)) {
     if ('map' in def) {
-      expect(def.map).toHaveLength(16);
+      expect(def.map.length).toBeGreaterThanOrEqual(16);
+      expect(def.map.length).toBeLessThanOrEqual(32);
       for (const row of def.map) {
         expect(row).toHaveLength(16);
         for (const ch of row) if (ch !== '.') expect(def.key[ch]).toBeDefined();
