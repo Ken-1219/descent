@@ -2,11 +2,21 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <link rel="icon" href="data:," />
+    <link rel="preload" href="./assets/fonts/jacquard-24.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="./assets/fonts/pixelify-sans.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="style.css" />
     <title>Descent Lab</title>
   </head>
   <body>
-    <h1>Descent Lab</h1>
+    <main class="lab">
+      <header class="lab__head">
+        <h1 class="title">Descent Lab</h1>
+        <div class="lab__tabs" role="tablist"></div>
+      </header>
+      <div id="panel"></div>
+    </main>
+    <script type="module" src="lab.ts"></script>
   </body>
 </html>

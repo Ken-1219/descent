@@ -28,3 +28,10 @@ A starter to build web applications on Reddit's developer platform
 ## Credits
 
 Thanks to the Phaser team for [providing a great template](https://github.com/phaserjs/template-vite-ts)!
+
+### Fonts
+
+Both fonts are self-hosted and licensed under the SIL Open Font License 1.1 (https://openfontlicense.org).
+
+- Jacquard 24: Copyright 2023 The Soft Type Project Authors (https://github.com/scfried/soft-type-jacquard)
+- Pixelify Sans: Copyright 2021 The Pixelify Sans Project Authors (https://github.com/eifetx/Pixelify-Sans)
