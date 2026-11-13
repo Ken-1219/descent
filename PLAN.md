@@ -137,9 +137,11 @@ PLAN.md  CLAUDE.md  README.md  devvit.json
 vite.local.config.ts        local harness only, no Devvit plugin
 src/shared/
   content.ts                palette, obstacle/enemy/item/curse/carving tables, tuning
-  rng.ts                    mulberry32, hash, pick, shuffle
-  gen.ts                    generate(depth, seed, mods), BFS, budget, crowd weights, fairness gates
-  sim.ts                    State, step(), replay(), score(), bot()
+  rng.ts                    mulberry32, rand (pure step for state-held rng), hash, pick, shuffle
+  grid.ts                   tile-grid geometry: what a map char blocks, line of sight, BFS, rays (gen.ts reuses the BFS)
+  gen.ts                    generate(depth, seed, mods), budget, crowd weights, fairness gates
+  sim.ts                    State, step(), tells(), replay(), score(), bot()
+  scenes.ts                 one scene per tier-table cell, trap and item: map, log, expected outcome (tests, Lab, ?scene= in dev only)
   api.ts                    wire types (reuse the template's shared types file if one exists)
 src/client/
   splash.html  splash.ts    inline feed card, no Phaser

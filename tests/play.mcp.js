@@ -1,4 +1,4 @@
-// End-to-end check for the game (Phase 3+). Run it through the Playwright MCP tool browser_run_code_unsafe
+// End-to-end check for the game and Lab (Phase 3+). Run it through the Playwright MCP tool browser_run_code_unsafe
 // with this file as `filename`, while `bun run local` serves http://localhost:5190. Returns PASS/FAIL per check.
 // It uses the dev-only window.__descent hook, so it never runs against production builds.
 async (page) => {
@@ -237,6 +237,88 @@ async (page) => {
     }
     check('live resize keeps integer zoom, canvas in view, no scroll', bad.length === 0, bad.join(' '));
     await ctx.close();
+  }
+
+  // 9. Phase 4 Bestiary: every cell renders, loops, and has no console errors; pause, step and 0.25x work
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const p = await ctx.newPage();
+    const labErrs = [];
+    p.on('pageerror', (e) => labErrs.push(String(e)));
+    p.on('console', (m) => { if (m.type() === 'error') labErrs.push(m.text()); });
+    await p.goto('http://localhost:5190/lab.html#bestiary');
+    await p.waitForSelector('.beast canvas');
+    const snap = () => p.evaluate(() => [...document.querySelectorAll('.beast')].map((f) => {
+      const c = f.querySelector('canvas');
+      const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+      let lit = 0;
+      for (let i = 0; i < d.length; i += 4) if (d[i] + d[i + 1] + d[i + 2] > 60) lit++;
+      return { id: f.dataset.scene, turn: Number(f.dataset.turn), lit };
+    }));
+    // Sample every 400 ms for 12 s (the longest scene loops in about 11 s): a looping cell wraps back to an earlier turn.
+    const a = await snap();
+    const wrapped = new Set();
+    let prev = a;
+    for (let i = 0; i < 30; i++) {
+      await p.waitForTimeout(400);
+      const now = await snap();
+      now.forEach((c, k) => { if (c.turn < prev[k].turn) wrapped.add(c.id); });
+      prev = now;
+    }
+    const blank = a.filter((c) => c.lit < 50).map((c) => c.id);
+    const stuck = a.filter((c) => !wrapped.has(c.id)).map((c) => c.id);
+    check('Bestiary shows 34 cells (28 family-tier + 3 traps + 3 items)', a.length === 34, `${a.length} cells`);
+    check('every Bestiary cell draws its scene', blank.length === 0, blank.join(' '));
+    check('every Bestiary cell loops (wraps to its start)', stuck.length === 0, stuck.join(' '));
+    const cell = p.locator('.beast[data-scene="spikes-2"]');
+    await cell.getByRole('button', { name: 'Pause' }).click();
+    const t0 = Number(await cell.getAttribute('data-turn'));
+    await p.waitForTimeout(1500);
+    const t1 = Number(await cell.getAttribute('data-turn'));
+    await cell.getByRole('button', { name: 'Step' }).click();
+    await p.waitForTimeout(100);
+    const t2 = Number(await cell.getAttribute('data-turn'));
+    check('Pause holds the turn; Step advances exactly one', t0 === t1 && t2 === (t1 + 1) % 8 && (await cell.getAttribute('data-paused')) === 'true', `${t0} ${t1} ${t2}`);
+    await cell.getByRole('button', { name: 'Play' }).click();
+    await cell.getByRole('button', { name: '¼×' }).click();
+    const s0 = Number(await cell.getAttribute('data-turn'));
+    await p.waitForTimeout(1200);
+    const s1 = Number(await cell.getAttribute('data-turn'));
+    check('Play resumes; 0.25x slows a turn past 1.2 s', (await cell.getByRole('button', { name: '¼×' }).getAttribute('aria-pressed')) === 'true' && s1 - s0 <= 1, `${s0} -> ${s1}`);
+    check('Bestiary has no console errors', labErrs.length === 0, labErrs.join(' | '));
+    await ctx.close();
+  }
+
+  // 10. Phase 4 scenes playable to the end: by keyboard (desktop) and by taps (touch)
+  {
+    const SCENE_KEY = { ...KEY, I: 'e' };
+    const scenes = await (async () => {
+      const { ctx, p } = await open();
+      const out = await p.evaluate(() => window.__descent.scenes());
+      await ctx.close();
+      return out;
+    })();
+    const byId = (id) => scenes.find((s) => s.id === id);
+    for (const id of ['goblins-1', 'mechanisms-3', 'item-bomb']) {
+      const { ctx, p } = await open();
+      await p.goto(`${URL}?scene=${id}`);
+      await p.waitForFunction(() => window.__descent);
+      await p.evaluate(() => window.__descent.ready);
+      for (const a of byId(id).log) { await p.keyboard.press(SCENE_KEY[a]); await p.waitForTimeout(140); }
+      const st = await S(p);
+      check(`scene ${id} plays to its end by keyboard`, st.ended && st.ended.kind === 'won' && (await endVisible(p)), JSON.stringify(st.ended));
+      await ctx.close();
+    }
+    for (const id of ['item-potion', 'pits-1', 'mechanisms-1']) {
+      const { ctx, p } = await open({ touch: true });
+      await p.goto(`${URL}?scene=${id}`);
+      await p.waitForFunction(() => window.__descent);
+      await p.evaluate(() => window.__descent.ready);
+      for (const a of byId(id).log) { await p.locator(a === 'I' ? '.item-btn' : `.dpad [data-act="${a}"]`).tap(); await p.waitForTimeout(140); }
+      const st = await S(p);
+      check(`scene ${id} plays to its end by taps`, st.ended && st.ended.kind === 'won', JSON.stringify(st.ended));
+      await ctx.close();
+    }
   }
 
   return { passed: results.filter((r) => r.pass).length, failed: results.filter((r) => !r.pass), total: results.length, errs, results: results.map((r) => `${r.pass ? 'PASS' : 'FAIL'} ${r.name}${r.detail ? ' — ' + r.detail : ''}`) };

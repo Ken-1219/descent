@@ -1,4 +1,5 @@
-import { LIGHT, PALETTE, TILE, LEVELS, type Level, type Token } from '../shared/content';
+import { LIGHT, PALETTE, PITS, TILE, LEVELS, type Level, type Token } from '../shared/content';
+import { spikeStage, tells, tierOf, type Enemy, type Event, type Kind, type Pos, type State } from '../shared/sim';
 import { NAMES, SPRITES, type SpriteDef, type SpriteName } from './art';
 
 type Flip = { flipX?: boolean; flipY?: boolean };
@@ -80,6 +81,17 @@ export function drawFrame(
   ctx.restore();
 }
 
+/** A pack frame at `zoom`× as its own canvas (HUD item slot); undefined for a name the pack doesn't have. */
+export function packIcon(pack: HTMLCanvasElement, name: string, zoom: number): HTMLCanvasElement | undefined {
+  const f = Object.entries(PACK).find(([k]) => k === name)?.[1];
+  if (!f) return undefined;
+  const [x, y, w, h] = f;
+  const [canvas, ctx] = canvas2d(w * zoom, h * zoom);
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(pack, x, y, w, h, 0, 0, w * zoom, h * zoom);
+  return canvas;
+}
+
 /** Lit sprite at `zoom`× as its own canvas (16·zoom px). */
 export function iconCanvas(name: SpriteName, zoom: number, opts: Flip = {}): HTMLCanvasElement {
   const [canvas, ctx] = canvas2d(TILE * zoom, heightOf(SPRITES[name]) * zoom);
@@ -109,7 +121,13 @@ export const PACK = {
   'wall-top': [32, 0, 16, 16],
   wall: [32, 16, 16, 16],
   'wall-hole': [48, 32, 16, 16],
+  'spikes-0': [16, 192, 16, 16], // floor_spikes_anim_f0: down, holes only
+  'spikes-1': [32, 192, 16, 16], // f1: tips showing
+  'spikes-2': [48, 192, 16, 16], // f2: half-raised, the breathing tell
   spikes: [64, 192, 16, 16], // floor_spikes_anim_f3: fully raised
+  hole: [96, 144, 16, 16],
+  'plate-blue': [48, 208, 16, 16],
+  'plate-blue-down': [64, 208, 16, 16],
   stairs: [80, 192, 16, 16],
   crate: [288, 408, 16, 24],
   skull: [288, 432, 16, 16],
@@ -157,8 +175,8 @@ export const PACK = {
 export type PackName = keyof typeof PACK;
 
 // Stone is graded onto our ink ramp so the dungeon reads cold; danger onto blood. Actors keep their art.
-const STONE: readonly PackName[] = ['floor', 'floor-crack', 'floor-chip', 'wall-top', 'wall', 'wall-hole', 'stairs'];
-const DANGER: readonly PackName[] = ['spikes'];
+const STONE: readonly PackName[] = ['floor', 'floor-crack', 'floor-chip', 'wall-top', 'wall', 'wall-hole', 'stairs', 'hole'];
+const DANGER: readonly PackName[] = ['spikes-0', 'spikes-1', 'spikes-2', 'spikes'];
 const RAMP: readonly Token[] = ['ink-0', 'ink-1', 'ink-2', 'stone', 'pale'];
 
 const rgb = (hex: string): [number, number, number] => [
@@ -295,8 +313,9 @@ export const rgba = (t: Token, a: number) => {
   return `rgba(${r}, ${g}, ${b}, ${a})`;
 };
 
-const FLOOR_VARIANTS: readonly PackName[] = ['floor-crack', 'floor-chip'];
-/** A stable floor tile per position: mostly plain, a few cracked or chipped. */
+// Cracks are kept for danger (crumbling floor, buried spikes), so decoration only chips the floor.
+const FLOOR_VARIANTS: readonly PackName[] = ['floor-chip'];
+/** A stable floor tile per position: mostly plain, a few chipped. */
 export const floorTile = (x: number, y: number): PackName => FLOOR_VARIANTS[(x * 7 + y * 3) % 9] ?? 'floor';
 
 /** Darkness at `dark` alpha with soft holes cut at each light, then a warm or cold wash. Decoration only: fog decides visibility. */
@@ -323,4 +342,177 @@ export function shine(ctx: CanvasRenderingContext2D, w: number, h: number, light
     ctx.fillRect(0, 0, w, h);
   }
   ctx.globalCompositeOperation = 'source-over';
+}
+
+// ---- Phase 4: what each tile, enemy and tell looks like, and how a turn moves. Shared by scene.ts and the Lab. ----
+
+const still = (f: Frame): Anim => ({ frames: [f], ms: [1000], loop: true });
+const P = (name: PackName): Frame => ({ src: 'pack', name });
+const O = (name: SpriteName): Frame => ({ src: 'own', name });
+
+/** A prop on a tile. Flat props lie on the floor; standing ones sort with actors by row. */
+export type Prop = { anim: Anim; flat: boolean };
+const flat = (f: Frame): Prop => ({ anim: still(f), flat: true });
+const stand = (anim: Anim): Prop => ({ anim, flat: false });
+
+/** Props on a tile, bottom to top. Floor and wall bases are drawn separately. */
+export function tileLook(s: State, x: number, y: number): Prop[] {
+  const c = s.tiles[y]?.[x] ?? '#';
+  const on = s.pos.x === x && s.pos.y === y;
+  switch (c) {
+    case '^': {
+      const st = spikeStage(s, x, y);
+      return [flat(P(st === 2 ? 'spikes' : st === 1 ? 'spikes-2' : 'spikes-0'))];
+    }
+    case 'x': return [flat(P('spikes')), flat(O('trap-mark'))];
+    case 'O': return [flat(P('hole'))];
+    case ',': return PITS[tierOf(s, 'pits')].crumble === 'stand' ? [flat(P('hole')), flat(O('chain'))] : [flat(O('crumble'))];
+    case ';': return [flat(P('hole')), flat(O('chain-crack'))];
+    // One plate look for every tier: the pack's red button would read as a blood tell. The slit and its line warn of darts.
+    case '_': return [flat(P(on ? 'plate-blue-down' : 'plate-blue'))];
+    case 'H': return [stand(still(P('door-open'))), stand(still(O('bars')))];
+    case 'h': case '/': return [stand(still(P('door-open')))];
+    case 'D': return [stand(still(P('door')))];
+    case 'S': case 's': return [stand(still(O('slit')))];
+    case 'Z': case 'z': return [stand(still(O('slit'))), stand(still(O('trap-mark')))];
+    case 'F': case '>': return [flat(P('stairs'))];
+    case 'G': return [flat(O('den'))];
+    case 'Y': return [stand(still(O('brazier')))];
+    case 'y': return [stand(still(O('brazier-lit')))];
+    case 'k': return [stand(ANIMS['key-bob'])];
+    case 'p': return [stand(ANIMS['potion-bob'])];
+    case 'l': return [stand(ANIMS['oil-bob'])];
+    case 'b': return [stand(ANIMS['bomb-fuse'])];
+    default: return [];
+  }
+}
+
+/** Tell marks, drawn from `tells()`. Blood shapes for danger next turn; quiet hairlines for hidden hazards once lit. */
+export type Mark = { frame: Frame; x: number; y: number };
+const MARK: Partial<Record<ReturnType<typeof tells>[number]['kind'], { name: SpriteName; above?: boolean }>> = {
+  // Aim corners always mean "this tile hurts or shuts next turn"; they reach past the hero standing on it.
+  windup: { name: 'mark-aim' },
+  gate: { name: 'mark-aim' },
+  cracking: { name: 'mark-aim' },
+  'spikes-half': { name: 'mark-aim' },
+  armed: { name: 'mark-line' },
+  alert: { name: 'mark-glint', above: true },
+  hungry: { name: 'mark-hungry', above: true },
+  spawn: { name: 'mark-eyes' },
+  crack: { name: 'crack' },
+  mortar: { name: 'mortar' },
+  'missing-step': { name: 'missing-step' },
+};
+export const marks = (s: State): Mark[] =>
+  tells(s).flatMap((t) => {
+    const m = MARK[t.kind];
+    return m ? [{ frame: O(m.name), x: t.x, y: m.above ? t.y - 1 : t.y }] : [];
+  });
+
+const IDLE: Record<Kind, Anim> = { goblin: ANIMS['goblin-idle'], imp: ANIMS['imp-idle'], skeleton: ANIMS['skelet-idle'] };
+export const RUN: Record<Kind, Anim> = { goblin: ANIMS['goblin-run'], imp: ANIMS['imp-run'], skeleton: ANIMS['skelet-run'] };
+export const HURT: Record<Kind, Anim> = { goblin: ANIMS['goblin-hurt'], imp: ANIMS['imp-hurt'], skeleton: ANIMS['skelet-hurt'] };
+const WINDUP: Record<Kind, PackName> = { goblin: 'goblin-run-0', imp: 'imp-run-0', skeleton: 'skelet-run-0' };
+const DIGIT: readonly SpriteName[] = ['digit-1', 'digit-2', 'digit-3', 'digit-4'];
+
+/** An enemy's pose for its mode. The wind-up is the anticipation frame (§15.4): run frame 0 leaning 1 px away from its target. */
+export function enemyLook(e: Enemy): { anim: Anim; dx: number; dy: number; digit: SpriteName | null } {
+  if (e.mode === 'pile') return { anim: still(P('skull')), dx: 0, dy: 0, digit: DIGIT[e.timer - 1] ?? null };
+  if (e.mode === 'windup') {
+    const a = e.aim[0];
+    return { anim: still(P(WINDUP[e.kind])), dx: a ? -Math.sign(a.x - e.x) : 0, dy: a ? -Math.sign(a.y - e.y) : 0, digit: null };
+  }
+  return { anim: e.kind === 'imp' && e.mode === 'idle' ? ANIMS['imp-perch'] : IDLE[e.kind], dx: 0, dy: 0, digit: null };
+}
+
+// Motion (§15.4): fast out, slow settle; every action fits the 120 ms lock and plays together.
+export const LOCK_MS = 120;
+const HOP_MS = [24, 24, 16, 32];
+const HOP_HURT_MS = [24, 16, 16, 60]; // the landing frame becomes the 60 ms hit-stop
+const HOP_Y = [0, -2, -1, 0];
+const IMP_ARC_Y = [-1, -3, -2, 0]; // wings never fly straight: three stepped heights between tiles
+const DIVE_MS = [16, 16, 24, 48];
+const FALL_MS = [24, 24, 24, 48]; // onto the pit, sink, sink, cut to the landing
+const FALL_Y = [0, 3, 6, 0];
+const LUNGE_PX = 4;
+const LUNGE_MS = 40;
+const NUDGE_MS = 24;
+const STREAK_MS = 72;
+
+export const px = (x: number) => x * TILE + TILE / 2;
+export const py = (y: number) => y * TILE + TILE;
+/** One motion key: from `at` ms after the turn starts the actor stands at (x, y) lifted by yo. */
+export type Key = { at: number; x: number; y: number; yo: number };
+export type Motion = { who: 'hero' | number; keys: Key[] };
+/** A dart or arrow in flight. */
+export type Streak = { from: Pos; to: Pos; at: number; until: number };
+
+const path = (from: Pos, to: Pos, ms: readonly number[], ys: readonly number[], t0: number): Key[] => {
+  let at = t0;
+  return ms.map((m, k) => {
+    const f = (k + 1) / ms.length;
+    const key = { at, x: px(from.x + (to.x - from.x) * f), y: py(from.y + (to.y - from.y) * f), yo: ys[k] ?? 0 };
+    at += m;
+    return key;
+  });
+};
+const lunge = (from: Pos, toward: Pos, distance: number, half: number): Key[] => {
+  const x = px(from.x), y = py(from.y);
+  return [
+    { at: 0, x: x + Math.sign(toward.x - from.x) * distance, y: y + Math.sign(toward.y - from.y) * distance, yo: 0 },
+    { at: half, x, y, yo: 0 },
+  ];
+};
+const end = (keys: readonly Key[], ms: number) => (keys.at(-1)?.at ?? 0) + ms;
+
+/** The motion of one turn from its events: positions in canvas px; `lock` is when input may go on (≤ LOCK_MS). */
+export function choreograph(events: readonly Event[], next: State): { motions: Motion[]; streaks: Streak[]; lock: number } {
+  const motions: Motion[] = [];
+  const streaks: Streak[] = [];
+  let lock = 0;
+  const add = (who: Motion['who'], keys: Key[], last: number) => {
+    motions.push({ who, keys });
+    lock = Math.max(lock, end(keys, last));
+  };
+  const hurt = events.some((e) => e.t === 'hurt');
+  const fall = events.find((e) => e.t === 'fall');
+  const moves = new Map<number, Pos[]>();
+  for (const e of events) {
+    if (e.t === 'fall') {
+      // Onto the pit (or already on the chain), sink twice, then cut to the landing.
+      const [m0 = 0, m1 = 0, m2 = 0, m3 = 0] = FALL_MS;
+      const pit = { x: px(e.at.x), y: py(e.at.y) };
+      add('hero', [
+        { at: 0, ...pit, yo: FALL_Y[0] ?? 0 },
+        { at: m0, ...pit, yo: FALL_Y[1] ?? 0 },
+        { at: m0 + m1, ...pit, yo: FALL_Y[2] ?? 0 },
+        { at: m0 + m1 + m2, x: px(e.to.x), y: py(e.to.y), yo: 0 },
+      ], m3);
+    } else if (e.t === 'move' && fall) continue;
+    else if (e.t === 'move') add('hero', path(e.from, e.to, hurt ? HOP_HURT_MS : HOP_MS, HOP_Y, 0), (hurt ? HOP_HURT_MS : HOP_MS).at(-1) ?? 0);
+    else if (e.t === 'blocked' || e.t === 'locked') add('hero', lunge(next.pos, e.at, 1, NUDGE_MS), NUDGE_MS);
+    else if (e.t === 'attack') add('hero', lunge(next.pos, e.at, LUNGE_PX, LUNGE_MS), LUNGE_MS);
+    else if (e.t === 'enemyMove') moves.set(e.id, [...(moves.get(e.id) ?? [e.from]), e.to]);
+    else if (e.t === 'enemyAttack') {
+      const en = next.enemies.find((o) => o.id === e.id);
+      if (en) add(e.id, lunge(en, e.at, LUNGE_PX, LUNGE_MS), LUNGE_MS);
+    } else if (e.t === 'shot') {
+      streaks.push({ from: e.from, to: e.to, at: 0, until: STREAK_MS });
+      lock = Math.max(lock, STREAK_MS);
+    }
+  }
+  for (const [id, steps] of moves) {
+    const en = next.enemies.find((o) => o.id === id);
+    const imp = en?.kind === 'imp';
+    const [a, b] = [steps[0], steps[1]];
+    if (steps.length === 2 && a && b && Math.abs(a.x - b.x) + Math.abs(a.y - b.y) > 1) {
+      add(id, path(a, b, DIVE_MS, [0, -1, -1, 0], 0), DIVE_MS.at(-1) ?? 0); // a dive: one long, fast line
+      continue;
+    }
+    // Several steps share one hop's time, so a double move still lands inside the lock.
+    const n = steps.length - 1;
+    const keys = steps.slice(1).flatMap((to, k) => path(steps[k] ?? to, to, HOP_MS.map((m) => Math.round(m / n)), imp ? IMP_ARC_Y : HOP_Y, Math.round((96 * k) / n)));
+    add(id, keys, Math.round((HOP_MS.at(-1) ?? 0) / n));
+  }
+  return { motions, streaks, lock: Math.min(lock, LOCK_MS) };
 }

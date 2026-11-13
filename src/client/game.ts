@@ -1,9 +1,10 @@
 /// <reference types="vite/client" />
 // Boot, input router, HUD wiring and the dev hook. Rules live in src/shared/sim.ts; this file only sends actions.
 import * as Phaser from 'phaser';
-import { FLOOR_0, HEARTS, PALETTE, TILE, TORCH_LOW_PCT } from '../shared/content';
+import { FLOOR_0, HEARTS, ITEMS, PALETTE, TILE, TORCH_LOW_PCT } from '../shared/content';
 import { start, step, type Action, type End, type Floor, type Pos } from '../shared/sim';
 import { DescentScene } from './scene';
+import { loadPack, packIcon } from './sprites';
 import { controls, createHud, endPanel } from './ui';
 
 const $ = (id: string) => {
@@ -27,10 +28,19 @@ const KEYS: Record<string, Action> = {
 };
 const isAction = (s: string | undefined): s is Action => ACTIONS.some((a) => a === s);
 
-let floor: Floor = FLOOR_0;
+// Scenes (one per tier-table cell) load in dev builds only: game.html?scene=goblins-2. Production never imports them.
+const SCENES = import.meta.env.DEV ? (await import('../shared/scenes')).SCENES : [];
+const sceneFloor = (id: string | null) => SCENES.find((s) => s.id === id)?.floor;
+
+let floor: Floor = sceneFloor(new URLSearchParams(location.search).get('scene')) ?? FLOOR_0;
 let state = start(floor);
-const hud = createHud($('hud'), TORCH_LOW_PCT, HEARTS);
-const view = () => hud({ hearts: state.hearts, hasKey: state.hasKey, torch: state.torch, torchMax: state.floor.torch, depth: state.floor.depth });
+let pack: HTMLCanvasElement | null = null;
+void loadPack().then((p) => {
+  pack = p;
+  view();
+});
+const hud = createHud($('hud'), TORCH_LOW_PCT, HEARTS, (item) => (pack ? packIcon(pack, ITEMS[item].frames[0], 2) : undefined));
+const view = () => hud({ hearts: state.hearts, hasKey: state.hasKey, item: pack ? state.item : null, torch: state.torch, torchMax: state.floor.torch, depth: state.floor.depth });
 controls(pad);
 view();
 
@@ -73,10 +83,10 @@ const settle = () => {
   while (waiters.length) waiters.shift()?.();
 };
 
-const CAUSES: Record<string, string> = { spikes: 'spikes', goblin: 'goblin', dark: 'dark' };
+const CAUSES: Record<string, string> = { trap: 'trap', pit: 'fall' };
 const finish = (ended: End) => {
   const line = ended.kind === 'won' ? `${state.turn} turns. The stairs go down.` : `The ${CAUSES[ended.cause] ?? ended.cause} took you on turn ${state.turn}.`;
-  endPanel(end, ended.kind === 'won' ? 'Floor 0 cleared' : 'You fell', line, again);
+  endPanel(end, ended.kind === 'won' ? `Floor ${state.floor.depth} cleared` : 'You fell', line, again);
 };
 
 function again() {
@@ -182,10 +192,13 @@ void scene.ready.then(() => performance.mark('descent:interactive'));
 // ---- dev hook for Playwright (§10). Dev builds only; never in the Devvit bundle. ----
 type DescentHook = {
   ready: Promise<void>;
-  state: () => { pos: Pos; hearts: number; torch: number; turn: number; floor: number; ended: End | null; hasKey: boolean; enemies: { id: number; mode: string; x: number; y: number }[] };
+  state: () => { pos: Pos; hearts: number; torch: number; turn: number; floor: number; ended: End | null; hasKey: boolean; item: string | null; enemies: { id: number; mode: string; x: number; y: number }[] };
   act: (a: Action) => Promise<void>;
-  load: (depth: number, opts?: { mercy?: boolean; torch?: number }) => void;
+  /** Floor 0 (with test options) or a scene by id. */
+  load: (depth: number | string, opts?: { mercy?: boolean; torch?: number }) => void;
   skipAnim: (on: boolean) => void;
+  /** Every scene's id and action log, for e2e checks that replay them by keyboard or taps. */
+  scenes: () => { id: string; log: Action[] }[];
   metrics: () => { inputToMotion: number; shakes: number };
 };
 declare global {
@@ -197,7 +210,7 @@ if (import.meta.env.DEV) {
   window.__descent = {
     ready: scene.ready,
     state: () => ({
-      pos: { ...state.pos }, hearts: state.hearts, torch: state.torch, turn: state.turn, floor: state.floor.depth, ended: state.ended, hasKey: state.hasKey,
+      pos: { ...state.pos }, hearts: state.hearts, torch: state.torch, turn: state.turn, floor: state.floor.depth, ended: state.ended, hasKey: state.hasKey, item: state.item,
       enemies: state.enemies.map((e) => ({ id: e.id, mode: e.mode, x: e.x, y: e.y })),
     }),
     act: (a) =>
@@ -207,12 +220,14 @@ if (import.meta.env.DEV) {
         settle();
       }),
     // Floor 0 variants for testing lethal paths (mercy off, short torch). Dev builds only.
-    load: (depth, opts = {}) => {
-      if (depth !== 0) throw new Error('Phase 3 has only Floor 0');
-      floor = { ...FLOOR_0, ...opts };
+    load: (target, opts = {}) => {
+      const scene = typeof target === 'string' ? sceneFloor(target) : undefined;
+      if (target !== 0 && !scene) throw new Error(`no floor ${target}: Floor 0 or a scene id`);
+      floor = scene ?? { ...FLOOR_0, ...opts };
       again();
     },
     skipAnim: (on) => (skipAnim = on),
+    scenes: () => SCENES.map((s) => ({ id: s.id, log: [...s.log] })),
     metrics: () => ({ inputToMotion, shakes: scene.shakes }),
   };
 }

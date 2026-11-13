@@ -12,6 +12,8 @@ export const NAMES = [
   'hero', 'hero-flicker', 'wisp', 'wisp-b', 'ghost', 'ghost-b', 'torch-0', 'torch-1', 'torch-2',
   'death-1', 'death-2', 'death-3', 'death-4', 'death-5', 'death-6', 'death-7', 'death-8', 'death-9',
   'heart', 'heart-lost', 'key', 'flame', 'arrow-up', 'arrow-left',
+  'slit', 'missing-step', 'crack', 'mortar', 'bars', 'chain', 'chain-crack', 'crumble', 'den', 'brazier', 'brazier-lit',
+  'mark-aim', 'mark-line', 'mark-glint', 'mark-hungry', 'mark-eyes', 'trap-mark', 'digit-1', 'digit-2', 'digit-3', 'digit-4',
 ] as const;
 export type SpriteName = (typeof NAMES)[number];
 
@@ -22,7 +24,7 @@ const at = (top: number, ...art: string[]): string[] =>
   Array.from({ length: TILE }, (_, y) => art[y - top] ?? BLANK);
 
 // Key shared by every pixel map drawn for Descent.
-const ART: Readonly<Record<string, Token>> = { o: 'ink-0', w: 'bone', p: 'pale', s: 'stone', k: 'ink-1', e: 'ember', d: 'ember-deep', g: 'gilt', t: 'wisp' };
+const ART: Readonly<Record<string, Token>> = { o: 'ink-0', w: 'bone', p: 'pale', s: 'stone', k: 'ink-1', n: 'ink-2', e: 'ember', d: 'ember-deep', g: 'gilt', t: 'wisp', r: 'blood' };
 
 // The Delver: white-hooded cleric, 16×19, the same height as the pack's heroes (19–21 px).
 // Face in hood shadow with two ember eyes, gilt sash, robe shaded away from the torch,
@@ -218,6 +220,51 @@ const heartOutline: Layer = {
   ),
 };
 
+// ---- Phase 4: obstacle art the pack lacks. Overlays are full 16×16 tiles drawn on top of floor, wall or pack props. ----
+// The graded floor tile has an ink-1 grout row on top and an ink-2 face; hidden-hazard tells are drawn against that.
+const tile = (...rows: string[]): string[] => Array.from({ length: TILE }, (_, y) => rows[y] || BLANK);
+
+// Dart slit: a dark letterbox in the wall with a stone lip.
+const SLIT = tile('', '', '', '', '', '....ssssssss....', '...soooooooos...', '...okkkkkkkko...', '...soooooooos...', '....ssssssss....');
+// False stairs: the graded pack stairs are an ink-1 wedge; a notch of floor tone takes one step out of its edge.
+const MISSING_STEP = tile('', '', '', '', '', '', '........nnnn....', '.........nnn....', '.........nnn....');
+// Buried spikes: a hairline crack with four pin-pricks where the tips wait.
+const CRACK = tile('', '', '', '.....o..........', '......o.....o...', '......o....o....', '...o...o..o..o..', '........oo......', '........o.......', '.......o........', '...o..o.....o...', '.....o..........');
+// Hidden pit: one grout line is missing from the top edge.
+const MORTAR = tile('...nnnnnnnnnn...');
+// Gate: iron bars standing in the open doorway (the pack's open door frame sits under them).
+const BARS: readonly string[] = [
+  '.osssssssssssso.', '.oppppppppppppo.', '.osssssssssssso.',
+  ...Array.from({ length: 18 }, (_, i) => (i % 6 === 5 ? '.opsopsopsopsoo.' : '..ps.ps.ps.ps...')),
+  '.osssssssssssso.', '.oppppppppppppo.', '..oooooooooooo..',
+];
+// Chain bridge over a pit: two chain rails and slats. The cracking frame splits the slats in blood: it falls next turn.
+const CHAIN = tile('', '', '', '.pp..pp..pp..pp.', 'p..pp..pp..pp..p', '.pp..pp..pp..pp.', 'oooooooooooooooo', 'spspspspspspspsp', 'pspspspspspspsps', 'oooooooooooooooo', '.pp..pp..pp..pp.', 'p..pp..pp..pp..p', '.pp..pp..pp..pp.');
+const CHAIN_CRACK = tile('', '', '', '.pp..pp..pp..pp.', 'p..pp..pp..pp..p', '.pp..pp..pp..pp.', 'oooooooroooooooo', 'spspsprsspspspsp', 'pspspsprpspspsps', 'oooooorooooooooo', '.pp..pp..pp..pp.', 'p..pp..pp..pp..p', '.pp..pp..pp..pp.');
+// Crumbling floor: heavy cracks and loose chips.
+const CRUMBLE = tile('', '..o.......o.....', '...o.....o..p...', '...o....o.......', '....oo.o....o...', '.p....o....o....', '.....o.o..o.....', '....o...oo...p..', '...o.....o......', '..o..p...o......', '.........o.o....', '..p.....o...o...', '.......o.....o..');
+// Goblin den: a burrow mouth with a gnawed bone. The spawn tell puts two blood eyes in the dark.
+const DEN = tile('', '', '', '', '', '', '....oooooooo....', '...osssssssso...', '..ossoooooosso..', '.osoooooooooooso', '.osoooooooooooso', '.ossoooooooooso.', '..ossssssssss.o.', '.wo.oooooooo.ow.', 'wwo..........oww');
+const MARK_EYES = tile('', '', '', '', '', '', '', '', '', '.....r....r.....');
+const BRAZIER_BOWL = ['...oooooooooo...', '..osssssssssso..', '..opkkkkkkkkpo..', '...osssssssso...', '....osssssso....', '......osso......', '......osso......', '.....osssso.....', '....osssssso....', '....oooooooo....'];
+const BRAZIER = tile('', '', '', '', '', '', ...BRAZIER_BOWL);
+const BRAZIER_LIT = tile('', '.......e........', '......ee..e.....', '.....eege.ee....', '.....egggeee....', '....eegggggee...', ...BRAZIER_BOWL.map((r, i) => (i === 2 ? '..opddeddeddpo..' : r)));
+// Tell marks, all blood: aim corners (this tile is struck next turn), line dash (a dart or dive passes), glints over a head.
+const MARK_AIM = tile('', '.rrr........rrr.', '.r............r.', '.r............r.', '', '', '', '', '', '', '', '', '.r............r.', '.r............r.', '.rrr........rrr.');
+const MARK_LINE = tile('', '', '', '', '', '', '', '......rrrr......', '......rrrr......');
+const MARK_GLINT = tile('', '', '', '', '', '', '', '', '', '', '', '', '', '', '.......rr.......', '.......rr.......');
+const MARK_HUNGRY = tile('', '', '', '', '', '', '', '', '', '', '', '', '', '', '....rr....rr....', '....rr....rr....');
+// Left by a survivor: a small wisp carving in the corner, never glowing.
+const TRAP_MARK = tile('', '', '', '', '', '', '', '', '', '', '', '', '.............t..', '............ttt.');
+// Pile countdown, top-right: bone digits, the last one in blood (rebuilds next turn).
+const DIGITS: Record<1 | 2 | 3 | 4, readonly string[]> = {
+  1: ['.ooo.', 'orro.', '.oro.', '.oro.', 'orrro', 'ooooo'],
+  2: ['oooo.', 'owwwo', 'oowwo', 'owwoo', 'owwwo', 'ooooo'],
+  3: ['oooo.', 'owwwo', 'oowwo', 'ooowo', 'owwwo', 'ooooo'],
+  4: ['oo.oo', 'owowo', 'owwwo', 'ooowo', '..owo', '..ooo'],
+};
+const digit = (n: 1 | 2 | 3 | 4) => tile(...DIGITS[n].map((r) => '..........' + r + '.'));
+
 // Placeholders; Phase 2 owns the final bitmaps.
 export const SPRITES: Record<SpriteName, SpriteDef> = {
   // The Delver: see HERO_MAP. hero-flicker swaps the flame and eyes from ember to gilt for idle frame 2.
@@ -334,4 +381,25 @@ export const SPRITES: Record<SpriteName, SpriteDef> = {
       ),
     }],
   },
+  slit: { map: SLIT, key: ART },
+  'missing-step': { map: MISSING_STEP, key: ART },
+  crack: { map: CRACK, key: ART },
+  mortar: { map: MORTAR, key: ART },
+  bars: { map: BARS, key: ART },
+  chain: { map: CHAIN, key: ART },
+  'chain-crack': { map: CHAIN_CRACK, key: ART },
+  crumble: { map: CRUMBLE, key: ART },
+  den: { map: DEN, key: ART },
+  brazier: { map: BRAZIER, key: ART },
+  'brazier-lit': { map: BRAZIER_LIT, key: ART },
+  'mark-aim': { map: MARK_AIM, key: ART },
+  'mark-line': { map: MARK_LINE, key: ART },
+  'mark-glint': { map: MARK_GLINT, key: ART },
+  'mark-hungry': { map: MARK_HUNGRY, key: ART },
+  'mark-eyes': { map: MARK_EYES, key: ART },
+  'trap-mark': { map: TRAP_MARK, key: ART },
+  'digit-1': { map: digit(1), key: ART },
+  'digit-2': { map: digit(2), key: ART },
+  'digit-3': { map: digit(3), key: ART },
+  'digit-4': { map: digit(4), key: ART },
 };

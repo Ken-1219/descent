@@ -288,7 +288,7 @@ h3 {
 
 /* Lab */
 .lab {
-  max-width: 960px;
+  max-width: 1440px; /* wide enough for the Bestiary's four tier columns */
   padding: var(--pad);
   padding-bottom: calc(var(--pad) + env(safe-area-inset-bottom));
 }
@@ -476,4 +476,34 @@ h3 {
 }
 .end__panel .btn {
   width: 100%;
+}
+
+/* Lab Bestiary: one row per family, one column per tier; a row scrolls sideways when the panel is narrow. */
+.bestiary {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: max-content;
+  gap: var(--gap);
+  overflow-x: auto;
+  padding-bottom: var(--gap);
+}
+.beast {
+  margin: 0;
+  display: grid;
+  gap: var(--gap);
+  align-content: start;
+  padding: var(--gap);
+  background: var(--ink-1);
+  border: var(--line) solid var(--ink-2);
+}
+.beast__caption {
+  color: var(--bone);
+}
+.beast__meta {
+  margin: 0;
+}
+.beast__controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--gap);
 }

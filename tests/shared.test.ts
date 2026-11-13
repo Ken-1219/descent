@@ -155,11 +155,11 @@ test('key then door: door event, key used, tile opens, player stays', () => {
 
 test('spikes hurt', () => {
   const r = step(start(floor(['####', '#@^#', '####'])), 'R');
-  expect(r.events).toContainEqual({ t: 'hurt', amount: 1, cause: 'spikes' });
+  expect(r.events).toContainEqual({ t: 'hurt', amount: 1, cause: 'spikes', at: { x: 2, y: 1 } });
   expect(r.state.hearts).toBe(HEARTS - 1);
 });
 
-test('goblin alerts (no move), then chases, then attacks when adjacent', () => {
+test('goblin alerts (no move), chases, winds up next to you, then lunges at the marked tile', () => {
   let s = start(floor(['######', '#@..g#', '######']));
   const t1 = step(s, 'W');
   expect(t1.events).toEqual([{ t: 'alert', id: 0 }]);
@@ -170,8 +170,11 @@ test('goblin alerts (no move), then chases, then attacks when adjacent', () => {
   const t3 = step(t2.state, 'W');
   expect(t3.events).toEqual([{ t: 'enemyMove', id: 0, from: { x: 3, y: 1 }, to: { x: 2, y: 1 } }]);
   const t4 = step(t3.state, 'W');
-  expect(t4.events).toEqual([{ t: 'enemyAttack', id: 0 }, { t: 'hurt', amount: 1, cause: 'goblin' }]);
-  const kill = step(t4.state, 'R');
+  expect(t4.events).toEqual([{ t: 'windup', id: 0 }]);
+  expect(t4.state.enemies[0]).toMatchObject({ mode: 'windup', aim: [{ x: 1, y: 1 }] });
+  const t5 = step(t4.state, 'W');
+  expect(t5.events).toEqual([{ t: 'enemyAttack', id: 0, at: { x: 1, y: 1 } }, { t: 'hurt', amount: 1, cause: 'goblin', at: { x: 1, y: 1 } }]);
+  const kill = step(t5.state, 'R');
   expect(kill.events.slice(0, 2)).toEqual([{ t: 'attack', id: 0, at: { x: 2, y: 1 } }, { t: 'kill', id: 0, at: { x: 2, y: 1 } }]);
   expect(kill.state.enemies).toEqual([]);
 });
@@ -180,8 +183,8 @@ test('torch out, then dark damage every 2 turns on a non-mercy floor', () => {
   const { state, events } = run(start(floor(['###', '#@#', '###'], 2)), ['W', 'W', 'W', 'W', 'W', 'W']);
   expect(events.filter((e) => e.t === 'torchOut')).toHaveLength(1);
   expect(events.filter((e) => e.t === 'hurt')).toEqual([
-    { t: 'hurt', amount: 1, cause: 'dark' },
-    { t: 'hurt', amount: 1, cause: 'dark' },
+    { t: 'hurt', amount: 1, cause: 'dark', at: { x: 1, y: 1 } },
+    { t: 'hurt', amount: 1, cause: 'dark', at: { x: 1, y: 1 } },
   ]);
   expect(state.hearts).toBe(HEARTS - 2);
   expect(state.torch).toBe(0);
@@ -189,7 +192,7 @@ test('torch out, then dark damage every 2 turns on a non-mercy floor', () => {
 
 test('dead beats won; ended runs ignore steps', () => {
   const s0 = start(floor(['#####', '#@>g#', '#####']));
-  const s: State = { ...s0, hearts: 1, enemies: s0.enemies.map((e) => ({ ...e, mode: 'chase' as const })) };
+  const s: State = { ...s0, hearts: 1, enemies: s0.enemies.map((e) => ({ ...e, mode: 'windup' as const, aim: [{ x: 2, y: 1 }] })) };
   const r = step(s, 'R');
   expect(r.state.ended).toEqual({ kind: 'dead', cause: 'goblin' });
   expect(r.events.map((e) => e.t)).not.toContain('won');
@@ -257,4 +260,144 @@ test('Floor 0 is finishable in <= 45 turns (BFS over sim states)', () => {
   const end = replay(FLOOR_0, found ?? []);
   expect(end.ended?.kind).toBe('won');
   expect(end.turn).toBeLessThanOrEqual(45);
+});
+
+// ---- Phase 4: tier table, scenes, items ----
+
+import { DARK, FAMILIES, GOBLINS, IMPS, ITEMS, MECHANISMS, PITS, SKELETONS, SPIKES, TIERS, TRAPS } from '../src/shared/content';
+import { SCENES, type Scene } from '../src/shared/scenes';
+import { lightRadius, tells } from '../src/shared/sim';
+
+const TABLES = { spikes: SPIKES, goblins: GOBLINS, imps: IMPS, mechanisms: MECHANISMS, skeletons: SKELETONS, pits: PITS, dark: DARK };
+
+test('tier table: costs follow §8 (1, 2, 3, 5; enemies +1) and every frame exists', () => {
+  const base = [0, 1, 2, 3, 5];
+  for (const f of FAMILIES) {
+    for (const t of TIERS) {
+      const enemy = f === 'goblins' || f === 'imps' || f === 'skeletons';
+      expect(TABLES[f][t].cost, `${f} T${t}`).toBe((base[t] ?? 0) + (enemy ? 1 : 0));
+    }
+  }
+  const all = [...FAMILIES.flatMap((f) => TIERS.map((t) => TABLES[f][t])), ...Object.values(TRAPS), ...Object.values(ITEMS)];
+  for (const entry of all) for (const name of entry.frames) expect(name in PACK || name in SPRITES, name).toBe(true);
+});
+
+test('scenes: 28 family cells + 3 traps + 3 items, unique ids, captions of 8 words or fewer, maps 10 wide or less', () => {
+  expect(SCENES).toHaveLength(34);
+  expect(new Set(SCENES.map((s) => s.id)).size).toBe(34);
+  for (const f of FAMILIES) for (const t of TIERS) expect(SCENES.some((s) => s.id === `${f}-${t}`), `${f}-${t}`).toBe(true);
+  for (const s of SCENES) {
+    expect(s.caption.split(/\s+/).length, s.id).toBeLessThanOrEqual(8);
+    for (const row of s.floor.rows) expect(row.length, s.id).toBe(s.floor.rows[0]?.length);
+    expect(s.floor.rows[0]?.length ?? 99, s.id).toBeLessThanOrEqual(10);
+  }
+});
+
+/** Replays a scene, keeping every state (index = turn) and each turn's events. */
+const play = (sc: Scene) => {
+  const states: State[] = [start(sc.floor)];
+  const turns: Event[][] = [[]];
+  for (const a of sc.log) {
+    const r = step(states[states.length - 1] as State, a);
+    expect(r.state.turn, `${sc.id}: every scripted action takes a turn`).toBe(states.length);
+    states.push(r.state);
+    turns.push(r.events);
+  }
+  return { states, turns };
+};
+
+test.each(SCENES.map((s) => [s.id, s] as const))('scene %s: outcome, timing, and a tell one turn before every hurt', (_, sc) => {
+  const { states, turns } = play(sc);
+  const hurts = turns.flatMap((ev, turn) => ev.flatMap((e) => (e.t === 'hurt' ? [[turn, e.cause] as const] : [])));
+  expect(hurts).toEqual(sc.hurt);
+  expect(states.at(-1)?.ended?.kind ?? null).toBe(sc.end);
+  // Every hit was readable the turn before: a tell with the same cause on the tile where it landed.
+  turns.forEach((ev, turn) => {
+    for (const e of ev) {
+      if (e.t !== 'hurt') continue;
+      const before = tells(states[turn - 1] as State);
+      expect(before.some((t) => t.cause === e.cause && t.x === e.at.x && t.y === e.at.y), `${sc.id} t${turn} ${e.cause} at ${e.at.x},${e.at.y}`).toBe(true);
+    }
+  });
+  for (const c of sc.at) {
+    const s = states[c.turn] as State;
+    const label = `${sc.id} t${c.turn}`;
+    if (c.tile) expect(s.tiles[c.tile[1]]?.[c.tile[0]], label).toBe(c.tile[2]);
+    if (c.pos) expect([s.pos.x, s.pos.y], label).toEqual(c.pos);
+    if (c.hearts !== undefined) expect(s.hearts, label).toBe(c.hearts);
+    if (c.torch !== undefined) expect(s.torch, label).toBe(c.torch);
+    if (c.light !== undefined) expect(lightRadius(s), label).toBe(c.light);
+    if (c.item !== undefined) expect(s.item, label).toBe(c.item);
+    if (c.tell) {
+      const [x, y, kind] = c.tell;
+      expect(tells(s).some((t) => t.x === x && t.y === y && t.kind === kind), `${label} tell ${kind} at ${x},${y}`).toBe(true);
+    }
+    if (c.enemy) {
+      const [id, mode, x, y] = c.enemy;
+      const e = s.enemies.find((o) => o.id === id);
+      if (mode === 'gone') expect(e, label).toBeUndefined();
+      else {
+        expect(e?.mode, `${label} enemy ${id}`).toBe(mode);
+        if (x !== undefined) expect([e?.x, e?.y], `${label} enemy ${id}`).toEqual([x, y]);
+      }
+    }
+  }
+});
+
+test('determinism: every scene replays 100 times to the same state', () => {
+  for (const sc of SCENES) {
+    const first = JSON.stringify(replay(sc.floor, sc.log));
+    for (let i = 0; i < 100; i++) expect(JSON.stringify(replay(sc.floor, sc.log))).toBe(first);
+  }
+});
+
+const itemFloor = (row: string, torch = 30) => floor(['#########', row, '#########'], torch);
+
+test('items: pick up, swap with the one held, use costs a turn, nothing held costs nothing', () => {
+  let s = start(itemFloor('#@pl....#'));
+  s = step(s, 'R').state;
+  expect(s.item).toBe('potion');
+  const swap = step(s, 'R');
+  expect(swap.state.item).toBe('oil');
+  expect(swap.state.tiles[1]?.[3]).toBe('p'); // the potion lies where the oil was
+  expect(swap.events).toContainEqual({ t: 'pickup', item: 'oil', at: { x: 3, y: 1 } });
+  const used = step(swap.state, 'I');
+  expect(used.state.turn).toBe(swap.state.turn + 1);
+  expect(used.state.item).toBeNull();
+  expect(step(used.state, 'I')).toEqual({ state: used.state, events: [] });
+});
+
+test('items: potion caps at 3 hearts; lamp oil adds ITEMS.oil.turns, capped at the floor torch', () => {
+  const full = step(step(start(itemFloor('#@p.....#')), 'R').state, 'I').state;
+  expect(full.hearts).toBe(HEARTS);
+  const low = step(start(itemFloor('#@l.....#', 50)), 'R').state;
+  const drained: State = { ...low, torch: 5 };
+  expect(step(drained, 'I').state.torch).toBe(5 + ITEMS.oil.turns - 1);
+  expect(step(low, 'I').state.torch).toBe(49);
+  const out: State = { ...low, torch: 0, darkTurns: 3 };
+  expect(step(out, 'I').state.darkTurns).toBe(0);
+});
+
+test('items: a bomb defeats enemies within 1 (8 neighbours), clears spikes within 1, and bombed skeletons never rebuild', () => {
+  const s0 = start({ ...floor(['#######', '#.g.K.#', '#^@^..#', '#..g..#', '#######']), tiers: { skeletons: 1 } });
+  const s: State = { ...s0, item: 'bomb' };
+  const r = step(s, 'I');
+  // goblin (2,1) and goblin (3,3) are in reach; the skeleton (4,1) is two tiles away.
+  expect(r.state.enemies.map((e) => e.kind)).toEqual(['skeleton']);
+  expect(r.state.tiles[2]).toBe('#.....#');
+  const pile = start({ ...floor(['#####', '#@K.#', '#####']), tiers: { skeletons: 1 } });
+  const hit = step(pile, 'R').state;
+  expect(hit.enemies[0]?.mode).toBe('pile');
+  const bombed = step({ ...hit, item: 'bomb' }, 'I').state;
+  expect(bombed.enemies).toEqual([]);
+  for (let i = 0; i < 6; i++) expect(step(bombed, 'W').state.enemies).toEqual([]);
+});
+
+test('imp randomness comes from the seeded rng in the state', () => {
+  const sc = SCENES.find((s) => s.id === 'imps-3');
+  if (!sc) throw new Error('imps-3 missing');
+  const a = replay(sc.floor, sc.log), b = replay({ ...sc.floor, seed: 99 }, sc.log);
+  expect(a.rng).not.toBe(sc.floor.seed);
+  expect(replay(sc.floor, sc.log)).toEqual(a);
+  expect(b.rng).not.toBe(a.rng);
 });

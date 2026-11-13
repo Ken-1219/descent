@@ -1,3 +1,4 @@
+import type { Item } from '../shared/content';
 import { iconCanvas } from './sprites';
 
 type Kids = (Node | string)[];
@@ -87,10 +88,11 @@ export const ghostCard = (g: GhostCard) => {
   );
 };
 
-export type HudView = { hearts: number; hasKey: boolean; torch: number; torchMax: number; depth: number };
+export type HudView = { hearts: number; hasKey: boolean; item: Item | null; torch: number; torchMax: number; depth: number };
+const ITEM_NAME: Record<Item, string> = { potion: 'potion', oil: 'lamp oil', bomb: 'bomb' };
 
 /** Builds the HUD once; `update` replaces only the pieces whose value changed. */
-export const createHud = (root: HTMLElement, lowPct: number, maxHearts: number) => {
+export const createHud = (root: HTMLElement, lowPct: number, maxHearts: number, itemIcon: (item: Item) => HTMLCanvasElement | undefined) => {
   let last: HudView | null = null;
   const floor = el('span', 'hud__floor');
   const parts = { hearts: el('span'), key: el('span'), item: el('span'), wick: el('span', 'hud__wick') };
@@ -103,6 +105,7 @@ export const createHud = (root: HTMLElement, lowPct: number, maxHearts: number) 
     }
     if (v.hearts !== last?.hearts) parts.hearts.replaceChildren(hearts(v.hearts, maxHearts));
     if (v.hasKey !== last?.hasKey) parts.key.replaceChildren(v.hasKey ? slot('Key held', iconCanvas('key', 2)) : slot('No key'));
+    if (v.item !== last?.item) parts.item.replaceChildren(v.item ? slot(`Item: ${ITEM_NAME[v.item]}`, itemIcon(v.item)) : slot('Item slot empty'));
     if (v.torch !== last?.torch) parts.wick.replaceChildren(wick(v.torch, v.torchMax, v.torch * 100 <= v.torchMax * lowPct));
     last = v;
   };

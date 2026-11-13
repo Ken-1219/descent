@@ -1,43 +1,43 @@
 // The one Phaser scene. It draws `State` and plays the events `step()` returns; it decides no rule.
 import * as Phaser from 'phaser';
 import { PALETTE, TILE, type Token } from '../shared/content';
-import { lightRadius, visibility, type Event, type Pos, type State } from '../shared/sim';
-import { ANIMS, PACK, buildAtlas, floorTile, frameAt, loadPack, rgba, shine, type Anim, type Light } from './sprites';
+import { lightRadius, visibility, type Event, type State } from '../shared/sim';
+import {
+  ANIMS, PACK, buildAtlas, choreograph, enemyLook, floorTile, frameAt, HURT, loadPack, marks, px, py, rgba, RUN, shine, tileLook,
+  type Anim, type Frame, type Key, type Light, type Streak,
+} from './sprites';
 
-// Motion and look (§15.4). Visual only; game tuning lives in content.ts.
-const HOP_MS = [24, 24, 16, 32];
-const HOP_HURT_MS = [24, 16, 16, 60]; // the landing frame becomes the 60 ms hit-stop, keeping the lock under 120 ms
-const HOP_Y = [0, -2, -1, 0];
-const LUNGE_PX = 4;
-const LUNGE_MS = 40;
-const NUDGE_MS = 48;
+// Look (§15.4). Visual only; game tuning lives in content.ts.
 const SHAKE_MS = 120;
 const SHAKE_PX = 2;
 const KILL_MS = 84;
 const REMEMBERED_ALPHA = 0.7;
 const GLOW_DARK = 0.5;
 const TORCH_GLOW_TILES = 2.5;
+const BRAZIER_GLOW_TILES = 3;
 
 const color = (t: Token) => parseInt(PALETTE[t].slice(1), 16);
 const total = (a: Anim) => a.ms.reduce((s, m) => s + m, 0);
-const isWall = (c: string | undefined) => c === '#' || c === 'T';
+const isWall = (c: string | undefined) => c !== undefined && '#TSsZz'.includes(c);
 // Depth gives §6's draw order: row by row from the top, so whatever stands in front covers what is behind.
 const depth = (y: number, layer: number) => (y + 1) * 10 + layer;
-const px = (x: number) => x * TILE + TILE / 2;
-const py = (y: number) => y * TILE + TILE;
 
 type Actor = {
   img: Phaser.GameObjects.Image;
   anim: Anim;
   after: Anim | null;
+  /** Played while a motion is running (enemy run cycles). */
+  run: Anim | null;
   t0: number;
   phase: number;
   x: number;
   y: number;
   yo: number;
+  /** Pose offset in px: the wind-up lean. */
+  ox: number;
+  oy: number;
   tint: Token | null;
 };
-type Key = { at: number; x: number; y: number; yo: number };
 type Motion = { actor: Actor; keys: Key[] };
 
 export class DescentScene extends Phaser.Scene {
@@ -46,14 +46,19 @@ export class DescentScene extends Phaser.Scene {
   private state: State;
   private hero: Actor | null = null;
   private enemies = new Map<number, Actor>();
-  private props = new Map<number, Actor>();
+  private digits = new Map<number, Phaser.GameObjects.Image>();
+  private props = new Map<number, { sig: string; actors: Actor[] }>();
+  private markImgs: Phaser.GameObjects.Image[] = [];
   private torches: { img: Phaser.GameObjects.Image; frame: number; until: number }[] = [];
-  private marks = new Map<number, Phaser.GameObjects.Rectangle>();
   private motions: Motion[] = [];
+  private streaks: Streak[] = [];
+  private streakAt = 0;
+  private streakGfx: Phaser.GameObjects.Graphics | null = null;
   private fog: Phaser.GameObjects.Graphics | null = null;
   private glow: Phaser.Textures.CanvasTexture | null = null;
   private glowAt = '';
   private torchLights: Light[] = [];
+  private brazierLights: Light[] = [];
   private endDeath: (() => void) | null = null;
   private reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
   /** Screen shakes played so far (read by the dev hook to check reduced motion). */
@@ -90,15 +95,21 @@ export class DescentScene extends Phaser.Scene {
 
   private actor(x: number, y: number, layer: number, anim: Anim): Actor {
     const img = this.add.image(px(x), py(y), 'own', 'hero@lit').setOrigin(0.5, 1).setDepth(depth(y, layer));
-    return { img, anim, after: null, t0: this.time.now, phase: Math.floor(Math.random() * 1000), x: px(x), y: py(y), yo: 0, tint: null };
+    return { img, anim, after: null, run: null, t0: this.time.now, phase: Math.floor(Math.random() * 1000), x: px(x), y: py(y), yo: 0, ox: 0, oy: 0, tint: null };
+  }
+
+  private image(f: Frame, x: number, y: number, d: number) {
+    return this.add.image(px(x), py(y), f.src === 'own' ? 'own' : 'pack', f.src === 'own' ? `${f.name}@lit` : f.name).setOrigin(0.5, 1).setDepth(d);
   }
 
   private build(state: State) {
     this.children.removeAll(true);
     this.enemies.clear();
+    this.digits.clear();
     this.props.clear();
-    this.marks.clear();
+    this.markImgs = [];
     this.motions = [];
+    this.streaks = [];
     this.torches = [];
     this.torchLights = [];
     const w = state.tiles[0]?.length ?? 0;
@@ -114,11 +125,10 @@ export class DescentScene extends Phaser.Scene {
           return;
         }
         this.add.image(px(x), py(y), 'pack', floorTile(x, y)).setOrigin(0.5, 1).setDepth(0);
-        this.placeProp(c, x, y, y * w + x);
       }),
     );
     this.hero = this.actor(state.pos.x, state.pos.y, 5, ANIMS['hero-idle']);
-    for (const e of state.enemies) this.enemies.set(e.id, this.actor(e.x, e.y, 5, ANIMS['goblin-idle']));
+    this.streakGfx = this.add.graphics().setDepth(1998);
     this.fog = this.add.graphics().setDepth(2000);
     if (this.textures.exists('glow')) this.textures.remove('glow');
     this.glow = this.textures.createCanvas('glow', w * TILE, state.tiles.length * TILE);
@@ -138,22 +148,36 @@ export class DescentScene extends Phaser.Scene {
     cam.setBounds(Math.min(0, (mw - vw) / 2), Math.min(0, (mh - vh) / 2), Math.max(mw, vw), Math.max(mh, vh));
   }
 
-  private placeProp(c: string, x: number, y: number, i: number) {
-    const still = (name: keyof typeof PACK, flat: boolean) => {
-      const a = this.actor(x, y, 2, { frames: [{ src: 'pack', name }], ms: [1000], loop: true });
-      if (flat) a.img.setDepth(1);
-      this.props.set(i, a);
-    };
-    if (c === '^') still('spikes', true);
-    else if (c === '>') still('stairs', true);
-    else if (c === 'D') still('door', false);
-    else if (c === '/') still('door-open', false);
-    else if (c === 'k') this.props.set(i, this.actor(x, y, 2, ANIMS['key-bob']));
+  /** Props whose tile changed are rebuilt (pits open, gates slam, spikes breathe); unchanged ones keep animating. */
+  private syncProps(state: State) {
+    const w = state.tiles[0]?.length ?? 0;
+    state.tiles.forEach((row, y) => {
+      for (let x = 0; x < row.length; x++) {
+        const i = y * w + x;
+        const look = tileLook(state, x, y);
+        const sig = look.map((p) => p.anim.frames.map((f) => f.name).join('+')).join('|');
+        if (this.props.get(i)?.sig === sig) continue;
+        for (const a of this.props.get(i)?.actors ?? []) a.img.destroy();
+        this.props.set(i, {
+          sig,
+          actors: look.map((p, k) => {
+            const a = this.actor(x, y, 2 + k, p.anim);
+            if (p.flat) a.img.setDepth(1 + k / 10);
+            return a;
+          }),
+        });
+      }
+    });
+    // A lit brazier is a light source like a wall torch.
+    this.brazierLights = state.tiles.flatMap((row, y) =>
+      [...row].flatMap((c, x) => (c === 'y' ? [{ x: px(x), y: py(y) - TILE / 2, r: BRAZIER_GLOW_TILES * TILE, tint: 'ember' as const }] : [])),
+    );
   }
 
-  /** Fog, enemy visibility and tells from the new state. Fog is per tile; the glow is drawn above and decides nothing. */
+  /** Fog, props, enemy poses and tell marks from the new state. Fog is per tile; the glow is drawn above and decides nothing. */
   private sync(state: State) {
     this.state = state;
+    this.syncProps(state);
     const vis = visibility(state);
     const w = state.tiles[0]?.length ?? 0;
     const fog = this.fog;
@@ -166,40 +190,25 @@ export class DescentScene extends Phaser.Scene {
       });
     }
     for (const e of state.enemies) {
-      const a = this.enemies.get(e.id);
-      if (!a) continue;
+      let a = this.enemies.get(e.id);
+      if (!a) {
+        a = this.actor(e.x, e.y, 5, enemyLook(e).anim);
+        this.enemies.set(e.id, a);
+      }
+      const look = enemyLook(e);
+      if (a.anim !== look.anim && !a.after) a.anim = look.anim;
+      a.run = RUN[e.kind];
+      a.ox = look.dx;
+      a.oy = look.dy;
       a.img.setVisible(vis[e.y * w + e.x] === 2);
-      if (e.mode === 'alert' && !this.marks.has(e.id)) {
-        // The goblin's tell: a blood glint above it on the turn before it chases.
-        this.marks.set(e.id, this.add.rectangle(px(e.x), py(e.y) - TILE - 2, 2, 2, color('blood')).setDepth(depth(e.y, 6)));
-      }
-      if (e.mode !== 'alert') {
-        this.marks.get(e.id)?.destroy();
-        this.marks.delete(e.id);
-      }
-      a.img.setFlipX(state.pos.x < e.x);
+      if (e.mode !== 'pile' && e.x !== state.pos.x) a.img.setFlipX(state.pos.x < e.x);
+      this.digits.get(e.id)?.destroy();
+      this.digits.delete(e.id);
+      if (look.digit) this.digits.set(e.id, this.image({ src: 'own', name: look.digit }, e.x, e.y, depth(e.y, 7)).setVisible(vis[e.y * w + e.x] === 2));
     }
-  }
-
-  private move(a: Actor, from: Pos, to: Pos, ms: readonly number[], now: number) {
-    let at = now;
-    const keys = ms.map((m, k) => {
-      const f = (k + 1) / ms.length;
-      const key = { at, x: px(from.x + (to.x - from.x) * f), y: py(from.y + (to.y - from.y) * f), yo: HOP_Y[k] ?? 0 };
-      at += m;
-      return key;
-    });
-    this.motions.push({ actor: a, keys });
-    a.img.setDepth(depth(to.y, 5));
-    if (to.x !== from.x) a.img.setFlipX(to.x < from.x);
-    return ms.reduce((s, m) => s + m, 0);
-  }
-
-  private lunge(a: Actor, toward: Pos, half: number, now: number, distance: number) {
-    const dx = Math.sign(px(toward.x) - a.x) * distance;
-    const dy = Math.sign(py(toward.y) - a.y) * distance;
-    this.motions.push({ actor: a, keys: [{ at: now, x: a.x + dx, y: a.y + dy, yo: 0 }, { at: now + half, x: a.x, y: a.y, yo: 0 }] });
-    return half * 2;
+    for (const img of this.markImgs) img.destroy();
+    this.markImgs = marks(state).map((m) => this.image(m.frame, m.x, m.y, depth(m.y, 6)));
+    if (this.hero) this.hero.tint = state.torch <= 0 && !state.ended ? 'stone' : null;
   }
 
   /** Plays one turn's events; resolves when the turn's animation lock (≤ 120 ms) ends, or when death finishes. */
@@ -207,31 +216,37 @@ export class DescentScene extends Phaser.Scene {
     const now = this.time.now;
     const hero = this.hero;
     if (!hero) return Promise.resolve();
-    const hurt = events.some((e) => e.t === 'hurt');
-    let lock = 0;
+    const turn = choreograph(events, next);
+    for (const m of turn.motions) {
+      const actor = m.who === 'hero' ? hero : this.enemies.get(m.who);
+      if (!actor) continue;
+      const keys = m.keys.map((k) => ({ ...k, at: now + k.at }));
+      this.motions.push({ actor, keys });
+      const first = m.keys[0], last = m.keys.at(-1);
+      if (first && last) {
+        actor.img.setDepth(depth(Math.round(last.y / TILE) - 1, 5));
+        if (last.x !== actor.x) actor.img.setFlipX(last.x < actor.x);
+      }
+    }
+    this.streaks = turn.streaks;
+    this.streakAt = now;
     let died = false;
     for (const e of events) {
-      if (e.t === 'move') lock = Math.max(lock, this.move(hero, e.from, e.to, hurt ? HOP_HURT_MS : HOP_MS, now));
-      else if (e.t === 'blocked' || e.t === 'locked') lock = Math.max(lock, this.lunge(hero, e.at, NUDGE_MS / 2, now, 1));
-      else if (e.t === 'attack') lock = Math.max(lock, this.lunge(hero, e.at, LUNGE_MS, now, LUNGE_PX));
-      else if (e.t === 'enemyMove') {
+      if (e.t === 'kill' || e.t === 'collapse') {
         const a = this.enemies.get(e.id);
-        if (a) {
-          a.anim = ANIMS['goblin-run'];
-          lock = Math.max(lock, this.move(a, e.from, e.to, HOP_MS, now));
-        }
-      } else if (e.t === 'enemyAttack') {
-        const a = this.enemies.get(e.id);
-        if (a) lock = Math.max(lock, this.lunge(a, next.pos, LUNGE_MS, now, LUNGE_PX));
-      } else if (e.t === 'kill') {
-        const a = this.enemies.get(e.id);
-        if (a) {
-          a.anim = ANIMS['goblin-hurt'];
+        const kind = this.state.enemies.find((o) => o.id === e.id)?.kind ?? next.enemies.find((o) => o.id === e.id)?.kind;
+        if (a && kind) {
+          a.anim = HURT[kind];
           a.t0 = now;
-          this.time.delayedCall(instant ? 0 : KILL_MS, () => a.img.destroy());
-          this.enemies.delete(e.id);
-          this.marks.get(e.id)?.destroy();
-          this.marks.delete(e.id);
+          if (e.t === 'kill') {
+            this.time.delayedCall(instant ? 0 : KILL_MS, () => a.img.destroy());
+            this.enemies.delete(e.id);
+            this.digits.get(e.id)?.destroy();
+            this.digits.delete(e.id);
+          } else {
+            const pile = next.enemies.find((o) => o.id === e.id);
+            if (pile) a.after = enemyLook(pile).anim;
+          }
         }
       } else if (e.t === 'hurt') {
         hero.anim = ANIMS['hero-hurt'];
@@ -241,20 +256,12 @@ export class DescentScene extends Phaser.Scene {
           this.cameras.main.shake(SHAKE_MS, SHAKE_PX / this.cameras.main.width);
           this.shakes++;
         }
-      } else if (e.t === 'key' || e.t === 'door') {
-        const i = e.at.y * (next.tiles[0]?.length ?? 0) + e.at.x;
-        const prop = this.props.get(i);
-        if (e.t === 'key') {
-          prop?.img.destroy();
-          this.props.delete(i);
-        } else if (prop) prop.anim = { frames: [{ src: 'pack', name: 'door-open' }], ms: [1000], loop: true };
-      } else if (e.t === 'torchOut') hero.tint = 'stone';
-      else if (e.t === 'dead') died = true;
+      } else if (e.t === 'dead') died = true;
     }
     this.sync(next);
     if (instant) this.settle();
     if (died) return this.die(instant);
-    return instant || lock === 0 ? Promise.resolve() : new Promise((r) => this.time.delayedCall(Math.min(lock, 120), r));
+    return instant || turn.lock === 0 ? Promise.resolve() : new Promise((r) => this.time.delayedCall(turn.lock, r));
   }
 
   private die(instant: boolean): Promise<void> {
@@ -288,16 +295,24 @@ export class DescentScene extends Phaser.Scene {
       if (last) Object.assign(m.actor, { x: last.x, y: last.y, yo: 0 });
     }
     this.motions = [];
+    this.streaks = [];
   }
 
   override update(time: number) {
+    const moving = new Set<Actor>();
     this.motions = this.motions.filter((m) => {
       const key = [...m.keys].reverse().find((k) => k.at <= time);
       if (key) Object.assign(m.actor, { x: key.x, y: key.y, yo: key.yo });
-      return time < (m.keys[m.keys.length - 1]?.at ?? 0) + 1;
+      const live = time < (m.keys[m.keys.length - 1]?.at ?? 0) + 1;
+      if (live) moving.add(m.actor);
+      return live;
     });
-    const actors = [this.hero, ...this.enemies.values(), ...this.props.values()];
-    for (const a of actors) if (a) this.show(a, time);
+    const actors = [this.hero, ...this.enemies.values(), ...[...this.props.values()].flatMap((p) => p.actors)];
+    for (const a of actors) if (a) this.show(a, time, moving.has(a));
+    for (const [id, img] of this.digits) {
+      const a = this.enemies.get(id);
+      if (a) img.setPosition(a.x, a.y);
+    }
     for (const t of this.torches) {
       // The flame never loops: shuffled frames, holds of 84–140 ms (cosmetic randomness, client only).
       if (time >= t.until) {
@@ -306,20 +321,38 @@ export class DescentScene extends Phaser.Scene {
         t.img.setFrame(`torch-${t.frame}@lit`);
       }
     }
+    this.drawStreaks(time);
     this.drawGlow();
   }
 
-  private show(a: Actor, now: number) {
-    const elapsed = now - a.t0 + (a.anim.loop ? a.phase : 0);
+  /** A dart or arrow: a 1 px bone streak whose head flies from the slit or bow to where it stops. */
+  private drawStreaks(time: number) {
+    const g = this.streakGfx;
+    if (!g) return;
+    g.clear();
+    for (const s of this.streaks) {
+      const t = time - this.streakAt;
+      if (t < s.at || t > s.until) continue;
+      const f = Math.min(1, (t - s.at) / ((s.until - s.at) * 0.6));
+      const hx = px(s.from.x) + (px(s.to.x) - px(s.from.x)) * f;
+      const hy = py(s.from.y) - TILE / 2 + (py(s.to.y) - py(s.from.y)) * f;
+      g.lineStyle(1, color('bone'), 1);
+      g.lineBetween(px(s.from.x), py(s.from.y) - TILE / 2, Math.round(hx), Math.round(hy));
+    }
+  }
+
+  private show(a: Actor, now: number, moving: boolean) {
+    const anim = moving && a.run ? a.run : a.anim;
+    const elapsed = now - a.t0 + (anim.loop ? a.phase : 0);
     if (!a.anim.loop && a.after && elapsed >= total(a.anim)) {
       a.anim = a.after;
       a.after = null;
       a.t0 = now;
     }
-    const f = a.anim.frames[frameAt(a.anim, elapsed)];
+    const f = anim.frames[frameAt(anim, elapsed)];
     if (!f) return;
     a.img.setTexture(f.src === 'own' ? 'own' : 'pack', f.src === 'own' ? `${f.name}@lit` : f.name);
-    a.img.setPosition(a.x, a.y + a.yo + (f.dy ?? 0));
+    a.img.setPosition(a.x + (moving ? 0 : a.ox), a.y + a.yo + (f.dy ?? 0) + (moving ? 0 : a.oy));
     const tint = f.tint ?? a.tint;
     if (tint) a.img.setTint(color(tint)).setTintMode(f.tint ? Phaser.TintModes.FILL : Phaser.TintModes.MULTIPLY);
     else a.img.clearTint();
@@ -330,12 +363,12 @@ export class DescentScene extends Phaser.Scene {
     const glow = this.glow;
     if (!hero || !glow) return;
     const r = lightRadius(this.state);
-    const at = `${hero.x},${hero.y},${r}`;
+    const at = `${hero.x},${hero.y},${r},${this.brazierLights.length}`;
     if (at === this.glowAt) return;
     this.glowAt = at;
     const ctx = glow.getContext();
     ctx.clearRect(0, 0, glow.width, glow.height);
-    const lights = [...this.torchLights, { x: hero.x, y: hero.y - TILE / 2, r: (r + 0.5) * TILE, tint: 'ember' as const }];
+    const lights = [...this.torchLights, ...this.brazierLights, { x: hero.x, y: hero.y - TILE / 2, r: (r + 0.5) * TILE, tint: 'ember' as const }];
     shine(ctx, glow.width, glow.height, lights, GLOW_DARK);
     // Warm wash over the scene: the glow layer has nothing beneath it to soft-light, so tint directly.
     for (const l of lights) {
