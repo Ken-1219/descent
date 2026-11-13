@@ -126,3 +126,10 @@ How each hazard is modelled. Nothing is modelled more kindly than the sim:
 - F4. **Slack** is back to a difficulty knob: `max(160%, 250% − 2%·depth)`, with no room bonus (supersedes D1). Exploration is now the blind player's problem, as it should be.
 - F5. **Curses:** five, as data. Win-rate costs are −4 to −9 (table in PLAN §8). Every curse passes the gates.
 - F6. **Divers:** 79 of 99 diver hits on the map bot came with no escape tile. A diver lined up along a corridor marks up to 6 tiles and you can move one, so the depth-9 dip is the diver rule in corridors more than the bot. The costs now limit how many divers a floor gets.
+
+## Second follow-up (user answers)
+- G1. **Divers hurt only the aimed tile** (rule 13 amended). Its lethality fell from 32 to 6–10 hearts per 100 instances; its cost from 6 to 2.
+- G2. **Double arrivals** (depths 8, 15, 22): one showcase room per new tier. Every room holds at most `FRESH_PER_ROOM` = 2 instances of a new family. Without that cap, depth 9 averaged 8.7 divers per floor and depth 15 averaged 6.8 dens.
+- G3. **Dark rooms are priced by the torch they burn:** half a heart per extra turn burned. T2–T4 cost about 3–4 hearts per instance, so they sit at the cap of 8.
+- G4. **Retune:** budget `8 + 8·min(depth, 35)`, family cap 40%, density `[5, 4, 3, 3, 3, 3]` tiles per instance, slack `max(190%, 300% − 3%·depth)`. The costs were re-measured at the final density.
+- G5. **Torch still leads deaths in every band.** Raising slack until hazards carried the curve came out too easy unless hazards flood the band-start floors, which rule 3 now forbids. That is left as a question.

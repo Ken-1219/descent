@@ -319,9 +319,9 @@ Trapsetter options, always available to survivors: spikes, dart slit, false stai
 | Rooms | `4 + min(band, 5)` | 4 | 5 | 6 | 7 | 7 |
 
 - Instance cost by tier: 1, 2, 3, 5. Enemies cost one more. No family takes over 40% of the budget.
-  *Phase 5:* each tier cell's cost is set in `content.ts` from its measured lethality (one point per 5 hearts lost per 100 instances by the skill-60 bot, clamped 1–8); budget `8 + 4·min(depth, 35)`; family cap 30%.
+  *Phase 5:* each tier cell's cost is set in `content.ts` from its measured lethality (one point per 5 hearts lost per 100 instances by the skill-60 bot, clamped 1–8; dark rooms by the torch they burn, half a heart per extra turn); budget `8 + 8·min(depth, 35)`; family cap 40%; room density by band.
 - `torch = ceil(shortestPath × slack)`, so the torch is fair by construction on any layout.
-  *Phase 5:* the torch comes from the zero-damage path's burn (turns, waits, dark rooms at 2), not the geometric shortest path; slack is `max(160%, 250% − 2%·depth)`.
+  *Phase 5:* the torch comes from the zero-damage path's burn (turns, waits, dark rooms at 2), not the geometric shortest path; slack is `max(190%, 300% − 3%·depth)`.
 - Hearts start at 3 on every floor (2 under the Frail curse); a potion never takes them above 3.
 
 ### Rule decisions (Phase 3; later phases must not contradict)
@@ -343,14 +343,14 @@ Trapsetter options, always available to survivors: spikes, dart slit, false stai
 10. A gate won't close on something standing in it.
 11. Dark-room vision applies only while you stand inside the room. T3 dark rooms use T2's rules and hold another family.
 12. A den spawns an idle goblin, which glints before it chases.
-13. Imp dives arc only 1 px.
+13. Imp dives arc only 1 px. A diver aims at the tile you stand on and marks only that tile; it flies the line and lands past it, and only the aimed tile takes damage (if the landing tile is taken, it stops on the aimed tile). One step off dodges, even in a corridor. (Amended after Phase 5: the whole line used to hurt.)
 14. Cracks are reserved for danger (no cracked-floor decoration). Blood corner marks always mean "hurts next turn". Plates use the blue pack art; the red one reads as a blood tell.
 
 ### Floor shape
 
 1. Room 1 is always safe.
-2. The day's new family or tier appears alone in a showcase room.
-3. Later rooms combine it with one older family.
+2. The day's new family or tier appears alone in a showcase room. When two arrive at once (band starts after depth 1), each gets its own showcase room.
+3. Later rooms combine it with one older family; a room holds at most `FRESH_PER_ROOM` (2) instances of a new family, so the new thing never floods the floor.
 4. No hazard within 2 tiles of the entrance.
 
 ### Crowd modifiers
@@ -365,11 +365,11 @@ Trapsetter options, always available to survivors: spikes, dart slit, false stai
 
 | Curse | Effect | Win-rate cost (skill 60, floors 1–21) |
 |---|---|---|
-| Short Wick | torch 90% (never below gate 2) | −9 |
-| Overrun | budget and room capacity 140% | −7 |
-| Deep Dark | light radius −1, never below 2; dark rooms keep their own radius | −6 |
-| Light Sleepers | enemies wake 2 tiles further; room-1 safety uses the cursed range | −6 |
-| Frail | start with 2 hearts | −4 |
+| Short Wick | torch 90% (never below gate 2) | −6 |
+| Overrun | budget and room capacity 160% | −4 |
+| Deep Dark | light radius −1, never below 2; dark rooms keep their own radius | −7 |
+| Light Sleepers | enemies wake 2 tiles further; room-1 safety uses the cursed range | −1 (weak: see Phase 5 report) |
+| Frail | start with 2 hearts | −5 |
 
 ### Fairness gates (a failing floor is regenerated with `seed + 1`)
 

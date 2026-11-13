@@ -406,16 +406,14 @@ export function step(state: State, action: Action): { state: State; events: Even
     const at = e.aim[0];
     if (e.kind === 'skeleton' && SKELETONS[tierOf(d, 'skeletons')].range) shoot({ x: e.x, y: e.y }, e.aim, 'arrow');
     else if (e.kind === 'imp' && IMPS[tierOf(d, 'imps')].dive) {
-      // The dive follows the marked line and overshoots: anyone on it is hit; it lands on the last free tile.
-      let end: Pos = { x: e.x, y: e.y }, prev = end;
-      for (const p of e.aim) {
-        if (blocks(tileAt(d.tiles, p.x, p.y)) || enemyAt(p)) break;
-        if (same(p, d.pos)) hits.push({ amount: 1, cause: 'imp', at: p });
-        prev = end;
-        end = p;
-      }
-      if (same(end, d.pos)) end = prev;
-      if (!same(end, e)) moveTo(e, end);
+      // The dive flies its line through the aimed tile and lands past it. Only the aimed tile is hurt (the rest is
+      // flight path), so one step off it dodges, even in a corridor. A taken landing tile: it stops on the aimed tile.
+      const line = at ? ray(d.tiles, e, at, IMPS[tierOf(d, 'imps')].dive) : [];
+      if (at && same(at, d.pos)) hits.push({ amount: 1, cause: 'imp', at });
+      const land = line[line.length - 1];
+      const stop = land && free(land) ? land : at && free(at) ? at : null;
+      if (at) events.push({ t: 'enemyAttack', id: e.id, at });
+      if (stop && !same(stop, e)) moveTo(e, stop);
     } else if (at) {
       events.push({ t: 'enemyAttack', id: e.id, at });
       if (same(at, d.pos)) hits.push({ amount: 1, cause: e.kind, at });
@@ -451,7 +449,7 @@ export function step(state: State, action: Action): { state: State; events: Even
       if (t.dive) {
         const aligned = e.x === d.pos.x || e.y === d.pos.y;
         if (aligned && dist(e, d.pos) <= t.diveRange && ray(d.tiles, e, d.pos, dist(e, d.pos)).length === dist(e, d.pos)) {
-          return windup(e, ray(d.tiles, e, d.pos, t.dive));
+          return windup(e, [{ ...d.pos }]); // it marks only the tile it aims at
         }
         // Line up with you on the closer axis, otherwise close in.
         const dx = d.pos.x - e.x, dy = d.pos.y - e.y;

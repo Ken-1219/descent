@@ -87,7 +87,9 @@ export const FLOOR_0: Floor = {
 // ---- Phase 4: tier table (§8). Each family's tier is set per floor (Floor.tiers); rules read these entries. ----
 // `cost` is the budget price of one instance. §8 started at 1, 2, 3, 5 by tier (enemies one more); Phase 5 sets each cell
 // from its measured lethality: one budget point per 5 hearts lost per 100 instances by the skill-60 bot (depths 1–28,
-// seeds 1–50; second pass on the first pass's floors), clamped to 1–8. A harmless upgrade (gates, dark rooms) no longer eats the budget a lethal one would.
+// seeds 1–50; re-measured after the single-tile dive rule at the final density), clamped to 1–8. Dark rooms hurt through the torch, which
+// hearts can't see: they are priced by the extra torch they burn, at half a heart per turn of darkness (T2+ ≈ 3–4 hearts
+// per instance, so the cap). A harmless upgrade (gates) no longer eats the budget a lethal one would.
 // `frames` names the pack or own sprites the client draws for it (checked by a test).
 
 export type Family = 'spikes' | 'goblins' | 'imps' | 'mechanisms' | 'skeletons' | 'pits' | 'dark';
@@ -99,7 +101,7 @@ type Priced = { cost: number; frames: readonly string[] };
 
 /** period 0 = always up. Otherwise up when (turn - rowShift*y) mod period = 0, half-raised the turn before. */
 export const SPIKES: Record<Tier, Priced & { period: number; rowShift: number; buried: boolean }> = {
-  1: { period: 0, rowShift: 0, buried: false, cost: 5, frames: ['spikes'] },
+  1: { period: 0, rowShift: 0, buried: false, cost: 4, frames: ['spikes'] },
   2: { period: 3, rowShift: 0, buried: false, cost: 4, frames: ['spikes-0', 'spikes-1', 'spikes'] },
   3: { period: 3, rowShift: 1, buried: false, cost: 2, frames: ['spikes-0', 'spikes-1', 'spikes'] },
   4: { period: 0, rowShift: 0, buried: true, cost: 2, frames: ['crack', 'spikes'] },
@@ -116,7 +118,7 @@ export const GOBLINS: Record<Tier, Priced & { sight: number; flank: boolean; pac
 /** wake 'near' = Manhattan distance, through walls; 'light' = its tile is lit by your torch. dive: dive length (0 = no dive). */
 export const IMPS: Record<Tier, Priced & { wake: 'near' | 'light'; wakeDist: number; steps: number; dive: number; diveRange: number; packWake: boolean }> = {
   1: { wake: 'near', wakeDist: 4, steps: 2, dive: 0, diveRange: 0, packWake: false, cost: 1, frames: ['imp-idle-0', 'imp-run-0'] },
-  2: { wake: 'near', wakeDist: 4, steps: 1, dive: 6, diveRange: 5, packWake: false, cost: 6, frames: ['imp-idle-0', 'imp-run-0', 'mark-line'] },
+  2: { wake: 'near', wakeDist: 4, steps: 1, dive: 6, diveRange: 5, packWake: false, cost: 2, frames: ['imp-idle-0', 'imp-run-0', 'mark-line'] },
   3: { wake: 'near', wakeDist: 4, steps: 2, dive: 0, diveRange: 0, packWake: true, cost: 2, frames: ['imp-idle-0', 'imp-run-0'] },
   4: { wake: 'light', wakeDist: 0, steps: 2, dive: 0, diveRange: 0, packWake: false, cost: 1, frames: ['imp-idle-0', 'imp-run-0'] },
 };
@@ -134,14 +136,14 @@ export const SKELETONS: Record<Tier, Priced & { sight: number; rebuild: number; 
   1: { sight: 4, rebuild: 4, avoid: false, range: 0, shared: false, cost: 1, frames: ['skelet-idle-0', 'skelet-run-0', 'skull'] },
   2: { sight: 4, rebuild: 3, avoid: true, range: 0, shared: false, cost: 1, frames: ['skelet-idle-0', 'skelet-run-0', 'skull'] },
   3: { sight: 4, rebuild: 3, avoid: true, range: 3, shared: false, cost: 3, frames: ['skelet-idle-0', 'skelet-run-0', 'skull', 'mark-line'] },
-  4: { sight: 4, rebuild: 3, avoid: true, range: 0, shared: true, cost: 4, frames: ['skelet-idle-0', 'skelet-run-0', 'skull'] },
+  4: { sight: 4, rebuild: 3, avoid: true, range: 0, shared: true, cost: 5, frames: ['skelet-idle-0', 'skelet-run-0', 'skull'] },
 };
 
 /** crumble 'leave' = falls after you step off; 'stand' = cracks under you and falls next turn. hidden = looks like floor. */
 export const PITS: Record<Tier, Priced & { crumble: 'none' | 'leave' | 'stand'; hidden: boolean }> = {
-  1: { crumble: 'none', hidden: false, cost: 3, frames: ['pit'] },
+  1: { crumble: 'none', hidden: false, cost: 2, frames: ['pit'] },
   2: { crumble: 'leave', hidden: false, cost: 1, frames: ['crumble', 'pit'] },
-  3: { crumble: 'stand', hidden: false, cost: 3, frames: ['chain', 'chain-crack', 'pit'] },
+  3: { crumble: 'stand', hidden: false, cost: 4, frames: ['chain', 'chain-crack', 'pit'] },
   4: { crumble: 'none', hidden: true, cost: 1, frames: ['mortar', 'pit'] },
 };
 export const PIT_DAMAGE = 1;
@@ -151,9 +153,9 @@ export const PIT_DROP = 3;
 /** Inside an unlit dark room: torch radius and torch burned per turn. brazier: the room can be lit. */
 export const DARK: Record<Tier, Priced & { radius: number; burn: number; brazier: boolean }> = {
   1: { radius: 1, burn: 1, brazier: false, cost: 1, frames: [] },
-  2: { radius: 1, burn: 2, brazier: false, cost: 1, frames: [] },
-  3: { radius: 1, burn: 2, brazier: false, cost: 1, frames: [] },
-  4: { radius: 1, burn: 2, brazier: true, cost: 1, frames: ['brazier', 'brazier-lit'] },
+  2: { radius: 1, burn: 2, brazier: false, cost: 8, frames: [] },
+  3: { radius: 1, burn: 2, brazier: false, cost: 8, frames: [] },
+  4: { radius: 1, burn: 2, brazier: true, cost: 8, frames: ['brazier', 'brazier-lit'] },
 };
 
 /** Trapsetter traps (§8), placed by survivors outside the floor budget, so they cost 0 here. */
@@ -186,7 +188,7 @@ export const GRID = { base: 15, step: 2, maxBand: 5 };
 export const ROOMS = { base: 4, maxBand: 5, minLeaf: 6, minRoom: 3, loops: 1 };
 
 /** Budget 8 + 4·min(depth, 35) (§8 started at 3 per depth; Phase 5 tuning); no family may take more than 30% of it (§8 allows up to 40%; 30 keeps a showcase family from flooding the floor). */
-export const BUDGET = { base: 8, step: 4, capDepth: 35, familyCapPct: 30 };
+export const BUDGET = { base: 8, step: 8, capDepth: 35, familyCapPct: 40 };
 /** Purchase weight per family (×10). */
 export const FAMILY_WEIGHT: Record<Family, number> = { spikes: 10, goblins: 10, imps: 10, mechanisms: 8, skeletons: 2, pits: 10, dark: 6 };
 
@@ -196,7 +198,7 @@ export const FAMILY_WEIGHT: Record<Family, number> = { spikes: 10, goblins: 10, 
  * (median) and up to ~4× (p75 on 9-room floors), so slack covers exploration and grows with the room count (Phase 5 tuning).
  * Gate 2: the safe path's burn ≤ 70% of the torch.
  */
-export const SLACK = { startPct: 250, perDepthPct: 2, minPct: 160, perRoomPct: 0 };
+export const SLACK = { startPct: 300, perDepthPct: 3, minPct: 190, perRoomPct: 0 };
 export const GATE_TORCH_PCT = 70;
 
 /** Compass zones ranked by yesterday's deaths: weights ×10. Zones with no deaths 6; no deaths anywhere: uniform. */
@@ -221,7 +223,7 @@ export const RETRY_CAP = 25;
  */
 export const CURSES = {
   'short-wick': { torchPct: 90, budgetPct: 100, radiusDelta: 0, wakeDelta: 0, heartsDelta: 0 },
-  overrun: { torchPct: 100, budgetPct: 140, radiusDelta: 0, wakeDelta: 0, heartsDelta: 0 },
+  overrun: { torchPct: 100, budgetPct: 160, radiusDelta: 0, wakeDelta: 0, heartsDelta: 0 },
   'deep-dark': { torchPct: 100, budgetPct: 100, radiusDelta: -1, wakeDelta: 0, heartsDelta: 0 },
   'light-sleepers': { torchPct: 100, budgetPct: 100, radiusDelta: 0, wakeDelta: 2, heartsDelta: 0 },
   frail: { torchPct: 100, budgetPct: 100, radiusDelta: 0, wakeDelta: 0, heartsDelta: -1 },
@@ -234,4 +236,6 @@ export const BOT_MAX_ACTIONS = 600;
 /** Budget spending stops after this many failed placements in a row (the floor is full). */
 export const PLACE_TRIES = 24;
 /** A room holds at most one instance per this many floor tiles (at least one), by band: floors fill up as you descend. */
-export const TILES_PER_INSTANCE = [10, 8, 6, 5, 5, 5];
+export const TILES_PER_INSTANCE = [5, 4, 3, 3, 3, 3];
+/** Floor-shape rules 2-3: the day's new family appears alone in its showcase room, then combined with an older family in later rooms; it takes at most this many instances in any one room. */
+export const FRESH_PER_ROOM = 2;

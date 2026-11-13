@@ -44,17 +44,20 @@ test('crowd weights: ranked 2.2/1.6/1.2 then 0.8, empty zones 0.6, uniform with 
   expect(zoneWeights([0, 9, 0, 3, 0, 1, 0, 0, 5])).toEqual([6, 22, 6, 12, 6, 8, 6, 6, 16]);
 });
 
-test('painted deaths pull hazards toward that zone', { timeout: 20_000 }, () => {
-  const hazards = (mods: Mods, zone: number) => {
-    let n = 0;
-    for (let s = 1; s <= 40; s++) {
-      const f = generate(15, s, mods).floor;
-      f.rows.forEach((row, y) => [...row].forEach((c, x) => { if ('^Oo,_giKG'.includes(c) && zoneOf({ x, y }, row.length) === zone) n++; }));
+test('painted deaths pull hazards toward that zone', { timeout: 30_000 }, () => {
+  // Share of all hazard and enemy tiles that lie in zone 8, over 100 floors at depth 22.
+  const share = (mods: Mods) => {
+    let inZone = 0, all = 0;
+    for (let s = 1; s <= 100; s++) {
+      generate(22, s, mods).floor.rows.forEach((row, y) => [...row].forEach((c, x) => {
+        if (!'^Oo,_giKGYxFSu'.includes(c)) return;
+        all++;
+        if (zoneOf({ x, y }, row.length) === 8) inZone++;
+      }));
     }
-    return n;
+    return inZone / all;
   };
-  const heavy: Mods = { ...NO_MODS, deaths: [0, 0, 0, 0, 0, 0, 0, 0, 40] };
-  expect(hazards(heavy, 8)).toBeGreaterThan(hazards(NO_MODS, 8));
+  expect(share({ ...NO_MODS, deaths: [0, 0, 0, 0, 0, 0, 0, 0, 40] })).toBeGreaterThan(share(NO_MODS));
 });
 
 test('curses: overrun raises the budget; short wick shortens the torch but never below gate 2', () => {

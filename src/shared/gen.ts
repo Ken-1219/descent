@@ -1,7 +1,7 @@
 // Floor generator (§8): BSP rooms, the tier cycle, budget spending, floor shape, crowd weights, player traps, fairness gates.
 import {
   BUDGET, CROWD, CURSES, CYCLE, DARK, ENTRANCE_CLEAR, FAMILIES, FAMILY_POS, FAMILY_WEIGHT, GATE_TORCH_PCT, GOBLINS, GRID, IMPS,
-  ITEM_RULE, ITEM_WEIGHT, MAX_TIER, MECHANISMS, PITS, PLACE_TRIES, RETRY_CAP, ROOM1_ENEMY_GAP, ROOMS, SKELETONS, SLACK, SPIKES,
+  FRESH_PER_ROOM, ITEM_RULE, ITEM_WEIGHT, MAX_TIER, MECHANISMS, PITS, PLACE_TRIES, RETRY_CAP, ROOM1_ENEMY_GAP, ROOMS, SKELETONS, SLACK, SPIKES,
   TIERS, TILES_PER_INSTANCE, TRAP_MAX, TRAPS, WARDEN_POS, type Curse, type Family, type Item, type Tier,
 } from './content';
 import { bot } from './bot';
@@ -255,9 +255,16 @@ function attempt(depth: number, seed: number, mods: Mods): Omit<Generated, 'reje
     .map((f, i) => ({ f, i, key: rnd() }))
     .sort((a, b) => a.key - b.key || a.i - b.i)
     .map((x) => x.f);
+  // Two new tiers at once (band starts after depth 1): each gets its own showcase room, and a later room holds at most one
+  // of them plus one older family (floor-shape rule 3). Depth 1 has no older family, so its two share the showcase.
+  const split = fresh.length > 1 && older.length > 0;
+  const shows = split ? fresh.length : 1;
   const allowed = order.map((k, rank): [number, Family[]] => {
-    const old = older[(rank - 2) % Math.max(1, older.length)];
-    return [k, k === r1 ? [] : rank === 1 ? fresh : old ? [...fresh, old] : fresh];
+    if (k === r1) return [k, []];
+    if (rank <= shows) return [k, split ? [fresh[rank - 1] ?? fresh[0] ?? 'spikes'] : fresh];
+    const old = older[(rank - 1 - shows) % Math.max(1, older.length)];
+    const news = split ? [fresh[(rank - 1 - shows) % fresh.length] ?? 'spikes'] : fresh;
+    return [k, old ? [...news, old] : news];
   });
 
   // Crowd: survivors' traps shuffled by seed; the first TRAP_MAX materialise, the rest weight their zone.
@@ -346,13 +353,17 @@ function attempt(depth: number, seed: number, mods: Mods): Omit<Generated, 'reje
   let total = 0;
   const fixedSpikes = SPIKES[tiers.spikes ?? 1].period === 0;
   const filled = new Map<Rect, number>();
-  // A room's capacity scales with its zone's crowd weight, so painted deaths move hazards, not just their order.
+  const freshIn = new Map<Rect, number>(); // new-family instances per room: it shows alone, then combines (rules 2-3)
+  // A heavy crowd zone gets more room (never less elsewhere), so painted deaths move hazards toward it, not just their order.
   const perInstance = TILES_PER_INSTANCE[Math.min(band, TILES_PER_INSTANCE.length - 1)] ?? 4;
-  const capacity = (r: Rect) => Math.max(1, Math.floor((r.w * r.h * (zones[zoneOf(centre(r), side)] ?? CROWD.uniformWeight) * cursePct(mods, 'budgetPct')) / (perInstance * CROWD.uniformWeight * 100)));
+  const crowdPct = (r: Rect) => Math.max(100, ((zones[zoneOf(centre(r), side)] ?? CROWD.uniformWeight) * 100) / CROWD.uniformWeight);
+  const capacity = (r: Rect) => Math.max(1, Math.floor((r.w * r.h * crowdPct(r) * cursePct(mods, 'budgetPct')) / (perInstance * 100 * 100)));
+  const freshCap = (r: Rect) => Math.floor((FRESH_PER_ROOM * crowdPct(r)) / 100);
   const buy = (f: Family, r: Rect) => {
     const tier = tiers[f];
     const cost = tier ? COSTS[f][tier].cost : 0;
     const room = filled.get(r) ?? 0;
+    if (fresh.includes(f) && (freshIn.get(r) ?? 0) >= freshCap(r)) return false;
     if (!tier || total + cost > budget || (spent[f] ?? 0) + cost > cap || room >= capacity(r)) return false;
     const before = rows;
     if (!place(f, tier, r)) return false;
@@ -362,21 +373,31 @@ function attempt(depth: number, seed: number, mods: Mods): Omit<Generated, 'reje
       return false;
     }
     filled.set(r, room + 1);
+    if (fresh.includes(f)) freshIn.set(r, (freshIn.get(r) ?? 0) + 1);
     bought[f] = (bought[f] ?? 0) + 1;
     spent[f] = (spent[f] ?? 0) + cost;
     total += cost;
     return true;
   };
-  const showRoom = rooms[order[1] ?? r1];
-  if (showRoom) for (const f of fresh) buy(f, showRoom);
+  fresh.forEach((f, i) => {
+    const showRoom = rooms[order[split ? 1 + i : 1] ?? r1];
+    if (showRoom) buy(f, showRoom);
+  });
+  // A room that is full (capacity, or its share of the new family) is not a candidate, so filling the crowd's favourite
+  // rooms never ends the spending early.
+  const roomsFor = (f: Family) =>
+    allowed.filter(([k, fs]) => {
+      const r = rooms[k];
+      return r && fs.includes(f) && (filled.get(r) ?? 0) < capacity(r) && (!fresh.includes(f) || (freshIn.get(r) ?? 0) < freshCap(r));
+    }).map(([k]) => k);
   for (let fails = 0; fails < PLACE_TRIES; ) {
     const options = FAMILIES.filter((f) => {
       const tier = tiers[f];
-      return tier && total + COSTS[f][tier].cost <= budget && (spent[f] ?? 0) + COSTS[f][tier].cost <= cap && allowed.some(([, fs]) => fs.includes(f));
+      return tier && total + COSTS[f][tier].cost <= budget && (spent[f] ?? 0) + COSTS[f][tier].cost <= cap && roomsFor(f).length > 0;
     });
     const f = pickW(options, (x) => Math.floor((FAMILY_WEIGHT[x] * (mods.topFamily === x ? CROWD.topFamilyPct : 100)) / 100));
     if (!f) break;
-    const k = pickW(allowed.filter(([, fs]) => fs.includes(f)).map(([k]) => k), (k) => zones[zoneOf(centre(rooms[k] ?? room1), side)] ?? 1);
+    const k = pickW(roomsFor(f), (k) => zones[zoneOf(centre(rooms[k] ?? room1), side)] ?? 1);
     const r = k === undefined ? undefined : rooms[k];
     if (!r || !buy(f, r)) fails++;
   }

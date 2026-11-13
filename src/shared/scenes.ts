@@ -129,7 +129,7 @@ export const SCENES: readonly Scene[] = [
     at: [{ turn: 2, enemy: [0, 'alert', 6, 2] }, { turn: 3, enemy: [0, 'chase', 4, 2] }, { turn: 4, enemy: [0, 'windup', 3, 2] }, { turn: 6, enemy: [0, 'gone'] }],
   }),
   cell('imps', 2, {
-    caption: 'Divers mark a line, then dive past.',
+    caption: 'Divers mark your tile, then dive past.',
     rows: ['##########', '#@...>..i#', '#........#', '#........#', '##########'],
     log: 'RRRDUWDWWWUR',
     hurt: [[10, 'imp']],
