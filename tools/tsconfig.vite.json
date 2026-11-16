@@ -6,6 +6,6 @@
     "types": ["node"],
     "rootDir": ".."
   },
-  "include": ["../vite.config.ts", "../vite.local.config.ts"],
+  "include": ["../vite.config.ts", "../vite.local.config.ts", "../vite.phaser.ts"],
   "exclude": []
 }

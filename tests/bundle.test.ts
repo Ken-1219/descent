@@ -25,10 +25,15 @@ test('bundles: server has gen and bot; client has no gen, bot, scenes, Lab, loca
   const js = readdirSync('dist/client').filter((f) => f.endsWith('.js'));
   const client = js.map((f) => readFileSync(`dist/client/${f}`, 'utf8')).join('\n');
   for (const [name, mark] of Object.entries(MARK)) expect(client, name).not.toContain(mark);
-  // The splash loads only the scripts its HTML names: no Phaser (game.js), no sim.
+  // game.html preloads the Phaser chunk by name (vite.config.ts), so that chunk must exist under that name, slimmed.
+  const game = readFileSync('dist/client/game.html', 'utf8');
+  for (const chunk of ['phaser-core.js', 'scene.js']) expect(game).toContain(`href="/${chunk}"`);
+  expect(gzipSync(readFileSync('dist/client/phaser-core.js')).length).toBeLessThan(230_000);
+  expect(readFileSync('dist/client/phaser-core.js', 'utf8')).not.toContain('ArcadePhysics');
+  // The splash loads only the scripts its HTML names: no Phaser, no sim.
   const splash = readFileSync('dist/client/splash.html', 'utf8');
   const scripts = [...splash.matchAll(/(?:src|href)="\/([^"]+\.js)"/g)].map((m) => m[1] ?? '');
-  expect(scripts).not.toContain('game.js');
+  expect(scripts).not.toContain('phaser-core.js');
   const gz = scripts.reduce((n, f) => n + gzipSync(readFileSync(`dist/client/${f}`)).length, 0);
   console.log(`splash JS: ${scripts.join(' + ')} = ${gz} bytes gzipped`);
   expect(gz).toBeLessThan(60_000);

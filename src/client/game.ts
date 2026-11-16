@@ -1,12 +1,10 @@
 /// <reference types="vite/client" />
 // Boot, input router, HUD wiring and the dev hook. Rules live in src/shared/sim.ts; this file only sends actions.
-import * as Phaser from 'phaser';
 import { FLOOR_0, HEARTS, ITEMS, PALETTE, TILE, TORCH_LOW_PCT } from '../shared/content';
 import { navigateTo, showLoginPrompt } from '@devvit/web/client';
 import type { FloorResponse, RunResult } from '../shared/api';
 import { isAction, replay, start, step, type Action, type End, type Floor, type Pos } from '../shared/sim';
 import { api, submit } from './net';
-import { DescentScene } from './scene';
 import { loadPack, packIcon } from './sprites';
 import { controls, createHud, endPanel, saveLine } from './ui';
 
@@ -43,7 +41,10 @@ const devFloor = sceneFloor(params.get('scene')) ?? depthFloor(Number(params.get
 // ---- the day's floor: fetched once, then play never waits on the network (§15.1) ----
 // `live` is the day's real floor while it is being played; Floor 0, scenes and dev floors are never logged or submitted.
 type Live = { depth: number; seed: number; floor: Floor; log: string };
+// Phaser is most of the game's bytes, so it loads as its own chunk: the floor request runs while it downloads.
+const engine = Promise.all([import('phaser'), import('./scene')]);
 const day: FloorResponse | 'error' = devFloor ? { kind: 'none' } : await api.floor().catch(() => 'error' as const);
+const [Phaser, { DescentScene }] = await engine;
 let live: Live | null = null;
 // Saved logs are keyed by depth and seed, so an old log can never replay onto a different floor.
 const logKey = (l: { depth: number; seed: number }) => `descent:log:${l.depth}:${l.seed}`;
