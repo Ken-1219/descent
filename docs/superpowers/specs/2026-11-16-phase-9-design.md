@@ -69,3 +69,12 @@ Source: PLAN.md §7 (Screens), §11 Phase 9, §15, and the owner's Phase 9 brief
   - The intro is the end panel in an "intro" style (not a separate screen element), so Descend sits where every other primary action does.
   - The killer line uses family names where a cause maps to one; "the dark" and "player traps" otherwise.
   - Long panels scroll inside themselves, with their action row pinned to the bottom (320×320 plate).
+
+## Follow-up before Phase 10 (Nov 16)
+- **A38. Today's ties:** equal scores rank the earlier accepted run first. `f:{d}:scores` stores `score × BOARD.order + (BOARD.order − 1 − n)`, where n is the run's acceptance number on that floor (`f:{d}:seq`, incremented once per player after the run-once guard). The board decodes `⌊value / order⌋`; the caller's rank stays `card − zRank`. Lifetime boards keep A33.
+- **A39. Difficulty data:**
+  - Each new floor stores `predicted { win, plain, target }`: the bot's skill-60 win % on the stored floor, the plain floor's, and §8's target.
+  - Real players are counted on acceptance in `f:{d}:real` (`cleared`, `fell`; bots never, the reset tool takes a run back out).
+  - At rollover the Chronicle record gets `predicted` (the floor's bot win %) and `players { cleared, fell }`. The ROLLOVER line ends `floor N predicted X%, players C cleared / F fell (P%)`.
+  - Floors stored before this change log `predicted n/a`.
+- **Past depth 28** the target stays flat at 35% (band [20, 50]); `targetPct` clamps the depth at `PLAIN_BAND.endDepth`.

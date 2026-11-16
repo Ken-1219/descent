@@ -318,4 +318,5 @@ export const FLAIR = { perRun: 200, batch: 100 };
 // ---- Phase 9: screens ----
 
 /** Board rows per board (plus the caller's own row), Chronicle rows, and the already-played poll (§15.3: every 20 s). */
-export const BOARD = { top: 10, chronicle: 30, pollMs: 20_000 };
+/** `order`: today's board stores score × order + (order − 1 − acceptance number), so equal scores rank the earlier run first (A38). */
+export const BOARD = { top: 10, chronicle: 30, pollMs: 20_000, order: 1_000_000 };

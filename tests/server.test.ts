@@ -1,7 +1,7 @@
 import { expect } from 'vitest';
 import { createDevvitTest } from '@devvit/test/server/vitest';
 import { redis } from '@devvit/web/server';
-import { FLOOR_0 } from '../src/shared/content';
+import { BOARD, FLOOR_0 } from '../src/shared/content';
 import { bot } from '../src/shared/bot';
 import { replay, score, start, step, type Action, type Floor } from '../src/shared/sim';
 import { carve, floorFor, ghostsOf, openFloor, placeTrap, purgeBots, resetRun, seedBots, submitRun, tally, voteCarving, voteCurse } from '../src/server/game';
@@ -81,7 +81,7 @@ test('POST /api/run: forged logs are rejected; the server derives outcome, score
   expect(r).toEqual({ kind: 'saved', run: { outcome: s.ended?.kind, score: score(s), turns: s.turn, torch: s.torch, cause: s.ended?.cause, tile: s.pos } });
   const stored = JSON.parse((await redis.hGet('f:1:runs', 't2_a')) ?? '{}');
   expect(stored).toMatchObject({ log, score: score(s) });
-  expect(await redis.zScore('f:1:scores', 't2_a')).toBe(score(s));
+  expect(Math.floor(((await redis.zScore('f:1:scores', 't2_a')) ?? 0) / BOARD.order)).toBe(score(s));
 });
 
 test('one run per user: an identical resubmit returns the stored result, a different log is rejected, racing posts accept one', async () => {

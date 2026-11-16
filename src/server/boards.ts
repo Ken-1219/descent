@@ -8,9 +8,10 @@ const isBot = (user: string) => user.startsWith('bot:');
 
 /**
  * One board: the top BOARD.top rows, plus the caller's own row and rank even when outside them, and the total.
- * Ties (A33): Redis's own order, value descending then member descending, so the caller's rank is exact: card − zRank.
+ * Ties: Redis's own order, value descending then member descending (A33, lifetime boards); today's board packs the
+ * acceptance order into the value (A38), so the earlier run ranks first. Either way the caller's rank is exact: card − zRank.
  */
-async function board(key: string, user: string | undefined): Promise<BoardRows & { members: string[] }> {
+async function board(key: string, user: string | undefined, unit = 1): Promise<BoardRows & { members: string[] }> {
   const [top, total, myRank, myScore] = await Promise.all([
     redis.zRange(key, 0, BOARD.top + 4, { by: 'rank', reverse: true }), // a few spare rows for any stray bot entries
     redis.zCard(key),
@@ -18,14 +19,14 @@ async function board(key: string, user: string | undefined): Promise<BoardRows &
     user ? redis.zScore(key, user) : Promise.resolve(undefined),
   ]);
   const rows = top.filter(({ member, score }) => !isBot(member) && score > 0).slice(0, BOARD.top);
-  const me = user && myRank !== undefined && myScore !== undefined && myScore > 0 ? { rank: total - myRank, name: user, value: myScore } : null;
-  return { rows: rows.map((r, i) => ({ rank: i + 1, name: r.member, value: r.score })), me, total, members: rows.map((r) => r.member) };
+  const me = user && myRank !== undefined && myScore !== undefined && myScore > 0 ? { rank: total - myRank, name: user, value: Math.floor(myScore / unit) } : null;
+  return { rows: rows.map((r, i) => ({ rank: i + 1, name: r.member, value: Math.floor(r.score / unit) })), me, total, members: rows.map((r) => r.member) };
 }
 
 /** GET /api/board?depth=: today's scores, deepest floor cleared, souls, honour, and the two plates (A35). */
 export async function boardsFor(user: string | undefined, depth: number): Promise<BoardResponse> {
   const [today, deepest, souls, honour, trapsetter, liar] = await Promise.all([
-    board(`f:${depth}:scores`, user),
+    board(`f:${depth}:scores`, user, BOARD.order),
     board('deepest', user),
     board('souls', user),
     board('honour', user),

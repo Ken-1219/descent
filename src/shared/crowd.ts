@@ -42,10 +42,13 @@ export const winPct = (floor: Floor, runs: number = BAND.seeds) => {
   return Math.round((won * 100) / runs);
 };
 
-/** The plain floor's win-rate band at a depth (PLAIN_BAND): around §8's target line, clamped. */
+/** §8's target win rate at a depth: a straight line from startPct (depth 1) to endPct (endDepth), flat after it. */
+export const targetPct = (depth: number) =>
+  PLAIN_BAND.startPct - Math.floor(((PLAIN_BAND.startPct - PLAIN_BAND.endPct) * Math.min(depth - 1, PLAIN_BAND.endDepth - 1)) / (PLAIN_BAND.endDepth - 1));
+
+/** The plain floor's win-rate band at a depth (PLAIN_BAND): around the target line, clamped. */
 export function plainBand(depth: number): [number, number] {
-  const t = Math.min(depth - 1, PLAIN_BAND.endDepth - 1);
-  const target = PLAIN_BAND.startPct - Math.floor(((PLAIN_BAND.startPct - PLAIN_BAND.endPct) * t) / (PLAIN_BAND.endDepth - 1));
+  const target = targetPct(depth);
   return [Math.max(PLAIN_BAND.floorPct, target - PLAIN_BAND.below), Math.min(PLAIN_BAND.ceilPct, target + PLAIN_BAND.above)];
 }
 

@@ -1,6 +1,6 @@
 // Redis reads and writes for floors and runs. Routes pass identity in from the Devvit context; nothing here trusts a body.
 import { context, reddit, redis } from '@devvit/web/server';
-import { CURSES, GHOSTS, NAMELESS, TRAP_TEXT, type Curse } from '../shared/content';
+import { BOARD, CURSES, GHOSTS, NAMELESS, TRAP_TEXT, type Curse } from '../shared/content';
 import { trapHits, trapSouls, type Tally } from '../shared/crowd';
 import { nextRollover } from './boards';
 import { generate, NO_MODS, type Mods, type Trap } from '../shared/gen';
@@ -24,7 +24,7 @@ const nextStreak = (prev: string | null, depth: number) => {
 /** Who a run belongs to: the name comes from the Devvit context (null for bots, shown as a nameless delver). */
 export type Who = { name: string | null; bot?: true };
 
-type Key = 'mods' | 'floor' | 'runs' | 'scores' | 'starts' | 'ghosts' | 'carvings' | 'heat' | 'kills' | 'resets' | 'traps' | 'curse' | 'cv' | 'votes' | 'trapped' | 'flair';
+type Key = 'mods' | 'floor' | 'runs' | 'scores' | 'starts' | 'ghosts' | 'carvings' | 'heat' | 'kills' | 'resets' | 'traps' | 'curse' | 'cv' | 'votes' | 'trapped' | 'flair' | 'seq' | 'real';
 const key = (d: number, k: Key) => `f:${d}:${k}`;
 const isBot = (user: string) => user.startsWith('bot:');
 
@@ -132,15 +132,18 @@ export async function submitRun(user: string, depth: number, log: string, who: W
   }
   // One transaction after the run is accepted: the score, and for a death its ghost, compass heat and kill by cause.
   // Everything comes from the replay and the context; heat and kills are recorded now and read from 7b on.
+  // Today's board tie-break (A38): the n-th accepted run on this floor; hSetNX above lets each player through once.
+  const seq = who.bot ? 0 : await redis.incrBy(key(depth, 'seq'), 1);
   const tx = await redis.watch();
   await tx.multi();
   // Phase 9: boards and lifetime numbers move here, when the run is accepted (never in the rollover); bots never appear.
   if (!who.bot) {
-    await tx.zAdd(key(depth, 'scores'), { member: user, score: run.score });
+    await tx.zAdd(key(depth, 'scores'), { member: user, score: run.score * BOARD.order + Math.max(0, BOARD.order - 1 - seq) });
     if (who.name) await tx.hSet('names', { [user]: who.name });
     await tx.hSet('streak', { [user]: JSON.stringify(nextStreak(undo.streak, depth)) });
     if (run.outcome === 'won' && depth > (undo.deepest ?? 0)) await tx.zAdd('deepest', { member: user, score: depth });
     if (run.outcome === 'dead') await tx.zIncrBy('deaths', user, 1);
+    await tx.hIncrBy(key(depth, 'real'), run.outcome === 'won' ? 'cleared' : 'fell', 1); // A39: real players only
   }
   // Flair at the next rollover: each player's latest run (A29). Bots have no account to flair.
   if (who.name && !who.bot) await tx.hSet(key(depth, 'flair'), { [user]: JSON.stringify({ name: who.name, text: run.outcome === 'won' ? `Cleared floor ${depth}` : `Fell on floor ${depth}` }) });
@@ -296,6 +299,7 @@ export async function resetRun(user: string): Promise<{ depth: number; had: bool
     if (run.undo.deepest !== null) await tx.zAdd('deepest', { member: user, score: run.undo.deepest });
     else if (run.outcome === 'won') await tx.zRem('deepest', [user]);
     if (run.outcome === 'dead') await tx.zIncrBy('deaths', user, -1);
+    await tx.hIncrBy(key(day, 'real'), run.outcome === 'won' ? 'cleared' : 'fell', -1);
   }
   if (ghost && floor) {
     const g: GhostRecord = JSON.parse(ghost);
@@ -436,6 +440,12 @@ export async function dayStats(depth: number): Promise<{ fell: number; runs: num
   let zone: number | null = null;
   for (let z = 0; z < 9; z++) if (Number(heat[String(z)] ?? 0) > (zone === null ? 0 : Number(heat[String(zone)] ?? 0))) zone = z;
   return { fell, runs, zone };
+}
+
+/** A39: how real players did on a floor (bots excluded), counted when each run was accepted. */
+export async function realResult(depth: number): Promise<{ cleared: number; fell: number }> {
+  const r = await redis.hGetAll(key(depth, 'real'));
+  return { cleared: Number(r.cleared ?? 0), fell: Number(r.fell ?? 0) };
 }
 
 /** Flair for up to `limit` players of a floor (A29), in Reddit's batches; returns how many are still waiting. */

@@ -3,6 +3,7 @@
 import { expect } from 'vitest';
 import { createDevvitTest } from '@devvit/test/server/vitest';
 import { redis } from '@devvit/web/server';
+import { BOARD } from '../src/shared/content';
 import { start, step, type Floor } from '../src/shared/sim';
 import { bot } from '../src/shared/bot';
 import { carve, floorFor, openFloor, resetRun, seedBots, submitRun, voteCarving } from '../src/server/game';
@@ -42,7 +43,8 @@ test('10,000 players: each board is capped to the top 10 plus your own row and r
     scores.push({ member: `t2_p${i}`, score: 1000 + (i % 700) });
     names[`t2_p${i}`] = `player_${i}`;
   }
-  for (const k of ['f:1:scores', 'deepest', 'souls', 'honour']) await redis.zAdd(k, ...scores);
+  for (const k of ['deepest', 'souls', 'honour']) await redis.zAdd(k, ...scores);
+  await redis.zAdd('f:1:scores', ...scores.map((s, i) => ({ member: s.member, score: s.score * BOARD.order + (BOARD.order - 1 - i) })));
   await redis.hSet('names', names);
   await boardsFor('t2_p1', 1); // warm the in-memory mock once; Redis itself serves these from memory
   const t0 = performance.now();
@@ -58,6 +60,19 @@ test('10,000 players: each board is capped to the top 10 plus your own row and r
   expect(b.today.me?.rank).toBeGreaterThan(10);
   const top = await boardsFor('t2_p699', 1); // a top score: inside the top rows, marked as you
   expect(top.today.rows.some((r) => r.you && r.name === 'player_699')).toBe(true);
+});
+
+test('today\'s ties (A38): equal scores rank the earlier accepted run first, whatever the user ids', async () => {
+  await startFirstFloor();
+  const f1 = await openFloor(1);
+  const log = dies(f1);
+  await submitRun('t2_zzz', 1, log, { name: 'first' }); // the higher id, accepted first
+  await submitRun('t2_aaa', 1, log, { name: 'second' });
+  await submitRun('t2_mmm', 1, log, { name: 'third' });
+  const b = await boardsFor('t2_aaa', 1);
+  expect(b.today.rows.map((r) => `${r.rank}:${r.name}:${r.value}`)).toEqual([`1:first:${b.today.rows[0]?.value}`, `2:second:${b.today.rows[0]?.value}`, `3:third:${b.today.rows[0]?.value}`]);
+  expect(b.today.me?.rank).toBe(2);
+  expect(b.today.rows[0]?.value).toBeGreaterThan(0);
 });
 
 test('tie rule (A33): equal values go to the higher user id; the caller\'s rank agrees with the rows', async () => {
@@ -132,4 +147,20 @@ test('the poll and the Chronicle: counts only, and one ledger row per floor, new
   expect((await stored(2)).showcase?.length).toBeGreaterThan(0);
   expect(nextRollover(Date.UTC(2026, 10, 16, 9))).toBe(Date.UTC(2026, 10, 16, 15));
   expect(nextRollover(Date.UTC(2026, 10, 16, 16))).toBe(Date.UTC(2026, 10, 17, 15));
+});
+
+test('difficulty data (A39): each floor stores its predicted win rate; the Chronicle sets real players (bots excluded) beside it', async () => {
+  await startFirstFloor();
+  const f1 = await openFloor(1);
+  expect(f1.predicted).toMatchObject({ target: 80 });
+  expect(f1.predicted?.win).toBeGreaterThanOrEqual(0);
+  await seedBots(5); // bots count for the crowd, never for the real result
+  await submitRun('t2_w', 1, wins(f1), { name: 'winnie' });
+  await submitRun('t2_d', 1, dies(f1), { name: 'dee' });
+  await submitRun('t2_e', 1, dies(f1), { name: 'eve' });
+  await resetRun('t2_e'); // the reset takes it back out
+  await rollNow();
+  const row = (await chronicle()).rows[0];
+  expect(row).toMatchObject({ depth: 1, predicted: f1.predicted?.win, players: { cleared: 1, fell: 1 } });
+  expect((await stored(2)).predicted?.target).toBe(79);
 });

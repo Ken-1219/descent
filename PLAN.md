@@ -570,6 +570,7 @@ Each phase lists Build, Show me (what to open), Checks, and Gate.
 - **Checks:** every fixture at every viewport; splash at 320×320; long usernames don't clip.
 - **Gate:** someone who has never seen the game explains it after 5 seconds of the splash. Second human phone check.
 - **Redis keys (built):** lifetime sorted sets `deepest`, `deaths`, `liars`, `trapsouls` (with `souls`, `honour`); hashes `names` (user → name) and `streak` (user → `{ last, n }`). All written when a run or vote is accepted, never in the rollover; the run record keeps `undo { deepest, streak }` for the reset tool. Floor JSON `yesterday` gains `deaths[9]` and `killer`; `showcase` lists the family new today. Routes `/api/card`, `/api/board`, `/api/pulse`, `/api/chronicle` (A33–A37 in the Phase 9 spec).
+- **Follow-up (built):** today's board breaks ties by acceptance order (`f:{d}:seq`, A38); each floor stores `predicted { win, plain, target }` and `f:{d}:real` counts real players, both set side by side in the Chronicle and the ROLLOVER line (A39).
 
 ### Phase 10 — Boss and content completion (Dec 2–3)
 
