@@ -1,19 +1,20 @@
 // Redis reads and writes for floors and runs. Routes pass identity in from the Devvit context; nothing here trusts a body.
 import { context, reddit, redis } from '@devvit/web/server';
-import { GHOSTS } from '../shared/content';
-import { generate, NO_MODS, zoneOf, type Mods } from '../shared/gen';
-import { CARVING_CHOICES, carvingOf, ghostView, type GhostRecord } from '../shared/ghosts';
+import { CURSES, GHOSTS, TRAP_TEXT, type Curse } from '../shared/content';
+import { generate, NO_MODS, resolveCurse, zoneOf, type Mods, type Trap } from '../shared/gen';
+import { CARVING_CHOICES, carvingOf, ghostView, type GhostRecord, type GhostView, type Vote } from '../shared/ghosts';
 import { bot } from '../shared/bot';
 import { hash, mulberry32 } from '../shared/rng';
 import { judge, start, step, type Action, type Floor, type RunResult } from '../shared/sim';
-import type { CarvingResponse, FloorResponse, RunResponse } from '../shared/api';
+import type { CarvingResponse, Choices, FloorResponse, RunResponse, Standings, TrapResponse, VoteResponse } from '../shared/api';
 
 type StoredMods = Mods & { seed: number };
 type StoredRun = RunResult & { log: string; at: number; bot?: true };
 /** Who a run belongs to: the name comes from the Devvit context (null for bots, shown as a nameless delver). */
 export type Who = { name: string | null; bot?: true };
 
-const key = (d: number, k: 'mods' | 'floor' | 'runs' | 'scores' | 'starts' | 'ghosts' | 'carvings' | 'heat' | 'kills' | 'resets') => `f:${d}:${k}`;
+type Key = 'mods' | 'floor' | 'runs' | 'scores' | 'starts' | 'ghosts' | 'carvings' | 'heat' | 'kills' | 'resets' | 'traps' | 'curse' | 'cv' | 'votes';
+const key = (d: number, k: Key) => `f:${d}:${k}`;
 const isBot = (user: string) => user.startsWith('bot:');
 
 export const today = async (): Promise<{ day: number; postId: string | null }> => {
@@ -58,7 +59,11 @@ export async function floorFor(user: string | undefined, depth: number | null): 
   if (!floor) return { kind: 'none' };
   const mine = await redis.hGet(key(d, 'runs'), user);
   const attempt = Number((await redis.hGet(key(d, 'resets'), user)) ?? 0);
-  if (mine) return { kind: 'played', depth: d, seed: floor.seed ?? 0, floor, run: result(JSON.parse(mine)), ghosts: await ghostsOf(d, user), live: d === t.day, attempt };
+  if (mine) {
+    // Your run has ended here, so the carvings' Trust and Liar totals (and your own votes) come with the ghosts.
+    const ghosts = await withVotes(d, user, await ghostsOf(d, user));
+    return { kind: 'played', depth: d, seed: floor.seed ?? 0, floor, run: result(JSON.parse(mine)), ghosts, live: d === t.day, attempt, choices: await choicesOf(d, user) };
+  }
   if (d < t.day) return { kind: 'closed', depth: d, today: t.day, todayUrl: postUrl(t.postId) };
   return { kind: 'play', depth: d, seed: floor.seed ?? 0, floor, ghosts: await ghostsOf(d, user), attempt };
 }
@@ -200,8 +205,26 @@ export async function resetRun(user: string): Promise<{ depth: number; had: bool
   const had = !!(await redis.hGet(key(day, 'runs'), user));
   const ghost = await redis.hGet(key(day, 'ghosts'), user);
   const floor = await storedFloor(day);
+  const votes = Object.entries(await redis.hGetAll(key(day, 'votes')));
+  const run = await runOf(day, user);
   const tx = await redis.watch();
   await tx.multi();
+  // 7b: undo the caller's votes (and what they gave), votes on the caller's carving, their curse vote and trap.
+  for (const [field, v] of votes) {
+    const [voter = '', target = ''] = field.split('>');
+    if (voter !== user && target !== user) continue;
+    await tx.hDel(key(day, 'votes'), [field]);
+    if (target === 'curse') {
+      await tx.zIncrBy(key(day, 'curse'), v, -1);
+      continue;
+    }
+    await tx.zIncrBy(key(day, 'cv'), `${target}:${v}`, -1);
+    if (isBot(target)) continue;
+    const died = voter === user ? run?.outcome === 'dead' : (await runOf(day, voter))?.outcome === 'dead';
+    if (v === 'trust') await tx.zIncrBy('honour', target, -1);
+    else if (died) await tx.zIncrBy('souls', target, -1);
+  }
+  await tx.hDel(key(day, 'traps'), [user]);
   if (ghost && floor) {
     const g: GhostRecord = JSON.parse(ghost);
     await tx.hIncrBy(key(day, 'heat'), String(zoneOf(g, floor.rows.length)), -1);
@@ -212,4 +235,121 @@ export async function resetRun(user: string): Promise<{ depth: number; had: bool
   await tx.hIncrBy(key(day, 'resets'), user, 1);
   await tx.exec();
   return { depth: day, had };
+}
+
+// ---- Phase 7b: the survivors' choices and the votes on carvings ----
+
+const live = async (depth: number): Promise<{ ok: true } | { ok: false; r: { kind: 'closed'; today: number; todayUrl: string | null } | { kind: 'rejected'; reason: string } }> => {
+  if (!Number.isInteger(depth) || depth < 1) return { ok: false, r: { kind: 'rejected', reason: 'no such floor' } };
+  const t = await today();
+  if (depth < t.day) return { ok: false, r: { kind: 'closed', today: t.day, todayUrl: postUrl(t.postId) } };
+  if (depth > t.day) return { ok: false, r: { kind: 'rejected', reason: 'no such floor' } };
+  return { ok: true };
+};
+const runOf = async (d: number, user: string): Promise<StoredRun | null> => {
+  const r = await redis.hGet(key(d, 'runs'), user);
+  return r ? JSON.parse(r) : null;
+};
+const isCurse = (c: string | null | undefined): c is Curse => !!c && c in CURSES;
+const isTrapKind = (k: string): k is Trap['kind'] => k in TRAP_TEXT;
+const standings = async (d: number): Promise<Standings> =>
+  (await redis.zRange(key(d, 'curse'), 0, -1, { by: 'rank', reverse: true })).flatMap(({ member, score }): Standings => (isCurse(member) && score > 0 ? [[member, score]] : []));
+
+/** Totals and your own votes for the listed ghosts (≤ GHOSTS.list): one sorted-set read and one hMGet. */
+async function withVotes(d: number, user: string, view: GhostView): Promise<GhostView> {
+  const tally = new Map((await redis.zRange(key(d, 'cv'), 0, -1, { by: 'rank' })).map(({ member, score }) => [member, score]));
+  const mine = view.list.length ? await redis.hMGet(key(d, 'votes'), view.list.map((g) => `${user}>${g.id}`)) : [];
+  return {
+    ...view,
+    list: view.list.map((g, i) => {
+      const my = mine[i];
+      return { ...g, votes: { trust: tally.get(`${g.id}:trust`) ?? 0, liar: tally.get(`${g.id}:liar`) ?? 0 }, ...(my === 'trust' || my === 'liar' ? { myVote: my } : {}) };
+    }),
+  };
+}
+
+async function choicesOf(d: number, user: string): Promise<Choices> {
+  const [curse, trap] = await Promise.all([redis.hGet(key(d, 'votes'), `${user}>curse`), redis.hGet(key(d, 'traps'), user)]);
+  const mine = isCurse(curse) ? curse : null;
+  const t = trap ? JSON.parse(trap) : null;
+  return { curse: mine, standings: mine ? await standings(d) : null, trap: t ? { zone: t.zone, kind: t.kind } : null };
+}
+
+/**
+ * voteCarving: Trust or Liar on another player's carving, once per ghost, after your own run on that floor has ended.
+ * hSetNX on `f:{d}:votes` makes it final. Then one transaction: the ghost's tally (`f:{d}:cv`), and for a real author
+ * honour (+1 per Trust) or souls (+1 per Liar from a voter who died on this floor). Bots' carvings feed nothing.
+ */
+export async function voteCarving(user: string, depth: number, ghost: string, vote: Vote): Promise<VoteResponse> {
+  const l = await live(depth);
+  if (!l.ok) return l.r;
+  if (vote !== 'trust' && vote !== 'liar') return { kind: 'rejected', reason: 'vote' };
+  const run = await runOf(depth, user);
+  if (!run) return { kind: 'rejected', reason: 'run not ended' };
+  if (ghost === user) return { kind: 'rejected', reason: 'own carving' };
+  if (!(await redis.hGet(key(depth, 'ghosts'), ghost))) return { kind: 'rejected', reason: 'no such ghost' };
+  if (!(await redis.hGet(key(depth, 'carvings'), ghost))) return { kind: 'rejected', reason: 'no carving' };
+  if (!(await redis.hSetNX(key(depth, 'votes'), `${user}>${ghost}`, vote))) {
+    const stored = await redis.hGet(key(depth, 'votes'), `${user}>${ghost}`);
+    return stored === vote ? { kind: 'voted', vote, standings: null } : { kind: 'rejected', reason: 'already voted' };
+  }
+  const tx = await redis.watch();
+  await tx.multi();
+  await tx.zIncrBy(key(depth, 'cv'), `${ghost}:${vote}`, 1);
+  if (!isBot(ghost)) {
+    if (vote === 'trust') await tx.zIncrBy('honour', ghost, 1);
+    else if (run.outcome === 'dead') await tx.zIncrBy('souls', ghost, 1);
+  }
+  await tx.exec();
+  return { kind: 'voted', vote, standings: null };
+}
+
+/** voteCurse: a stored win votes once for tomorrow's curse; the standings come back only now that they have voted. */
+export async function voteCurse(user: string, depth: number, curse: string): Promise<VoteResponse> {
+  const l = await live(depth);
+  if (!l.ok) return l.r;
+  if (!isCurse(curse)) return { kind: 'rejected', reason: 'curse' };
+  if ((await runOf(depth, user))?.outcome !== 'won') return { kind: 'rejected', reason: 'not a winner' };
+  if (!(await redis.hSetNX(key(depth, 'votes'), `${user}>curse`, curse))) {
+    const stored = await redis.hGet(key(depth, 'votes'), `${user}>curse`);
+    return stored === curse ? { kind: 'voted', vote: curse, standings: await standings(depth) } : { kind: 'rejected', reason: 'already voted' };
+  }
+  await redis.zIncrBy(key(depth, 'curse'), curse, 1);
+  return { kind: 'voted', vote: curse, standings: await standings(depth) };
+}
+
+/** placeTrap: a stored win sets one trap for tomorrow (compass zone + kind). Phase 8 places it; nobody else sees it. */
+export async function placeTrap(user: string, depth: number, zone: number, kind: string): Promise<TrapResponse> {
+  const l = await live(depth);
+  if (!l.ok) return l.r;
+  if (!Number.isInteger(zone) || zone < 0 || zone > 8 || !isTrapKind(kind)) return { kind: 'rejected', reason: 'trap' };
+  if ((await runOf(depth, user))?.outcome !== 'won') return { kind: 'rejected', reason: 'not a winner' };
+  const trap: Trap = { zone, kind };
+  if (!(await redis.hSetNX(key(depth, 'traps'), user, JSON.stringify({ ...trap, at: Date.now() })))) {
+    const stored = JSON.parse((await redis.hGet(key(depth, 'traps'), user)) ?? '{}');
+    return stored.zone === zone && stored.kind === kind ? { kind: 'placed', trap } : { kind: 'rejected', reason: 'already placed' };
+  }
+  return { kind: 'placed', trap };
+}
+
+/**
+ * The floor's crowd data as Phase 8's rollover reads it: deaths per compass zone (bots included: seeding exists to show
+ * the crowd effect), kills by cause, the resolved curse, and the players' traps with their owners (bots never set one).
+ */
+export async function tally(depth: number): Promise<{ deaths: number[]; kills: Record<string, number>; curse: Curse | null; traps: (Trap & { owner: string })[] }> {
+  const [heat, kills, votes, traps] = await Promise.all([
+    redis.hGetAll(key(depth, 'heat')),
+    redis.hGetAll(key(depth, 'kills')),
+    standings(depth),
+    redis.hGetAll(key(depth, 'traps')),
+  ]);
+  return {
+    deaths: Array.from({ length: 9 }, (_, z) => Math.max(0, Number(heat[String(z)] ?? 0))),
+    kills: Object.fromEntries(Object.entries(kills).map(([c, n]) => [c, Number(n)]).filter(([, n]) => Number(n) > 0)),
+    curse: resolveCurse(Object.fromEntries(votes)),
+    traps: Object.entries(traps).sort(([a], [b]) => (a < b ? -1 : 1)).map(([owner, v]) => {
+      const t = JSON.parse(v);
+      return { owner, zone: t.zone, kind: t.kind };
+    }),
+  };
 }

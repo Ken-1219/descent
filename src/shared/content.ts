@@ -279,3 +279,19 @@ export const FLOOR_0_GHOSTS: readonly { x: number; y: number; cause: string; car
   { x: 9, y: 3, cause: 'spikes', carving: 'trap-ahead' },
   { x: 6, y: 6, cause: 'goblin', carving: 'stairs-way:L' },
 ];
+
+// ---- Phase 7b: the survivors' choices ----
+
+/** Curse vote tie-break: the mildest curse wins a tie (win-rate cost measured in Phase 5, mildest first). */
+export const CURSE_TIE_ORDER: readonly Curse[] = ['light-sleepers', 'overrun', 'short-wick', 'frail', 'deep-dark'];
+/** The curse vote's options as players read them: a name and one line of effect. */
+export const CURSE_TEXT: Readonly<Record<Curse, { name: string; effect: string }>> = {
+  'short-wick': { name: 'Short Wick', effect: 'torch 90%' },
+  overrun: { name: 'Overrun', effect: 'more hazards' },
+  'deep-dark': { name: 'Deep Dark', effect: 'smaller light' },
+  'light-sleepers': { name: 'Light Sleepers', effect: 'enemies wake sooner' },
+  frail: { name: 'Frail', effect: 'start on 2 hearts' },
+};
+/** Trapsetter traps (always open to survivors) and the compass zones they go in (3×3, reading order). */
+export const TRAP_TEXT: Readonly<Record<'spikes' | 'dart' | 'stairs', string>> = { spikes: 'Spikes', dart: 'Dart slit', stairs: 'False stairs' };
+export const ZONE_NAMES: readonly string[] = ['North-west', 'North', 'North-east', 'West', 'Centre', 'East', 'South-west', 'South', 'South-east'];

@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { context } from '@devvit/web/server';
-import type { AvatarResponse, CarvingRequest, CarvingResponse, FloorResponse, RunRequest, RunResponse, StartRequest } from '../../shared/api';
-import { avatar, carve, floorFor, logStart, submitRun } from '../game';
+import type { AvatarResponse, CarvingRequest, CarvingResponse, FloorResponse, RunRequest, RunResponse, StartRequest, TrapRequest, TrapResponse, VoteResponse } from '../../shared/api';
+import { avatar, carve, floorFor, logStart, placeTrap, submitRun, voteCarving, voteCurse } from '../game';
 import type { Env } from '../index';
 
 // Identity always comes from the Devvit context, never from a request body.
@@ -54,4 +54,31 @@ api.get('/avatar', async (c) => {
   const url = /^[A-Za-z0-9_-]{3,20}$/.test(name) ? await avatar(name).catch(() => null) : null;
   c.set('note', `avatar ${url ? 'found' : 'none'}`);
   return c.json<AvatarResponse>({ url });
+});
+
+// A carving vote ({ ghost, vote }) or a winner's curse vote ({ curse }); the server checks both against what it holds.
+api.post('/vote', async (c) => {
+  const user = context.userId;
+  type Body = { depth?: unknown; ghost?: unknown; vote?: unknown; curse?: unknown };
+  const b = await c.req.json<Body>().catch((): Body => ({}));
+  let r: VoteResponse;
+  if (!user) r = { kind: 'rejected', reason: 'logged out' };
+  else if (typeof b.depth !== 'number') r = { kind: 'rejected', reason: 'shape' };
+  else if (typeof b.curse === 'string') r = await voteCurse(user, b.depth, b.curse);
+  else if (typeof b.ghost === 'string' && (b.vote === 'trust' || b.vote === 'liar')) r = await voteCarving(user, b.depth, b.ghost, b.vote);
+  else r = { kind: 'rejected', reason: 'shape' };
+  const what = typeof b.curse === 'string' ? `curse ${b.curse}` : `${String(b.vote)} on ${String(b.ghost)}`;
+  c.set('note', `d${String(b.depth ?? '-')} ${what}: ${r.kind}${r.kind === 'rejected' ? ` (${r.reason})` : ''}`);
+  return c.json<VoteResponse>(r, r.kind === 'rejected' ? 400 : 200);
+});
+
+api.post('/trap', async (c) => {
+  const user = context.userId;
+  const { depth, zone, kind } = await c.req.json<Partial<TrapRequest>>().catch((): Partial<TrapRequest> => ({}));
+  let r: TrapResponse;
+  if (!user) r = { kind: 'rejected', reason: 'logged out' };
+  else if (typeof depth !== 'number' || typeof zone !== 'number' || typeof kind !== 'string') r = { kind: 'rejected', reason: 'shape' };
+  else r = await placeTrap(user, depth, zone, kind);
+  c.set('note', `d${depth ?? '-'} trap ${kind ?? '-'} zone ${zone ?? '-'}: ${r.kind}${r.kind === 'rejected' ? ` (${r.reason})` : ''}`);
+  return c.json<TrapResponse>(r, r.kind === 'rejected' ? 400 : 200);
 });

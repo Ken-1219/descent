@@ -1,13 +1,13 @@
 /// <reference types="vite/client" />
 // Boot, input router, HUD wiring and the dev hook. Rules live in src/shared/sim.ts; this file only sends actions.
-import { FLOOR_0, FLOOR_0_GHOSTS, HEARTS, ITEMS, NAMELESS, PALETTE, TILE, TORCH_LOW_PCT } from '../shared/content';
+import { CURSE_TEXT, FLOOR_0, FLOOR_0_GHOSTS, HEARTS, ITEMS, NAMELESS, PALETTE, TILE, TORCH_LOW_PCT, TRAP_TEXT, ZONE_NAMES, type Curse } from '../shared/content';
 import { navigateTo, showLoginPrompt } from '@devvit/web/client';
 import type { FloorResponse, GhostView, RunResult } from '../shared/api';
-import { carvingLabel, type Ghost } from '../shared/ghosts';
+import { carvingLabel, type Ghost, type Vote } from '../shared/ghosts';
 import { isAction, replay, start, step, type Action, type End, type Floor, type Pos } from '../shared/sim';
 import { api, submit } from './net';
 import { iconCanvas, loadPack, packIcon } from './sprites';
-import { button, carvingPicker, controls, createHud, el, endPanel, ghostCard, saveLine, type PanelAction } from './ui';
+import { button, carvingPicker, carvingsList, controls, createHud, cursePicker, el, endPanel, ghostCard, saveLine, trapPicker, type PanelAction } from './ui';
 
 const $ = (id: string) => {
   const node = document.getElementById(id);
@@ -70,7 +70,7 @@ const NONE: GhostView = { fell: 0, tiles: [], list: [] };
 const SCRIPTED: GhostView = {
   fell: FLOOR_0_GHOSTS.length,
   tiles: FLOOR_0_GHOSTS.map((g) => [g.x, g.y, 1]),
-  list: FLOOR_0_GHOSTS.map((g) => ({ name: null, x: g.x, y: g.y, cause: g.cause, carving: g.carving })),
+  list: FLOOR_0_GHOSTS.map((g, i) => ({ id: `floor0:${i}`, name: null, x: g.x, y: g.y, cause: g.cause, carving: g.carving })),
 };
 let dayGhosts: GhostView = day !== 'error' && (day.kind === 'play' || day.kind === 'played') ? day.ghosts : NONE;
 let shown: GhostView = NONE;
@@ -146,11 +146,65 @@ const finish = (ended: End) => {
   const save = saveLine();
   sendRun(live, save);
   if (ended.kind === 'dead') return pickCarving(title, endLine(ended, state.turn), save, live.depth);
-  endPanel(end, { title, line: endLine(ended, state.turn), primary: practice, status: save.node });
-  void runSaved.then((ok) => {
-    if (ok) void result();
-  });
+  pickCurse(title, endLine(ended, state.turn), save, live.depth);
 };
+
+/**
+ * Victory, step 1 of 2: the curse vote (select, then Vote; Skip moves on). Like a carving, it waits for the run to be
+ * stored, because only a stored win may vote. The standings appear only after you have voted.
+ */
+function pickCurse(title: string, line: string, save: ReturnType<typeof saveLine>, depth: number, then = () => pickTrap(save, depth)) {
+  let choice: Curse | null = null;
+  const picker = cursePicker((c) => {
+    choice = c;
+    vote.disabled = !c;
+  });
+  const doVote = async () => {
+    if (!choice) return;
+    const curse = choice;
+    vote.disabled = picker.disabled = true;
+    if (!(await whenStored(save, () => void doVote()))) return;
+    const r = await submit(() => api.vote({ depth, curse }), (st) => save.set(st, () => void doVote()));
+    if (r?.kind === 'closed') return closed(depth, r.today, r.todayUrl);
+    if (r) then();
+  };
+  const vote = endPanel(end, {
+    title, line: `${line} Pick tomorrow's curse.`, body: [picker], status: save.node,
+    primary: { label: 'Vote', run: () => void doVote(), disabled: true },
+    secondary: { label: 'Skip', run: then },
+  });
+}
+
+/** Victory, step 2 of 2: a trap for tomorrow, zone and kind (select both, then Set trap; Skip ends). Hidden from everyone. */
+function pickTrap(save: ReturnType<typeof saveLine>, depth: number) {
+  let pick: { zone: number; kind: keyof typeof TRAP_TEXT } | null = null;
+  const picker = trapPicker((zone, kind) => {
+    pick = zone !== null && kind ? { zone, kind } : null;
+    set.disabled = !pick;
+  });
+  const doSet = async () => {
+    if (!pick) return;
+    const t = pick;
+    set.disabled = true;
+    if (!(await whenStored(save, () => void doSet()))) return;
+    const r = await submit(() => api.trap({ depth, ...t }), (st) => save.set(st, () => void doSet()));
+    if (r?.kind === 'closed') return closed(depth, r.today, r.todayUrl);
+    if (r) void result();
+  };
+  const set = endPanel(end, {
+    title: 'Set a trap for tomorrow', line: 'Only you will know where.', body: [picker], status: save.node,
+    primary: { label: 'Set trap', run: () => void doSet(), disabled: true },
+    secondary: { label: 'Skip', run: () => void runSaved.then(() => result()) },
+  });
+}
+
+/** A choice made after the run waits until the run is stored: one resend if it isn't, then "Not saved" with a retry. */
+async function whenStored(save: ReturnType<typeof saveLine>, retry: () => void): Promise<boolean> {
+  if (!(await runSaved) && live) sendRun(live, save);
+  if (await runSaved) return true;
+  save.set('failed', retry);
+  return false;
+}
 
 function sendRun(l: Live, save: ReturnType<typeof saveLine>) {
   const req = { depth: l.depth, log: l.log };
@@ -179,8 +233,7 @@ function pickCarving(title: string, line: string, save: ReturnType<typeof saveLi
     carve.disabled = true;
     picker.disabled = true;
     save.set('saving');
-    if (!(await runSaved) && live) sendRun(live, save);
-    if (!(await runSaved)) return save.set('failed', () => void doCarve());
+    if (!(await whenStored(save, () => void doCarve()))) return;
     const r = await submit(() => api.carve({ depth, carving: raw }), (st) => save.set(st, () => void doCarve()));
     if (r?.kind === 'closed') return closed(depth, r.today, r.todayUrl);
     if (r) void result();
@@ -210,14 +263,74 @@ async function result(prefetched?: FloorResponse) {
     if (mine && !log) state = { ...state, pos: { x: mine.x, y: mine.y } };
     scene.reset(state);
   }
-  setGhosts(r.ghosts);
+  plate = r;
+  setGhosts(withPending(r.depth, r.ghosts));
+  flushVotes(r.depth);
   const ended: End = { kind: r.run.outcome, cause: r.run.cause };
   const title = r.run.outcome === 'won' ? `Floor ${r.depth} cleared` : `You fell on Floor ${r.depth}`;
   const line = `Score ${r.run.score}. ${endLine(ended, r.run.turns)} ${fellLine(r.ghosts.fell)}`;
-  if (mine && !mine.carving && r.live) {
-    return endPanel(end, { title, line, body: [ownGhost(mine)], primary: { label: 'Carve', run: () => pickCarving(title, line, saveLine(), r.depth) }, secondary: practice });
+  const c = r.choices;
+  const body: Node[] = [
+    ...(mine ? [ownGhost(mine)] : []),
+    ...(c.curse ? [el('p', 'own-ghost', `Your curse vote: ${CURSE_TEXT[c.curse].name}. ${(c.standings ?? []).map(([k, n]) => `${CURSE_TEXT[k].name} ${n}`).join(' · ')}`)] : []),
+    ...(c.trap ? [el('p', 'own-ghost', `Your trap: ${TRAP_TEXT[c.trap.kind]}, ${ZONE_NAMES[c.trap.zone]?.toLowerCase()}`)] : []),
+  ];
+  const others = shown.list.filter((g) => g.carving && !g.mine).length;
+  if (others) {
+    const open = button(`Carvings (${others})`, 'carvings__open');
+    open.addEventListener('click', () => carvingsPanel(r.depth));
+    body.push(open);
   }
-  endPanel(end, { title, line, body: mine ? [ownGhost(mine)] : [], primary: practice });
+  // While the floor is live, the next unfinished choice is the plate's one primary action.
+  const won = r.run.outcome === 'won';
+  const next: PanelAction | null = !r.live ? null
+    : won && !c.curse ? { label: 'Vote on a curse', run: () => pickCurse(title, line, saveLine(), r.depth, () => void result()) }
+    : won && !c.trap ? { label: 'Set a trap', run: () => pickTrap(saveLine(), r.depth) }
+    : mine && !mine.carving ? { label: 'Carve', run: () => pickCarving(title, line, saveLine(), r.depth) }
+    : null;
+  endPanel(end, { title, line, body, primary: next ?? practice, ...(next ? { secondary: practice } : {}) });
+}
+let plate: (FloorResponse & { kind: 'played' }) | null = null;
+
+/** After your run: the floor's carvings, each opening its card with Trust and Liar. */
+function carvingsPanel(depth: number) {
+  const list = carvingsList(shown.list.filter((g) => !g.mine), (g) => openCard(g, () => carvingsPanel(depth)));
+  endPanel(end, { title: `Carvings on Floor ${depth}`, line: 'Trust them, or call out a liar. Votes are final.', body: [list], primary: { label: 'Back', run: () => void result(plate ?? undefined) } });
+}
+
+// ---- carving votes: optimistic on the card, kept in a local queue until the server has answered (offline-safe) ----
+const pendingKey = (depth: number) => `descent:votes:${depth}`;
+const pending = (depth: number): Record<string, Vote> => {
+  try {
+    return JSON.parse(store.get(pendingKey(depth)) ?? '{}');
+  } catch {
+    return {};
+  }
+};
+/** Your unsent votes laid over the server's view, so the card and list show them at once. */
+function withPending(depth: number, view: GhostView): GhostView {
+  const p = pending(depth);
+  return { ...view, list: view.list.map((g) => {
+    const v = p[g.id];
+    return v && !g.myVote && g.votes ? { ...g, myVote: v, votes: { ...g.votes, [v]: g.votes[v] + 1 } } : g;
+  }) };
+}
+function flushVotes(depth: number) {
+  for (const [ghost, vote] of Object.entries(pending(depth))) {
+    void submit(() => api.vote({ depth, ghost, vote }), () => undefined).then((r) => {
+      if (!r) return; // still offline: it stays queued for the next load
+      const left = pending(depth);
+      delete left[ghost];
+      store.set(pendingKey(depth), JSON.stringify(left));
+    });
+  }
+}
+function castVote(depth: number, g: Ghost, vote: Vote) {
+  store.set(pendingKey(depth), JSON.stringify({ ...pending(depth), [g.id]: vote }));
+  setGhosts(withPending(depth, shown));
+  const now = shown.list.find((x) => x.id === g.id);
+  if (now) openCard(now, afterCard);
+  flushVotes(depth);
 }
 const ownGhost = (g: Ghost) => el('p', 'own-ghost', g.carving ? `Your ghost: ${carvingLabel(g.carving)}` : 'Your ghost left no carving.');
 
@@ -267,8 +380,9 @@ function nearby() {
   carvingLine.hidden = false;
 }
 
+let afterCard: (() => void) | undefined;
 /** The ghost card: tap a wisp or press Read. The snoovatar loads only now; the wisp stays if there is none. */
-function openCard(g: Ghost) {
+function openCard(g: Ghost, onClose?: () => void) {
   const avatar = el('div', 'ghost-card__img', iconCanvas('wisp', 4));
   if (g.name)
     void api.avatar(g.name).then(({ url }) => {
@@ -282,8 +396,17 @@ function openCard(g: Ghost) {
   const close = () => {
     cardRoot.hidden = true;
     cardRoot.replaceChildren();
+    afterCard?.();
   };
-  cardRoot.replaceChildren(ghostCard({ name: g.name, carving: g.carving ? carvingLabel(g.carving) : null, cause: g.cause, avatar, onClose: close }));
+  afterCard = onClose;
+  // Votes: only on the day's floor, never on Floor 0's scripted ghosts or your own; open once your run there has ended.
+  const real = state.floor.depth > 0 && !devFloor && !!g.carving && !g.mine;
+  const ended = plate !== null && plate.depth === state.floor.depth;
+  const depth = state.floor.depth;
+  const votes = !real ? undefined
+    : !ended ? { canVote: false, note: 'Vote after your run.' }
+    : { canVote: !!plate?.live, ...(g.votes ? { totals: g.votes } : {}), ...(g.myVote ? { mine: g.myVote } : {}), onVote: (v: Vote) => castVote(depth, g, v) };
+  cardRoot.replaceChildren(ghostCard({ name: g.name, carving: g.carving ? carvingLabel(g.carving) : null, cause: g.cause, avatar, ...(votes ? { votes } : {}), onClose: close }));
   cardRoot.hidden = false;
   cardRoot.querySelector<HTMLButtonElement>('.ghost-card__close')?.focus();
 }
@@ -397,7 +520,7 @@ stage.addEventListener('pointerup', (e) => {
     const t = scene.tileAt(e.clientX, e.clientY);
     const tile = t && shown.tiles.find(([x, y]) => x === t.x && y === t.y);
     if (!t || !tile || !scene.isLit(t)) return;
-    openCard(shown.list.find((g) => g.x === t.x && g.y === t.y) ?? { name: null, x: t.x, y: t.y, cause: `${tile[2]} deaths`, carving: null });
+    openCard(shown.list.find((g) => g.x === t.x && g.y === t.y) ?? { id: `tile:${t.x},${t.y}`, name: null, x: t.x, y: t.y, cause: `${tile[2]} deaths`, carving: null });
     return;
   }
   act(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'R' : 'L') : dy > 0 ? 'D' : 'U');
@@ -440,6 +563,8 @@ type DescentHook = {
   ghosts: () => GhostView;
   /** A tile's box on the page, for taps and layout checks. */
   tileBox: (x: number, y: number) => { left: number; top: number; bottom: number; size: number } | null;
+  /** Open a listed ghost's card by id (as a tap or Read would). */
+  card: (id: string) => void;
 };
 declare global {
   interface Window {
@@ -476,5 +601,9 @@ if (import.meta.env.DEV) {
     log: () => live?.log ?? '',
     ghosts: () => shown,
     tileBox: (x, y) => scene.screenOf({ x, y }),
+    card: (id) => {
+      const g = shown.list.find((x) => x.id === id);
+      if (g) openCard(g);
+    },
   };
 }

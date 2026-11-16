@@ -537,6 +537,7 @@ Each phase lists Build, Show me (what to open), Checks, and Gate.
 
 - **Build:** a death leaves a ghost on its tile (server-derived from the replay); one carving per ghost from about 12 fixed phrases, tile glyph by what the phrase claims (▲ warning, → path with the player's direction, ◆ treasure); the death write also records 3×3 compass heat and kills by cause (record only); capped ghost data in `GET /api/floor`; wisps on the map inside the torch radius (one, two for 2–4, a cluster with a count plate for 5+); carving line in the HUD on approach; ghost card (snoovatar, u/name, carving; room left for 7b's record and votes); carving picker on the death panel and the result plate; Floor 0 scripted ghosts; mod menu: seed N bot runs, purge bot runs. Endpoint `POST /api/carving`.
 - **Redis keys:** `f:{d}:ghosts`, `f:{d}:carvings`, `f:{d}:heat`, `f:{d}:kills` hashes.
+- **Dev tool:** mod menu "Reset my run on the live floor" (behind the `devTools` subreddit setting, logged): removes the caller's run and everything it wrote, so one account can replay a floor. Switch it off before submission.
 - **Rules:** nothing about a ghost comes from the client; ghosts never enter the simulation; a carving is final (set-if-absent); bot records carry `bot: true` and show as "a nameless delver"; bot deaths count toward heat, and purge removes them with their heat and kills.
 - **Show me:** die in one local profile, see that wisp in another.
 - **Gate:** every write is replay-derived or limited to one per user. Reddit smoke test.
@@ -544,7 +545,7 @@ Each phase lists Build, Show me (what to open), Checks, and Gate.
 ### Phase 7b — Votes, traps, curse, souls (Nov 27)
 
 - **Build:** carving votes (Trust/Liar on the ghost card, unlocked after your run), curse vote, Trapsetter trap placement, souls and honour, victory screen with curse vote and trap picker; heat and kills read by the intro and rollover inputs. Endpoints `POST /api/vote`, `/api/trap`. Bots are excluded from souls, honour and votes (their `bot` flag).
-- **Redis keys:** `f:{d}:traps` hash; `f:{d}:curse`, `f:{d}:cv`, `souls`, `honour` sorted sets.
+- **Redis keys:** `f:{d}:traps` hash; `f:{d}:curse`, `f:{d}:cv`, `souls`, `honour` sorted sets; `f:{d}:votes` hash (the one-vote guard: sorted sets have no set-if-absent). Dev tool: `f:{d}:resets` hash (the reset count keys the client's saved log).
 - **Milestone:** the public test subreddit opening (the owner schedules it).
 - **Gate:** every write is replay-derived or vote-limited to one per user.
 

@@ -8,8 +8,12 @@ export type Dir = 'U' | 'D' | 'L' | 'R';
 export type Carving = { id: string; text: string; kind: CarvingKind; dir: Dir | null };
 /** What the server stores per ghost (`f:{d}:ghosts`). `name` is null for bots, which show as a nameless delver. */
 export type GhostRecord = { name: string | null; x: number; y: number; cause: string; at: number; bot?: true };
-/** One ghost on the wire. `carving` is the stored "id" or "id:dir". */
-export type Ghost = { name: string | null; x: number; y: number; cause: string; carving: string | null; mine?: true };
+export type Vote = 'trust' | 'liar';
+/**
+ * One ghost on the wire. `id` names it in a vote (its record key). `carving` is the stored "id" or "id:dir". `votes` and
+ * `myVote` are filled in by the server only for a viewer whose run on the floor has ended (7b: lies stay alive).
+ */
+export type Ghost = { id: string; name: string | null; x: number; y: number; cause: string; carving: string | null; mine?: true; votes?: { trust: number; liar: number }; myVote?: Vote };
 /** `tiles`: [x, y, count] for every tile with a ghost. `list`: capped records, carved first, then newest. */
 export type GhostView = { fell: number; tiles: [number, number, number][]; list: Ghost[] };
 
@@ -55,7 +59,7 @@ export function ghostView(records: Readonly<Record<string, GhostRecord>>, carvin
   const own = me && records[me] ? [me] : [];
   const list = [...own, ...ranked].slice(0, cap).flatMap((k) => {
     const g = records[k];
-    return g ? [{ name: g.name, x: g.x, y: g.y, cause: g.cause, carving: carvings[k] ?? null, ...(k === me ? { mine: true as const } : {}) }] : [];
+    return g ? [{ id: k, name: g.name, x: g.x, y: g.y, cause: g.cause, carving: carvings[k] ?? null, ...(k === me ? { mine: true as const } : {}) }] : [];
   });
   return { fell: keys.length, tiles: [...counts.values()].sort((a, b) => a[1] - b[1] || a[0] - b[0]), list };
 }

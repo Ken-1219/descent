@@ -1,6 +1,6 @@
 // Floor generator (§8): BSP rooms, the tier cycle, budget spending, floor shape, crowd weights, player traps, fairness gates.
 import {
-  BUDGET, CROWD, CURSES, CYCLE, DARK, ENTRANCE_CLEAR, FAMILIES, FAMILY_POS, FAMILY_WEIGHT, GATE_TORCH_PCT, GOBLINS, GRID, IMPS,
+  BUDGET, CROWD, CURSE_TIE_ORDER, CURSES, CYCLE, DARK, ENTRANCE_CLEAR, FAMILIES, FAMILY_POS, FAMILY_WEIGHT, GATE_TORCH_PCT, GOBLINS, GRID, IMPS,
   FRESH_PER_ROOM, ITEM_RULE, ITEM_WEIGHT, MAX_TIER, MECHANISMS, PITS, PLACE_TRIES, RETRY_CAP, ROOM1_ENEMY_GAP, ROOMS, SKELETONS, SLACK, SPIKES,
   TIERS, TILES_PER_INSTANCE, TRAP_MAX, TRAPS, WARDEN_POS, type Curse, type Family, type Item, type Tier,
 } from './content';
@@ -163,6 +163,16 @@ function routed(t: readonly string[], entrance: Pos, stairs: Pos, fixedSpikes: b
 
 const cursePct = (mods: Mods, key: 'budgetPct' | 'torchPct') => mods.curses.reduce((v, c) => Math.floor((v * CURSES[c][key]) / 100), 100);
 /** §8 budget 8 + step·min(depth, cap), scaled by the curses. */
+/**
+ * The crowd's curse for tomorrow: most votes wins, a tie goes to the mildest (CURSE_TIE_ORDER), one voter decides alone,
+ * and no voters means no curse (never fabricate crowd data).
+ */
+export function resolveCurse(votes: Partial<Record<Curse, number>>): Curse | null {
+  let best: Curse | null = null;
+  for (const c of CURSE_TIE_ORDER) if ((votes[c] ?? 0) > 0 && (votes[c] ?? 0) > (best ? (votes[best] ?? 0) : 0)) best = c;
+  return best;
+}
+
 export const budgetFor = (depth: number, mods: Mods = NO_MODS) =>
   Math.floor(((BUDGET.base + BUDGET.step * Math.min(depth, BUDGET.capDepth)) * cursePct(mods, 'budgetPct')) / 100);
 

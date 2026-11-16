@@ -577,5 +577,134 @@ async (page) => {
     }
   }
 
+
+  // 14. Phase 7b: victory steps (curse vote, trap), carving votes after your run, offline queue, layout
+  {
+    const ctxAt = async (vp, q = '') => {
+      const ctx = await browser.newContext({ viewport: vp });
+      await ctx.addInitScript(() => localStorage.setItem('descent:f0', '1'));
+      const p = await ctx.newPage();
+      p.on('pageerror', (e) => errs.push(String(e)));
+      p.on('console', (m) => { if (m.type() === 'error') errs.push(m.text()); });
+      await p.goto(`${URL}${q}`);
+      await p.waitForFunction(() => window.__descent);
+      await p.evaluate(() => window.__descent.ready);
+      return { ctx, p };
+    };
+    const endText = async (p) => (await p.locator('#end').innerText()).replace(/\n+/g, ' | ');
+    const win = (p) => p.evaluate(async () => { window.__descent.skipAnim(true); for (const a of 'DRRURRRRDDDDLLLLLL') await window.__descent.act(a); });
+    const die = (p) => p.evaluate(async () => { window.__descent.skipAnim(true); for (let i = 0; i < 1500 && !window.__descent.state().ended; i++) await window.__descent.act('W'); });
+
+    // Win, vote, set a trap, reload: both stored and shown on the plate.
+    {
+      const { ctx, p } = await ctxAt({ width: 390, height: 844 }, '?floor=f0');
+      await win(p);
+      await p.waitForSelector('#end select.picker');
+      const disabled = await p.locator('#end .btn--primary').isDisabled();
+      await p.locator('#end select.picker').selectOption('deep-dark');
+      await p.locator('#end .btn--primary').click();
+      await p.waitForFunction(() => /Set a trap/.test(document.getElementById('end').innerText));
+      await p.getByRole('button', { name: 'South-west' }).click();
+      await p.locator('#end select.picker').selectOption('stairs');
+      await p.locator('#end .btn--primary').click();
+      await p.waitForFunction(() => /Your trap/.test(document.getElementById('end').innerText));
+      await p.reload();
+      await p.waitForFunction(() => window.__descent);
+      await p.waitForFunction(() => /Your trap/.test(document.getElementById('end').innerText));
+      const t = await endText(p);
+      check('win, vote, set a trap, reload: both stored and shown; standings after voting', disabled && /Your curse vote: Deep Dark/.test(t) && /Deep Dark 1/.test(t) && /False stairs, south-west/.test(t), t);
+      await ctx.close();
+    }
+
+    // Skip both steps: the plate offers the curse vote as its primary action while the floor is live.
+    {
+      const { ctx, p } = await ctxAt({ width: 390, height: 844 }, '?floor=f0');
+      await win(p);
+      await p.waitForSelector('#end select.picker');
+      await p.getByRole('button', { name: 'Skip' }).click();
+      await p.waitForFunction(() => /Set a trap/.test(document.getElementById('end').innerText));
+      await p.getByRole('button', { name: 'Skip' }).click();
+      await p.waitForFunction(() => /Score/.test(document.getElementById('end').innerText));
+      const t = await endText(p);
+      const primary = await p.locator('#end .btn--primary').innerText();
+      check('skip both steps: nothing stored; the plate offers "Vote on a curse"', !/Your curse vote|Your trap/.test(t) && primary === 'Vote on a curse', `${t} [${primary}]`);
+      await ctx.close();
+    }
+
+    // Totals hidden during the run, shown after it; a vote made offline is queued and sent on the next load.
+    {
+      const { ctx, p } = await ctxAt({ width: 390, height: 844 }, '?ghosts=20');
+      const carved = await p.evaluate(() => window.__descent.ghosts().list.find((g) => g.carving));
+      const during = await p.evaluate(() => window.__descent.ghosts().list.every((g) => g.votes === undefined));
+      await p.evaluate((id) => window.__descent.card(id), carved.id);
+      const cardDuring = await p.locator('#card').innerText();
+      await p.keyboard.press('Escape');
+      await die(p);
+      await p.waitForSelector('#end select.picker');
+      await p.getByRole('button', { name: 'Skip' }).click();
+      await p.waitForFunction(() => /Carvings \(/.test(document.getElementById('end').innerText));
+      await p.locator('#end .carvings__open').click();
+      await p.locator('#end .carvings__row').first().click();
+      const cardAfter = await p.locator('#card').innerText();
+      check('totals hidden during the run (no numbers, "Vote after your run"), shown after it', during && /Vote after your run/.test(cardDuring) && !/Trust|Liar/.test(cardDuring) && /Trust \d+/.test(cardAfter) && /Liar \d+/.test(cardAfter), `${cardDuring.replace(/\n+/g, ' | ')} → ${cardAfter.replace(/\n+/g, ' | ')}`);
+      await p.evaluate(() => window.__descent.offline(true));
+      await p.locator('#card').getByRole('button', { name: /^Trust/ }).click();
+      await p.waitForTimeout(300);
+      const optimistic = await p.locator('#card').getByRole('button', { name: /^Trust/ }).getAttribute('aria-pressed');
+      const queuedBefore = await p.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('descent:votes:')).map((k) => localStorage.getItem(k)).join(''));
+      await p.reload(); // a new page is online again: the queue flushes on load
+      await p.waitForFunction(() => window.__descent);
+      await p.waitForFunction(() => /Score/.test(document.getElementById('end').innerText));
+      await p.waitForTimeout(800);
+      const stored = await p.evaluate(() => ({ sent: JSON.parse(localStorage.getItem('descent:local:votes:1') ?? '{}'), queue: JSON.parse(localStorage.getItem('descent:votes:1') ?? '{}') }));
+      check('a vote made offline shows at once, is queued, and is sent on the next load', optimistic === 'true' && /trust/.test(queuedBefore) && Object.values(stored.sent).includes('trust') && Object.keys(stored.queue).length === 0, `${queuedBefore} → ${JSON.stringify(stored)}`);
+      await ctx.close();
+    }
+
+    // Layout: the curse step, the trap step, the plate with choices, the carvings list and a card with votes.
+    {
+      const bad = [];
+      const layout = (p, what, vp) => p.evaluate(() => {
+        const out = [];
+        if (document.documentElement.scrollWidth > innerWidth) out.push('hscroll');
+        for (const b of document.querySelectorAll('#end button, #end select, #card button')) {
+          const r = b.getBoundingClientRect();
+          if (!r.width) continue;
+          if (r.height < 44 || r.width < 44) out.push(`small ${b.textContent.trim().slice(0, 12)} ${Math.round(r.width)}x${Math.round(r.height)}`);
+        }
+        const panel = document.querySelector('#end:not([hidden]) .end__panel');
+        if (panel) {
+          const r = panel.getBoundingClientRect();
+          if (r.top < 0 || r.bottom > innerHeight + 0.5 || r.right > innerWidth + 0.5) out.push('panel off screen');
+          const prim = panel.querySelector('.btn--primary')?.getBoundingClientRect();
+          if (prim && (prim.bottom > innerHeight + 0.5 || prim.top < 0)) out.push('primary off screen');
+        }
+        return out;
+      }).then((o) => bad.push(...o.map((x) => `${vp.width}x${vp.height} ${what}: ${x}`)));
+      for (const vp of [{ width: 320, height: 320 }, { width: 360, height: 640 }, { width: 844, height: 390 }, { width: 1280, height: 800 }]) {
+        const { ctx, p } = await ctxAt(vp, '?floor=f0&ghosts=300');
+        await win(p);
+        await p.waitForSelector('#end select.picker');
+        await layout(p, 'curse step', vp);
+        await p.getByRole('button', { name: 'Skip' }).click();
+        await p.waitForFunction(() => /Set a trap/.test(document.getElementById('end').innerText));
+        await layout(p, 'trap step', vp);
+        await p.getByRole('button', { name: 'Centre' }).click();
+        await p.locator('#end select.picker').selectOption('spikes');
+        await p.locator('#end .btn--primary').click();
+        await p.waitForFunction(() => /Your trap/.test(document.getElementById('end').innerText));
+        await layout(p, 'plate', vp);
+        await p.locator('#end .carvings__open').click();
+        await layout(p, 'carvings', vp);
+        await p.locator('#end .carvings__row').first().click();
+        await layout(p, 'card', vp);
+        const card = await p.evaluate(() => { const r = document.querySelector('#card .ghost-card').getBoundingClientRect(); return r.top >= 0 && r.bottom <= innerHeight && r.right <= innerWidth; });
+        if (!card) bad.push(`${vp.width}x${vp.height} card off screen`);
+        await ctx.close();
+      }
+      check('layout 320×320 to 1280×800: curse step, trap step, plate, carvings list and voting card fit with 44 px targets', bad.length === 0, bad.join(' ; '));
+    }
+  }
+
   return { passed: results.filter((r) => r.pass).length, failed: results.filter((r) => !r.pass), total: results.length, errs, results: results.map((r) => `${r.pass ? 'PASS' : 'FAIL'} ${r.name}${r.detail ? ' — ' + r.detail : ''}`) };
 }

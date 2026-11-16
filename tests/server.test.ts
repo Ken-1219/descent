@@ -4,7 +4,8 @@ import { redis } from '@devvit/web/server';
 import { FLOOR_0 } from '../src/shared/content';
 import { bot } from '../src/shared/bot';
 import { replay, score, start, step, type Action, type Floor } from '../src/shared/sim';
-import { carve, floorFor, ghostsOf, openFloor, purgeBots, resetRun, seedBots, submitRun } from '../src/server/game';
+import { carve, floorFor, ghostsOf, openFloor, placeTrap, purgeBots, resetRun, seedBots, submitRun, tally, voteCarving, voteCurse } from '../src/server/game';
+import { resolveCurse } from '../src/shared/gen';
 import { CARVINGS } from '../src/shared/content';
 import { zoneOf } from '../src/shared/gen';
 import { judge } from '../src/shared/sim';
@@ -260,4 +261,154 @@ test('dev reset: clears the caller\'s run, ghost, carving, score, heat and kill 
   expect(await floorFor('t2_a', 1)).toMatchObject({ kind: 'play', attempt: 1 });
   expect((await submitRun('t2_a', 1, dies(floor).log, { name: 'alice' })).kind).toBe('saved'); // plays again
   expect(await redis.hGet('f:1:ghosts', 't2_b')).toBeTruthy(); // nobody else is touched
+});
+
+/** A winning log: the map bot on the first seed that wins (the floor is fair, so one does). */
+const wins = (floor: Floor) => {
+  for (let seed = 1; seed < 50; seed++) {
+    const log = played(floor, seed);
+    if (replay(floor, [...log] as Action[]).ended?.kind === 'won') return log;
+  }
+  throw new Error('no winning bot run');
+};
+
+test('curse vote and trap: only a stored win, once each (identical resend returns it), closed after rollover', async () => {
+  await startFirstFloor();
+  const floor = await openFloor(1);
+  expect(await voteCurse('t2_w', 1, 'frail')).toEqual({ kind: 'rejected', reason: 'not a winner' }); // no run yet
+  await submitRun('t2_d', 1, dies(floor).log, { name: 'dee' });
+  expect(await voteCurse('t2_d', 1, 'frail')).toEqual({ kind: 'rejected', reason: 'not a winner' }); // a loser
+  expect(await placeTrap('t2_d', 1, 4, 'spikes')).toEqual({ kind: 'rejected', reason: 'not a winner' });
+  await submitRun('t2_w', 1, wins(floor), { name: 'win' });
+  expect(await voteCurse('t2_w', 1, 'nonsense')).toEqual({ kind: 'rejected', reason: 'curse' });
+  expect(await voteCurse('t2_w', 1, 'frail')).toEqual({ kind: 'voted', vote: 'frail', standings: [['frail', 1]] });
+  expect(await voteCurse('t2_w', 1, 'frail')).toEqual({ kind: 'voted', vote: 'frail', standings: [['frail', 1]] }); // retry
+  expect(await voteCurse('t2_w', 1, 'overrun')).toEqual({ kind: 'rejected', reason: 'already voted' });
+  expect(await placeTrap('t2_w', 1, 9, 'spikes')).toEqual({ kind: 'rejected', reason: 'trap' });
+  expect(await placeTrap('t2_w', 1, 2, 'lava')).toEqual({ kind: 'rejected', reason: 'trap' });
+  expect(await placeTrap('t2_w', 1, 2, 'dart')).toEqual({ kind: 'placed', trap: { zone: 2, kind: 'dart' } });
+  expect(await placeTrap('t2_w', 1, 2, 'dart')).toEqual({ kind: 'placed', trap: { zone: 2, kind: 'dart' } });
+  expect(await placeTrap('t2_w', 1, 5, 'dart')).toEqual({ kind: 'rejected', reason: 'already placed' });
+  expect(await floorFor('t2_w', 1)).toMatchObject({ kind: 'played', choices: { curse: 'frail', standings: [['frail', 1]], trap: { zone: 2, kind: 'dart' } } });
+  // Other players never see someone else's trap, nor the standings before voting.
+  expect(await floorFor('t2_d', 1)).toMatchObject({ kind: 'played', choices: { curse: null, standings: null, trap: null } });
+  await rollover('2026-11-24');
+  expect(await voteCurse('t2_w', 1, 'frail')).toMatchObject({ kind: 'closed', today: 2 });
+  expect(await placeTrap('t2_w', 1, 2, 'dart')).toMatchObject({ kind: 'closed', today: 2 });
+});
+
+test('simultaneous choices: exactly one of two curse votes, two traps, two carving votes is accepted', async () => {
+  await startFirstFloor();
+  const floor = await openFloor(1);
+  await submitRun('t2_w', 1, wins(floor), { name: 'win' });
+  await submitRun('t2_a', 1, dies(floor).log, { name: 'alice' });
+  await carve('t2_a', 1, 'trap-ahead');
+  const curse = await Promise.all([voteCurse('t2_w', 1, 'frail'), voteCurse('t2_w', 1, 'overrun')]);
+  const trap = await Promise.all([placeTrap('t2_w', 1, 1, 'spikes'), placeTrap('t2_w', 1, 7, 'stairs')]);
+  const carv = await Promise.all([voteCarving('t2_w', 1, 't2_a', 'trust'), voteCarving('t2_w', 1, 't2_a', 'liar')]);
+  for (const pair of [curse, carv]) expect(pair.filter((r) => r.kind === 'voted')).toHaveLength(1);
+  expect(trap.filter((r) => r.kind === 'placed')).toHaveLength(1);
+});
+
+test('carving votes: after your run only, not your own, carved ghosts only, once each; honour and souls follow A15–A16', async () => {
+  await startFirstFloor();
+  const floor = await openFloor(1);
+  await submitRun('t2_a', 1, dies(floor).log, { name: 'alice' });
+  await carve('t2_a', 1, 'safe-way:L');
+  await submitRun('t2_q', 1, dies(floor).log, { name: 'quiet' }); // dead, no carving
+  expect(await voteCarving('t2_x', 1, 't2_a', 'trust')).toEqual({ kind: 'rejected', reason: 'run not ended' });
+  expect(await voteCarving('t2_a', 1, 't2_a', 'trust')).toEqual({ kind: 'rejected', reason: 'own carving' });
+  await submitRun('t2_d', 1, dies(floor).log, { name: 'dee' });
+  await submitRun('t2_w', 1, wins(floor), { name: 'win' });
+  expect(await voteCarving('t2_d', 1, 't2_q', 'liar')).toEqual({ kind: 'rejected', reason: 'no carving' });
+  expect(await voteCarving('t2_d', 1, 't2_none', 'liar')).toEqual({ kind: 'rejected', reason: 'no such ghost' });
+  expect(await voteCarving('t2_d', 1, 't2_a', 'liar')).toEqual({ kind: 'voted', vote: 'liar', standings: null }); // a death: +1 soul
+  expect(await voteCarving('t2_d', 1, 't2_a', 'liar')).toEqual({ kind: 'voted', vote: 'liar', standings: null }); // retry: no double count
+  expect(await voteCarving('t2_d', 1, 't2_a', 'trust')).toEqual({ kind: 'rejected', reason: 'already voted' });
+  expect(await voteCarving('t2_w', 1, 't2_a', 'liar')).toMatchObject({ kind: 'voted' }); // a winner's Liar: counted, no soul
+  await submitRun('t2_t', 1, dies(floor).log, { name: 'tee' });
+  expect(await voteCarving('t2_t', 1, 't2_a', 'trust')).toMatchObject({ kind: 'voted' }); // +1 honour
+  expect(await redis.zScore('souls', 't2_a')).toBe(1);
+  expect(await redis.zScore('honour', 't2_a')).toBe(1);
+  // Totals reach a viewer whose run has ended, never one still playing; the list is not reordered by them.
+  const v = await floorFor('t2_d', 1);
+  if (v.kind !== 'played') throw new Error(v.kind);
+  expect(v.ghosts.list.find((g) => g.id === 't2_a')).toMatchObject({ votes: { trust: 1, liar: 2 }, myVote: 'liar' });
+  const fresh = await floorFor('t2_new', 1);
+  if (fresh.kind !== 'play') throw new Error(fresh.kind);
+  expect(fresh.ghosts.list.every((g) => g.votes === undefined && g.myVote === undefined)).toBe(true);
+  expect(v.ghosts.list.map((g) => g.id)).toEqual((await ghostsOf(1, 't2_d')).list.map((g) => g.id)); // votes never reorder it
+});
+
+test('bots: votes on a bot\'s carving are stored but give no souls or honour; bots never hold traps or votes', async () => {
+  await startFirstFloor();
+  const floor = await openFloor(1);
+  await seedBots(6);
+  const carvedBot = Object.keys(await redis.hGetAll('f:1:carvings')).find((k) => k.startsWith('bot:'));
+  expect(carvedBot).toBeDefined();
+  await submitRun('t2_d', 1, dies(floor).log, { name: 'dee' });
+  expect(await voteCarving('t2_d', 1, carvedBot ?? '', 'liar')).toMatchObject({ kind: 'voted' });
+  expect(await redis.zScore('f:1:cv', `${carvedBot}:liar`)).toBe(1);
+  expect(await redis.zCard('souls')).toBe(0);
+  expect(await redis.zCard('honour')).toBe(0);
+  expect(Object.keys(await redis.hGetAll('f:1:votes')).every((f) => !f.startsWith('bot:'))).toBe(true);
+  expect(await redis.hGetAll('f:1:traps')).toEqual({});
+});
+
+test('curse tie-break: most votes wins, a tie goes to the mildest, one voter decides, no voters means no curse', async () => {
+  expect(resolveCurse({})).toBeNull();
+  expect(resolveCurse({ 'deep-dark': 1 })).toBe('deep-dark');
+  expect(resolveCurse({ 'deep-dark': 2, frail: 2, overrun: 1 })).toBe('frail'); // frail is milder than deep dark
+  expect(resolveCurse({ 'deep-dark': 3, 'light-sleepers': 2 })).toBe('deep-dark');
+  expect(resolveCurse({ 'short-wick': 1, overrun: 1, 'light-sleepers': 1 })).toBe('light-sleepers');
+  await startFirstFloor();
+  const floor = await openFloor(1);
+  await submitRun('t2_w', 1, wins(floor), { name: 'win' });
+  await voteCurse('t2_w', 1, 'overrun');
+  await placeTrap('t2_w', 1, 4, 'spikes');
+  expect(await tally(1)).toMatchObject({ curse: 'overrun', traps: [{ owner: 't2_w', zone: 4, kind: 'spikes' }] });
+});
+
+test('1,000 ghosts with votes: the played response stays under 50 KB and the server time budget', async () => {
+  await startFirstFloor();
+  await openFloor(1);
+  const ghosts: Record<string, string> = {};
+  const carvings: Record<string, string> = {};
+  const votes: Record<string, string> = {};
+  const cv: { member: string; score: number }[] = [];
+  for (let i = 0; i < 1000; i++) {
+    ghosts[`t2_u${i}`] = JSON.stringify({ name: `user_number_${i}`, x: 1 + (i % 9), y: 1 + (i % 5), cause: 'dark', at: i });
+    carvings[`t2_u${i}`] = 'trap-ahead';
+    votes[`t2_u3>t2_u${i}`] = 'trust';
+    cv.push({ member: `t2_u${i}:trust`, score: 1 + (i % 50) }, { member: `t2_u${i}:liar`, score: i % 7 });
+  }
+  await redis.hSet('f:1:ghosts', ghosts);
+  await redis.hSet('f:1:carvings', carvings);
+  await redis.hSet('f:1:votes', votes);
+  await redis.zAdd('f:1:cv', ...cv);
+  await redis.hSet('f:1:runs', { t2_u3: JSON.stringify({ outcome: 'dead', score: 1, turns: 1, torch: 0, cause: 'dark', tile: { x: 4, y: 4 }, log: 'W', at: 3 }) });
+  const t0 = performance.now();
+  const r = await floorFor('t2_u3', 1);
+  const ms = performance.now() - t0;
+  console.log(`played floor with 1,000 ghosts and votes: ${JSON.stringify(r).length} bytes, ${ms.toFixed(1)} ms`);
+  expect(JSON.stringify(r).length).toBeLessThan(50_000);
+  expect(ms).toBeLessThan(50);
+});
+
+test('dev reset also removes your curse vote, trap and carving votes, and what they gave', async () => {
+  await startFirstFloor();
+  const floor = await openFloor(1);
+  await submitRun('t2_a', 1, dies(floor).log, { name: 'alice' });
+  await carve('t2_a', 1, 'dead-end');
+  await submitRun('t2_w', 1, wins(floor), { name: 'win' });
+  await voteCurse('t2_w', 1, 'frail');
+  await placeTrap('t2_w', 1, 3, 'stairs');
+  await voteCarving('t2_w', 1, 't2_a', 'trust');
+  expect(await redis.zScore('honour', 't2_a')).toBe(1);
+  await resetRun('t2_w');
+  expect(await redis.zScore('honour', 't2_a')).toBe(0);
+  expect(await redis.zScore('f:1:curse', 'frail')).toBe(0);
+  expect(await redis.hGetAll('f:1:traps')).toEqual({});
+  expect(await redis.hGetAll('f:1:votes')).toEqual({});
+  expect((await tally(1)).curse).toBeNull();
 });

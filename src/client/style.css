@@ -755,3 +755,89 @@ body:has(#end:not([hidden])) .carving {
     grid-area: actions;
   }
 }
+
+/* 7b: a chosen option (compass zone, your vote) reads as bone on ink, like the selected Lab tab. */
+.btn[aria-pressed='true'] {
+  background: var(--bone);
+  color: var(--ink-0);
+}
+.btn[aria-pressed='true']:disabled {
+  opacity: 1;
+}
+.trap-pick {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--gap);
+  align-items: center;
+}
+.compass-pick {
+  display: grid;
+  grid-template-columns: repeat(3, var(--tap));
+  gap: 4px;
+}
+.end__panel .compass-pick .btn {
+  width: var(--tap);
+  min-height: var(--tap);
+  padding: 0;
+}
+.carvings {
+  display: grid;
+  gap: var(--gap);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 40vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.end__panel .carvings__row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0 var(--gap);
+  text-align: left;
+  color: var(--wisp);
+}
+.ghost-card__note {
+  margin: 0;
+  flex: 1;
+  align-self: center;
+}
+/* Short screens: steps and lists pack tighter so the panel fits 320 px of height. */
+@media (max-height: 480px) {
+  .end:not(.end--clear) {
+    padding: var(--gap) var(--gap) calc(var(--gap) + env(safe-area-inset-bottom));
+  }
+  .end:not(.end--clear) .end__panel {
+    gap: 6px;
+    padding: var(--gap);
+    max-height: 100%;
+    overflow-y: auto;
+  }
+  .end:not(.end--clear) .title {
+    font-size: var(--t-title);
+  }
+  /* The save status shares the title's row; everything else spans the panel. */
+  .end:not(.end--clear) .end__panel {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+  }
+  .end:not(.end--clear) .end__panel > * {
+    grid-column: 1 / -1;
+  }
+  .end:not(.end--clear) .end__panel > .title {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .end:not(.end--clear) .end__panel > .save {
+    grid-column: 2;
+    grid-row: 1;
+    min-height: 0;
+  }
+  .end:not(.end--clear) .end__panel > p {
+    margin: 0;
+  }
+  .carvings {
+    max-height: 30vh;
+  }
+}

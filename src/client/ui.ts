@@ -1,5 +1,5 @@
-import { CARVINGS, NAMELESS, type CarvingKind, type Item } from '../shared/content';
-import { CARVING_CHOICES, carvingLabel, carvingOf } from '../shared/ghosts';
+import { CARVINGS, CURSE_TEXT, NAMELESS, TRAP_TEXT, ZONE_NAMES, type CarvingKind, type Curse, type Item } from '../shared/content';
+import { CARVING_CHOICES, carvingLabel, carvingOf, type Ghost, type Vote } from '../shared/ghosts';
 import { iconCanvas } from './sprites';
 
 type Kids = (Node | string)[];
@@ -77,18 +77,25 @@ export type GhostCard = {
   cause?: string;
   avatar?: Node;
   record?: { deaths: number; trust: number; liar: number };
-  votes?: { canVote: boolean };
+  /** Trust/Liar. `totals` and `mine` only reach a player whose run has ended; `note` replaces the buttons until then. */
+  votes?: { canVote: boolean; totals?: { trust: number; liar: number }; mine?: Vote; onVote?: (v: Vote) => void; note?: string };
   onClose?: () => void;
 };
 
 export const ghostCard = (g: GhostCard) => {
   const stat = (k: string, v: number) => el('div', '', el('dt', '', k), el('dd', '', String(v)));
   const actions = el('div', 'ghost-card__votes');
-  if (g.votes) {
-    const trust = button('Trust');
-    const liar = button('Liar');
-    trust.disabled = liar.disabled = !g.votes.canVote;
-    actions.append(trust, liar);
+  const v = g.votes;
+  if (v?.note) actions.append(el('p', 'ghost-card__note muted', v.note));
+  else if (v) {
+    const make = (vote: Vote, label: string) => {
+      const b = button(v.totals ? `${label} ${v.totals[vote]}` : label);
+      b.setAttribute('aria-pressed', String(v.mine === vote));
+      b.disabled = !v.canVote || !!v.mine;
+      b.addEventListener('click', () => v.onVote?.(vote));
+      return b;
+    };
+    actions.append(make('trust', 'Trust'), make('liar', 'Liar'));
   }
   if (g.onClose) {
     const close = button('Close', 'ghost-card__close');
@@ -208,4 +215,72 @@ export const saveLine = () => {
       retry.onclick = again ?? null;
     },
   };
+};
+
+/** The curse vote: one select, each curse with its one-line effect (select, then Vote). */
+export const cursePicker = (onChange: (c: Curse | null) => void) => {
+  const select = el('select', 'picker');
+  select.setAttribute('aria-label', 'Curse for tomorrow');
+  const none = el('option', '', 'Choose a curse');
+  none.value = '';
+  select.append(none);
+  for (const [id, t] of Object.entries(CURSE_TEXT)) {
+    const o = el('option', '', `${t.name}: ${t.effect}`);
+    o.value = id;
+    select.append(o);
+  }
+  select.addEventListener('change', () => {
+    const c = Object.keys(CURSE_TEXT).find((k): k is Curse => k === select.value);
+    onChange(c ?? null);
+  });
+  return select;
+};
+
+/** The trap picker: a 3×3 compass of zones (spatial, so a grid) and a select for the kind (select, then Set trap). */
+export const trapPicker = (onChange: (zone: number | null, kind: keyof typeof TRAP_TEXT | null) => void) => {
+  let zone: number | null = null;
+  let kind: keyof typeof TRAP_TEXT | null = null;
+  const grid = el('div', 'compass-pick');
+  grid.setAttribute('role', 'group');
+  grid.setAttribute('aria-label', 'Zone');
+  const cells = ZONE_NAMES.map((name, z) => {
+    const b = button(['NW', 'N', 'NE', 'W', 'C', 'E', 'SW', 'S', 'SE'][z] ?? '');
+    b.setAttribute('aria-label', name);
+    b.setAttribute('aria-pressed', 'false');
+    b.addEventListener('click', () => {
+      zone = z;
+      for (const c of cells) c.setAttribute('aria-pressed', String(c === b));
+      onChange(zone, kind);
+    });
+    return b;
+  });
+  grid.append(...cells);
+  const select = el('select', 'picker');
+  select.setAttribute('aria-label', 'Trap');
+  const none = el('option', '', 'Choose a trap');
+  none.value = '';
+  select.append(none);
+  for (const [id, label] of Object.entries(TRAP_TEXT)) {
+    const o = el('option', '', label);
+    o.value = id;
+    select.append(o);
+  }
+  select.addEventListener('change', () => {
+    kind = Object.keys(TRAP_TEXT).find((k): k is keyof typeof TRAP_TEXT => k === select.value) ?? null;
+    onChange(zone, kind);
+  });
+  return el('div', 'trap-pick', grid, select);
+};
+
+/** Carved ghosts on this floor as rows; a row opens the ghost card (Trust/Liar live there). */
+export const carvingsList = (ghosts: readonly Ghost[], open: (g: Ghost) => void) => {
+  const list = el('ul', 'carvings');
+  for (const g of ghosts) {
+    if (!g.carving) continue;
+    const row = button(el('span', '', `${g.name ? `u/${g.name}` : NAMELESS}: ${carvingLabel(g.carving)}`), 'carvings__row');
+    if (g.votes) row.append(el('span', 'muted', `${g.votes.trust} trust · ${g.votes.liar} liar`));
+    row.addEventListener('click', () => open(g));
+    list.append(el('li', '', row));
+  }
+  return list;
 };

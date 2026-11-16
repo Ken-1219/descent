@@ -1,8 +1,11 @@
 // LOCAL ONLY (dev builds): the /api/* endpoints faked on localStorage with the same shared code the server runs, so the
 // harness plays real generated floors. URL knobs: ?post=N opens an older post's floor, ?loggedOut=1 a logged-out viewer,
-// ?ghosts=N adds N fixture ghosts (0, 1, 20, 300, 1000) to every floor, like other players' deaths.
+// ?ghosts=N adds N fixture ghosts (0, 1, 20, 300, 1000) to every floor, like other players' deaths; ?floor=f0 serves
+// Floor 0's map as the day's floor (no mercy), so tests can win it with a known route.
 import { generate } from '../shared/gen';
-import { carvingOf, fixtureGhosts, ghostView, type GhostRecord } from '../shared/ghosts';
+import { CURSES, FLOOR_0, TRAP_TEXT, type Curse } from '../shared/content';
+import type { Trap } from '../shared/gen';
+import { carvingOf, fixtureGhosts, ghostView, type GhostRecord, type GhostView, type Vote } from '../shared/ghosts';
 import { hash } from '../shared/rng';
 import { judge, type Floor, type RunResult } from '../shared/sim';
 import type { Api } from './net';
@@ -14,7 +17,7 @@ const day = () => read<number>('day') ?? 1;
 const floorOf = (d: number): Floor => {
   const stored = read<Floor>(`floor:${d}`);
   if (stored) return stored;
-  const f = generate(d, hash(`descent:local:${d}`)).floor;
+  const f = new URLSearchParams(location.search).get('floor') === 'f0' ? { ...FLOOR_0, depth: d, mercy: false, seed: d } : generate(d, hash(`descent:local:${d}`)).floor;
   write(`floor:${d}`, f);
   return f;
 };
@@ -42,7 +45,7 @@ export const local: Api = {
     const mine = runOf(d);
     if (mine) {
       const { log: _, ...run } = mine;
-      return { kind: 'played', depth: d, seed: floor.seed ?? 0, floor, run, ghosts: ghostsOf(d), live: d === day(), attempt: 0 };
+      return { kind: 'played', depth: d, seed: floor.seed ?? 0, floor, run, ghosts: withVotes(d, ghostsOf(d)), live: d === day(), attempt: 0, choices: choicesOf(d) };
     }
     if (d < day()) return { kind: 'closed', depth: d, today: day(), todayUrl: `${location.pathname}?post=${day()}` };
     return { kind: 'play', depth: d, seed: floor.seed ?? 0, floor, ghosts: ghostsOf(d), attempt: 0 };
@@ -75,6 +78,52 @@ export const local: Api = {
     return { kind: 'carved', carving: canon };
   },
   avatar: async () => ({ url: null }),
+  vote: async (r) => {
+    net();
+    if (r.depth < day()) return { kind: 'closed', today: day(), todayUrl: `${location.pathname}?post=${day()}` };
+    const run = runOf(r.depth);
+    if ('curse' in r) {
+      if (!(r.curse in CURSES)) return { kind: 'rejected', reason: 'curse' };
+      if (run?.outcome !== 'won') return { kind: 'rejected', reason: 'not a winner' };
+      const prior = read<Curse>(`curse:${r.depth}`);
+      if (prior && prior !== r.curse) return { kind: 'rejected', reason: 'already voted' };
+      write(`curse:${r.depth}`, r.curse);
+      return { kind: 'voted', vote: r.curse, standings: [[r.curse, 1]] };
+    }
+    if (!run) return { kind: 'rejected', reason: 'run not ended' };
+    if (r.ghost === ME) return { kind: 'rejected', reason: 'own carving' };
+    const votes = read<Record<string, Vote>>(`votes:${r.depth}`) ?? {};
+    if (votes[r.ghost] && votes[r.ghost] !== r.vote) return { kind: 'rejected', reason: 'already voted' };
+    write(`votes:${r.depth}`, { ...votes, [r.ghost]: r.vote });
+    return { kind: 'voted', vote: r.vote, standings: null };
+  },
+  trap: async ({ depth, zone, kind }) => {
+    net();
+    if (depth < day()) return { kind: 'closed', today: day(), todayUrl: `${location.pathname}?post=${day()}` };
+    if (!Number.isInteger(zone) || zone < 0 || zone > 8 || !(kind in TRAP_TEXT)) return { kind: 'rejected', reason: 'trap' };
+    if (runOf(depth)?.outcome !== 'won') return { kind: 'rejected', reason: 'not a winner' };
+    const prior = read<Trap>(`trap:${depth}`);
+    if (prior && (prior.zone !== zone || prior.kind !== kind)) return { kind: 'rejected', reason: 'already placed' };
+    write(`trap:${depth}`, { zone, kind });
+    return { kind: 'placed', trap: { zone, kind } };
+  },
+};
+
+/** Fixture totals (a few votes each, seeded by position in the list) plus this profile's own votes. */
+const withVotes = (d: number, view: GhostView): GhostView => {
+  const mine = read<Record<string, Vote>>(`votes:${d}`) ?? {};
+  return {
+    ...view,
+    list: view.list.map((g, i) => {
+      const my = mine[g.id];
+      return { ...g, votes: { trust: (i % 5) + (my === 'trust' ? 1 : 0), liar: (i % 3) + (my === 'liar' ? 1 : 0) }, ...(my ? { myVote: my } : {}) };
+    }),
+  };
+};
+const choicesOf = (d: number) => {
+  const curse = read<Curse>(`curse:${d}`);
+  const standings: [Curse, number][] | null = curse ? [[curse, 1]] : null;
+  return { curse, standings, trap: read<Trap>(`trap:${d}`) };
 };
 
 /** The local rollover: tomorrow's floor becomes today's. */
