@@ -1,7 +1,9 @@
 // The one Phaser scene. It draws `State` and plays the events `step()` returns; it decides no rule.
 import * as Phaser from 'phaser';
 import { PALETTE, TILE, type Token } from '../shared/content';
-import { lightRadius, visibility, type Event, type State } from '../shared/sim';
+import { carvingOf, type Ghost } from '../shared/ghosts';
+import { lightRadius, visibility, type Event, type Pos, type State } from '../shared/sim';
+import { FONT_3X5, type SpriteName } from './art';
 import {
   ANIMS, PACK, buildAtlas, links, choreograph, enemyLook, frameAt, HURT, loadPack, marks, px, py, rgba, RUN, shine, tileLook,
   type Anim, type Frame, type Key, type Light, type Streak,
@@ -15,6 +17,22 @@ const REMEMBERED_ALPHA = 0.7;
 const GLOW_DARK = 0.5;
 const TORCH_GLOW_TILES = 2.5;
 const BRAZIER_GLOW_TILES = 3;
+/** §15.3: at most this many wisps on screen, whatever the crowd. */
+const MAX_WISPS = 60;
+/** A wisp's soft glow (§6: glow only on light sources and the dead): faint and inside its own tile, so a crowd of the
+ * dead never outshines the torch or hides the hero. */
+const WISP_GLOW_TILES = 0.75;
+const WISP_GLOW_ALPHA = 0.2;
+// PLAN §7 stacking: one wisp, two for 2–4 ghosts, a cluster of three with a count plate for 5 or more (px offsets).
+const STACK: readonly (readonly [number, number])[][] = [[[0, 0]], [[-3, 0], [3, -1]], [[-4, 0], [4, 0], [0, -3]]];
+
+/** What the scene draws for ghosts: a count per tile, and the listed records for glyphs and your own ghost. */
+export type GhostLayer = { tiles: readonly (readonly [number, number, number])[]; list: readonly Ghost[] };
+const GLYPH: Readonly<Record<string, SpriteName>> = { warning: 'glyph-warning', treasure: 'glyph-treasure', U: 'glyph-U', D: 'glyph-D', L: 'glyph-L', R: 'glyph-R' };
+const glyphOf = (raw: string | null): SpriteName | null => {
+  const c = raw ? carvingOf(raw) : null;
+  return (c && GLYPH[c.dir ?? c.kind]) ?? null;
+};
 
 const color = (t: Token) => parseInt(PALETTE[t].slice(1), 16);
 const total = (a: Anim) => a.ms.reduce((s, m) => s + m, 0);
@@ -61,6 +79,12 @@ export class DescentScene extends Phaser.Scene {
   private torchLights: Light[] = [];
   private brazierLights: Light[] = [];
   private endDeath: (() => void) | null = null;
+  private ghosts: GhostLayer = { tiles: [], list: [] };
+  private ghostActors: Actor[] = [];
+  private ghostMarks: (Phaser.GameObjects.Image | Phaser.GameObjects.Graphics)[] = [];
+  private previewAt: { at: Pos; carving: string | null } | null = null;
+  private wispLights: Light[] = [];
+  private liftPx = 0;
   private reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
   /** Screen shakes played so far (read by the dev hook to check reduced motion). */
   shakes = 0;
@@ -91,7 +115,7 @@ export class DescentScene extends Phaser.Scene {
   reset(state: State) {
     this.state = state;
     this.endDeath = null;
-    this.build(state);
+    if (this.hero) this.build(state); // before setup, setup builds this state
   }
 
   private actor(x: number, y: number, layer: number, anim: Anim): Actor {
@@ -109,6 +133,8 @@ export class DescentScene extends Phaser.Scene {
     this.digits.clear();
     this.props.clear();
     this.markImgs = [];
+    this.ghostActors = [];
+    this.ghostMarks = [];
     this.motions = [];
     this.streaks = [];
     this.torches = [];
@@ -147,7 +173,99 @@ export class DescentScene extends Phaser.Scene {
     const { width: vw, height: vh } = this.scale;
     const mw = (this.state.tiles[0]?.length ?? 0) * TILE;
     const mh = this.state.tiles.length * TILE;
-    cam.setBounds(Math.min(0, (mw - vw) / 2), Math.min(0, (mh - vh) / 2), Math.max(mw, vw), Math.max(mh, vh));
+    cam.setBounds(Math.min(0, (mw - vw) / 2), Math.min(0, (mh - vh) / 2), Math.max(mw, vw), Math.max(mh, vh) + this.liftPx);
+  }
+
+  /** Ghosts to draw (fetched with the floor, again on the result screen). They are pictures only: never in the sim. */
+  setGhosts(g: GhostLayer) {
+    this.ghosts = g;
+    if (this.hero) this.sync(this.state); // before setup, build() draws them
+  }
+
+  /** Shows a carving's glyph on a tile while the player picks one (null clears it). */
+  preview(at: Pos | null, carving: string | null = null) {
+    this.previewAt = at && { at, carving };
+    if (this.hero) this.sync(this.state);
+  }
+
+  /** Lifts the camera `px` screen px so the hero's tile stays visible above a panel covering the bottom of the map. */
+  lift(px: number) {
+    if (!this.hero) return;
+    const rect = this.game.canvas.getBoundingClientRect();
+    const zoom = rect.width / this.game.canvas.width || 1;
+    this.liftPx = Math.max(0, Math.round(px / zoom));
+    this.frame();
+    this.cameras.main.setFollowOffset(0, -this.liftPx);
+  }
+
+  /** The map tile under a point on the page (tapping a wisp), or null outside the map. */
+  tileAt(clientX: number, clientY: number): Pos | null {
+    const rect = this.game.canvas.getBoundingClientRect();
+    const zoom = rect.width / this.game.canvas.width;
+    const p = this.cameras.main.getWorldPoint((clientX - rect.left) / zoom, (clientY - rect.top) / zoom);
+    const t = { x: Math.floor(p.x / TILE), y: Math.floor(p.y / TILE) };
+    return t.y >= 0 && t.y < this.state.tiles.length && t.x >= 0 && t.x < (this.state.tiles[0]?.length ?? 0) ? t : null;
+  }
+
+  /** A tile's box on the page (bottom edge and size in CSS px), for keeping it clear of panels. */
+  screenOf(t: Pos): { left: number; top: number; bottom: number; size: number } | null {
+    if (!this.hero) return null;
+    const rect = this.game.canvas.getBoundingClientRect();
+    const zoom = rect.width / this.game.canvas.width;
+    const cam = this.cameras.main;
+    const top = rect.top + (t.y * TILE - cam.scrollY) * zoom;
+    return zoom ? { left: rect.left + (t.x * TILE - cam.scrollX) * zoom, top, bottom: top + TILE * zoom, size: TILE * zoom } : null;
+  }
+
+  /** Lit right now: ghosts and their cards only exist inside the torch radius. */
+  isLit(t: Pos) {
+    return visibility(this.state)[t.y * (this.state.tiles[0]?.length ?? 0) + t.x] === 2;
+  }
+
+  /** Wisps, count plates and glyphs on tiles lit right now (ghosts show only inside the torch radius). */
+  private drawGhosts(vis: readonly number[], w: number) {
+    for (const a of this.ghostActors) a.img.destroy();
+    for (const m of this.ghostMarks) m.destroy();
+    this.ghostActors = [];
+    this.ghostMarks = [];
+    this.wispLights = [];
+    let wisps = 0;
+    for (const [x, y, n] of this.ghosts.tiles) {
+      if (vis[y * w + x] !== 2) continue;
+      const stack = STACK[n >= 5 ? 2 : n >= 2 ? 1 : 0] ?? [];
+      if (wisps + stack.length > MAX_WISPS) break;
+      wisps += stack.length;
+      const own = this.ghosts.list.some((g) => g.mine && g.x === x && g.y === y);
+      for (const [dx, dy] of stack) {
+        const a = this.actor(x, y, 4, ANIMS[own ? 'ghost-float' : 'wisp-float']);
+        a.x += dx;
+        a.y += dy;
+        this.ghostActors.push(a);
+      }
+      this.wispLights.push({ x: px(x), y: py(y) - TILE / 2, r: WISP_GLOW_TILES * TILE, tint: 'wisp' });
+      if (n >= 5) this.ghostMarks.push(this.plate(x, y, n));
+      const glyph = glyphOf(this.ghosts.list.find((g) => g.x === x && g.y === y && g.carving)?.carving ?? null);
+      if (glyph) this.ghostMarks.push(this.image({ src: 'own', name: glyph }, x, y, depth(y, 1.5)));
+    }
+    const pv = this.previewAt;
+    const glyph = pv && glyphOf(pv.carving);
+    if (pv && glyph) this.ghostMarks.push(this.image({ src: 'own', name: glyph }, pv.at.x, pv.at.y, depth(pv.at.y, 7)));
+  }
+
+  /** The count plate over a cluster: ink-2 with a bone border and 3×5 bone digits, top-right of the tile. */
+  private plate(x: number, y: number, n: number) {
+    const text = String(n);
+    const w = text.length * 4 + 3;
+    const x0 = x * TILE + TILE - w;
+    const y0 = y * TILE - 3;
+    const g = this.add.graphics().setDepth(depth(y, 7));
+    g.fillStyle(color('bone'), 1).fillRect(x0, y0, w, 9);
+    g.fillStyle(color('ink-2'), 1).fillRect(x0 + 1, y0 + 1, w - 2, 7);
+    g.fillStyle(color('bone'), 1);
+    [...text].forEach((d, i) =>
+      FONT_3X5[d]?.forEach((row, ry) => [...row].forEach((c, rx) => c === '#' && g.fillRect(x0 + 2 + i * 4 + rx, y0 + 2 + ry, 1, 1))),
+    );
+    return g;
   }
 
   /** Props whose tile changed are rebuilt (pits open, gates slam, spikes breathe); unchanged ones keep animating. */
@@ -215,6 +333,7 @@ export class DescentScene extends Phaser.Scene {
       lg.clear().fillStyle(color('bone'), 1);
       for (const dots of links(state)) for (const d of dots) lg.fillRect(d.x, d.y, 1, 1);
     }
+    this.drawGhosts(vis, w);
     for (const img of this.markImgs) img.destroy();
     this.markImgs = marks(state).map((m) => this.image(m.frame, m.x, m.y, depth(m.y, 6)));
     if (this.hero) this.hero.tint = state.torch <= 0 && !state.ended ? 'stone' : null;
@@ -316,7 +435,7 @@ export class DescentScene extends Phaser.Scene {
       if (live) moving.add(m.actor);
       return live;
     });
-    const actors = [this.hero, ...this.enemies.values(), ...[...this.props.values()].flatMap((p) => p.actors)];
+    const actors = [this.hero, ...this.enemies.values(), ...[...this.props.values()].flatMap((p) => p.actors), ...this.ghostActors];
     for (const a of actors) if (a) this.show(a, time, moving.has(a));
     for (const [id, img] of this.digits) {
       const a = this.enemies.get(id);
@@ -372,13 +491,20 @@ export class DescentScene extends Phaser.Scene {
     const glow = this.glow;
     if (!hero || !glow) return;
     const r = lightRadius(this.state);
-    const at = `${hero.x},${hero.y},${r},${this.brazierLights.length}`;
+    const at = `${hero.x},${hero.y},${r},${this.brazierLights.length},${this.wispLights.map((l) => `${l.x}:${l.y}`).join(';')}`;
     if (at === this.glowAt) return;
     this.glowAt = at;
     const ctx = glow.getContext();
     ctx.clearRect(0, 0, glow.width, glow.height);
     const lights = [...this.torchLights, ...this.brazierLights, { x: hero.x, y: hero.y - TILE / 2, r: (r + 0.5) * TILE, tint: 'ember' as const }];
     shine(ctx, glow.width, glow.height, lights, GLOW_DARK);
+    for (const l of this.wispLights) {
+      const g = ctx.createRadialGradient(l.x, l.y, 0, l.x, l.y, l.r);
+      g.addColorStop(0, rgba('wisp', WISP_GLOW_ALPHA));
+      g.addColorStop(1, rgba('wisp', 0));
+      ctx.fillStyle = g;
+      ctx.fillRect(l.x - l.r, l.y - l.r, l.r * 2, l.r * 2);
+    }
     // Warm wash over the scene: the glow layer has nothing beneath it to soft-light, so tint directly.
     for (const l of lights) {
       const g = ctx.createRadialGradient(l.x, l.y, 0, l.x, l.y, l.r);

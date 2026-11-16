@@ -377,3 +377,25 @@ export const depthTab = () => {
   });
   return [box];
 };
+
+/** Ghosts tab: the game framed at phone size with 0, 1, 20, 300 and 1,000 fixture ghosts (local.ts ?ghosts=N). */
+export const ghostsTab = () => {
+  try {
+    localStorage.setItem('descent:f0', '1'); // skip Floor 0 so the frame opens on the day's floor
+  } catch {
+    /* the frame then opens on Floor 0, with its scripted ghosts */
+  }
+  const frame = el('iframe', 'ghosts__frame');
+  frame.title = 'Game with fixture ghosts';
+  const pick = (n: number) => {
+    frame.src = `game.html?ghosts=${n}`;
+    for (const b of row.children) b.setAttribute('aria-pressed', String(b.textContent === String(n)));
+  };
+  const row = el('div', 'lab__row', ...[0, 1, 20, 300, 1000].map((n) => {
+    const b = button(String(n));
+    b.addEventListener('click', () => pick(n));
+    return b;
+  }));
+  pick(20);
+  return [section('Ghost fixtures', caption('The day\'s floor with N other players\' deaths; one deadly spot is in sight from the start.'), row, frame)];
+};

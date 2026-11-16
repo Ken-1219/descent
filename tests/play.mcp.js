@@ -430,5 +430,152 @@ async (page) => {
     await c3.ctx.close();
   }
 
+
+  // 13. Phase 7a: ghosts and carvings (Floor 0's scripted ghosts; local.ts stores your ghost and carving per floor)
+  {
+    const ctxAt = async (vp, q = '', f0 = true) => {
+      const ctx = await browser.newContext({ viewport: vp });
+      if (f0) await ctx.addInitScript(() => localStorage.setItem('descent:f0', '1'));
+      const p = await ctx.newPage();
+      p.on('pageerror', (e) => errs.push(String(e)));
+      p.on('console', (m) => { if (m.type() === 'error') errs.push(m.text()); });
+      await p.goto(`${URL}${q}`);
+      await p.waitForFunction(() => window.__descent);
+      await p.evaluate(() => window.__descent.ready);
+      return { ctx, p };
+    };
+    const endText = (p) => p.locator('#end').innerText();
+    const flat = (t) => t.replace(/\n+/g, ' | ');
+    const dieHere = (p) => p.evaluate(async () => { window.__descent.skipAnim(true); for (let i = 0; i < 1500 && !window.__descent.state().ended; i++) await window.__descent.act('W'); });
+
+    // Approach: on Floor 0 the scripted ghost at (9,3) reads "Trap ahead" once you stand next to it; Read opens its card.
+    {
+      const { ctx, p } = await ctxAt({ width: 390, height: 844 }, '', false);
+      await p.evaluate(() => window.__descent.skipAnim(true));
+      check('Floor 0 draws its scripted ghosts with the same renderer', (await p.evaluate(() => window.__descent.ghosts().list.length)) === 2, '');
+      const hiddenFar = await p.locator('#carving').isHidden();
+      await acts(p, [...TO_DOOR, 'R', 'R', 'R']);
+      const line = (await p.locator('#carving').isVisible()) ? await p.locator('#carving').innerText() : '';
+      check('a carving shows on approach, with no input (aria-live line under the HUD)', hiddenFar && /a nameless delver: Trap ahead/.test(line) && (await p.locator('#carving').getAttribute('aria-live')) === 'polite', flat(line));
+      const turn = (await S(p)).turn;
+      await p.locator('#carving').getByRole('button', { name: 'Read' }).click();
+      const card = (await p.locator('#card').isVisible()) ? await p.locator('#card').innerText() : '';
+      await p.keyboard.press('ArrowRight');
+      const still = (await S(p)).turn === turn;
+      await p.keyboard.press('Escape');
+      check('Read opens the ghost card; keys never move the hero under it; Esc closes it; reading is no action', /a nameless delver/.test(card) && /Trap ahead/.test(card) && still && (await p.locator('#card').isHidden()) && (await p.evaluate(() => window.__descent.log())) === '', flat(card));
+      // Tap the wisp itself.
+      const box = await p.evaluate(() => window.__descent.tileBox(9, 3));
+      await p.locator('#stage').dispatchEvent('pointerdown', { clientX: box.left + box.size / 2, clientY: box.top + box.size / 2, pointerType: 'mouse', isPrimary: true });
+      await p.locator('#stage').dispatchEvent('pointerup', { clientX: box.left + box.size / 2, clientY: box.top + box.size / 2, pointerType: 'mouse', isPrimary: true });
+      const tapped = await p.locator('#card').isVisible();
+      await p.locator('#card').getByRole('button', { name: 'Close' }).click();
+      check('tapping a lit wisp opens its card; Close closes it', tapped && (await p.locator('#card').isHidden()) && (await S(p)).turn === turn, '');
+      await ctx.close();
+    }
+
+    // Die, carve, reload: your ghost and its carving on the result plate and on the map.
+    {
+      const { ctx, p } = await ctxAt({ width: 390, height: 844 });
+      await dieHere(p);
+      await p.waitForSelector('#end select.picker');
+      const carveBtn = p.locator('#end .btn--primary');
+      const disabledFirst = await carveBtn.isDisabled();
+      await p.locator('#end select.picker').selectOption('trap-ahead');
+      await carveBtn.click();
+      await p.waitForFunction(() => /Your ghost: Trap ahead/.test(document.getElementById('end').innerText), null, { timeout: 8000 });
+      await p.reload();
+      await p.waitForFunction(() => window.__descent);
+      await p.waitForFunction(() => /Your ghost: Trap ahead/.test(document.getElementById('end').innerText), null, { timeout: 8000 });
+      const mine = await p.evaluate(() => window.__descent.ghosts().list.find((g) => g.mine));
+      check('die, carve, reload: the plate shows your ghost and carving; the map has your ghost', disabledFirst && mine && mine.carving === 'trap-ahead', flat(await endText(p)));
+      await ctx.close();
+    }
+
+    // Skip, then carve later from the result plate (a path phrase carries its direction).
+    {
+      const { ctx, p } = await ctxAt({ width: 390, height: 844 });
+      await dieHere(p);
+      await p.waitForSelector('#end select.picker');
+      await p.getByRole('button', { name: 'Skip' }).click();
+      await p.waitForFunction(() => /left no carving/.test(document.getElementById('end').innerText), null, { timeout: 8000 });
+      const plate = await endText(p);
+      await p.locator('#end .btn--primary').click(); // Carve
+      await p.locator('#end select.picker').selectOption('safe-way:L');
+      await p.locator('#end .btn--primary').click();
+      await p.waitForFunction(() => /Your ghost: Safe this way ←/.test(document.getElementById('end').innerText), null, { timeout: 8000 });
+      check('skip, then carve later from the result plate; the path carries its direction', /Carve/.test(plate), flat(await endText(p)));
+      await ctx.close();
+    }
+
+    // Offline: the carving waits for the run, then both save once the network is back.
+    {
+      const { ctx, p } = await ctxAt({ width: 390, height: 844 });
+      await p.evaluate(() => window.__descent.offline(true));
+      await dieHere(p);
+      await p.waitForSelector('#end select.picker');
+      await p.locator('#end select.picker').selectOption('dead-end');
+      await p.locator('#end .btn--primary').click();
+      const queued = await endText(p);
+      await p.waitForTimeout(1200);
+      await p.evaluate(() => window.__descent.offline(false));
+      await p.waitForFunction(() => /Your ghost: Dead end/.test(document.getElementById('end').innerText), null, { timeout: 12000 });
+      check('a carving made while the run is unsaved is queued and sent after the run saves', /Saving/.test(queued), flat(queued));
+      await ctx.close();
+    }
+
+    // Layout: picker, card and a 300-ghost floor from 320×320 to 1280×800; the death tile and its neighbours stay visible.
+    {
+      const bad = [];
+      for (const vp of [{ width: 320, height: 320 }, { width: 360, height: 640 }, { width: 844, height: 390 }, { width: 1280, height: 800 }]) {
+        const { ctx, p } = await ctxAt(vp, '?ghosts=300');
+        const layout = () => p.evaluate(() => {
+          const out = [];
+          if (document.documentElement.scrollWidth > innerWidth) out.push('hscroll');
+          for (const b of document.querySelectorAll('button, select')) {
+            const r = b.getBoundingClientRect();
+            if (!r.width || getComputedStyle(b).visibility === 'hidden') continue;
+            if (r.height < 44 || r.width < 44) out.push(`small ${b.textContent.trim().slice(0, 12)} ${Math.round(r.width)}x${Math.round(r.height)}`);
+            if (r.bottom > innerHeight + 0.5 || r.right > innerWidth + 0.5) out.push(`off ${b.textContent.trim().slice(0, 12)}`);
+          }
+          return out;
+        });
+        bad.push(...(await layout()).map((b) => `${vp.width}x${vp.height} floor ${b}`));
+        await dieHere(p);
+        await p.waitForSelector('#end select.picker');
+        await p.locator('#end select.picker').selectOption('stairs-way:U');
+        await p.waitForTimeout(300);
+        const view = await p.evaluate(() => {
+          const s = window.__descent.state();
+          const tile = window.__descent.tileBox(s.pos.x, s.pos.y);
+          const panel = document.querySelector('#end .end__panel').getBoundingClientRect();
+          const canvas = document.querySelector('#game-container canvas').getBoundingClientRect();
+          const hud = document.getElementById('hud').getBoundingClientRect();
+          return { ok: tile.bottom + tile.size <= panel.top + 1 && tile.top - tile.size >= Math.max(canvas.top, hud.bottom) - 1, tile, panelTop: panel.top };
+        });
+        if (!view.ok) bad.push(`${vp.width}x${vp.height} death tile hidden: tile ${Math.round(view.tile.top)}-${Math.round(view.tile.bottom)} panel ${Math.round(view.panelTop)}`);
+        bad.push(...(await layout()).map((b) => `${vp.width}x${vp.height} picker ${b}`));
+        await p.getByRole('button', { name: 'Skip' }).click();
+        await p.waitForFunction(() => /left no carving/.test(document.getElementById('end').innerText), null, { timeout: 8000 });
+        await ctx.close();
+      }
+      // The card itself at the smallest and largest size (Floor 0's ghost via Read).
+      for (const vp of [{ width: 320, height: 320 }, { width: 1280, height: 800 }]) {
+        const { ctx, p } = await ctxAt(vp, '', false);
+        await p.evaluate(() => window.__descent.skipAnim(true));
+        await acts(p, [...TO_DOOR, 'R', 'R', 'R']);
+        await p.locator('#carving').getByRole('button', { name: 'Read' }).click();
+        const r = await p.evaluate(() => {
+          const c = document.querySelector('#card .ghost-card').getBoundingClientRect();
+          const close = document.querySelector('#card .ghost-card__close').getBoundingClientRect();
+          return c.left >= 0 && c.right <= innerWidth && c.top >= 0 && c.bottom <= innerHeight && close.height >= 44 && document.documentElement.scrollWidth <= innerWidth;
+        });
+        if (!r) bad.push(`${vp.width}x${vp.height} card overflows`);
+        await ctx.close();
+      }
+      check('layout 320×320 to 1280×800: picker keeps the death tile and neighbours visible; card and 300-ghost floor fit; 44 px targets', bad.length === 0, bad.join(' ; '));
+    }
+  }
+
   return { passed: results.filter((r) => r.pass).length, failed: results.filter((r) => !r.pass), total: results.length, errs, results: results.map((r) => `${r.pass ? 'PASS' : 'FAIL'} ${r.name}${r.detail ? ' — ' + r.detail : ''}`) };
 }

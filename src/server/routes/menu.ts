@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { UiResponse } from '@devvit/web/shared';
-import { postUrl } from '../game';
+import { postUrl, purgeBots } from '../game';
 import { startFirstFloor } from '../rollover';
 import type { Env } from '../index';
 
@@ -17,4 +17,17 @@ menu.post('/post-create', async (c) => {
     console.error(`Error starting floor 1: ${error}`);
     return c.json<UiResponse>({ showToast: 'Could not start Floor 1' }, 400);
   }
+});
+
+// Mod tools for seeing a populated floor with one account: bot runs go through the same validation as real runs.
+menu.post('/seed-bots', (c) =>
+  c.json<UiResponse>({
+    showForm: { name: 'seedBots', form: { title: 'Seed bot ghosts', acceptLabel: 'Seed', fields: [{ name: 'n', label: 'Bot ghosts to add (up to 100)', type: 'number', defaultValue: 20 }] } },
+  }),
+);
+
+menu.post('/purge-bots', async (c) => {
+  const r = await purgeBots();
+  c.set('note', `purged ${r.removed} bot runs on floor ${r.depth}`);
+  return c.json<UiResponse>({ showToast: `Removed ${r.removed} bot runs from Floor ${r.depth}` });
 });

@@ -245,3 +245,37 @@ export const FRESH_PER_ROOM = 2;
 export const SCORE = { won: 1000, perHeart: 100 };
 /** A submitted log is rejected past this many actions. Free bumps are never logged, so a real run stays far below it. */
 export const RUN = { maxActions: 1500 };
+
+// ---- Phase 7a: ghosts and carvings ----
+
+/**
+ * Carvings: fixed phrases, no free text. `kind` decides the tile glyph, which shows what the phrase claims and never
+ * whether it is true (▲ warning, an arrow for a path, ◆ treasure). Path phrases carry the direction their carver chose.
+ * Ids are stored in Redis, so they never change.
+ */
+export type CarvingKind = 'warning' | 'path' | 'treasure';
+export const CARVINGS: Readonly<Record<string, { text: string; kind: CarvingKind }>> = {
+  'trap-ahead': { text: 'Trap ahead', kind: 'warning' },
+  'turn-back': { text: 'Turn back', kind: 'warning' },
+  'dead-end': { text: 'Dead end', kind: 'warning' },
+  'it-waits': { text: 'Something waits here', kind: 'warning' },
+  'trust-no-ghost': { text: 'Trust no ghost', kind: 'warning' },
+  'save-torch': { text: 'Save your torch', kind: 'warning' },
+  'safe-way': { text: 'Safe this way', kind: 'path' },
+  'stairs-way': { text: 'Stairs this way', kind: 'path' },
+  'shortcut-way': { text: 'Shortcut this way', kind: 'path' },
+  'treasure-near': { text: 'Treasure nearby', kind: 'treasure' },
+  'worth-it': { text: 'Worth the risk', kind: 'treasure' },
+  'useful-here': { text: 'Something useful here', kind: 'treasure' },
+};
+
+/** `list`: ghost records per floor response (carved first, then newest), matching the 60 wisps drawn at most. `seedMax`: bot ghosts per menu call. */
+export const GHOSTS = { list: 60, seedMax: 100, seedRunsPer: 6 };
+/** A bot ghost's display name (it has no snoovatar). */
+export const NAMELESS = 'a nameless delver';
+
+/** Floor 0's scripted ghosts: drawn and read like real ones, never stored. */
+export const FLOOR_0_GHOSTS: readonly { x: number; y: number; cause: string; carving: string }[] = [
+  { x: 9, y: 3, cause: 'spikes', carving: 'trap-ahead' },
+  { x: 6, y: 6, cause: 'goblin', carving: 'stairs-way:L' },
+];

@@ -31,8 +31,8 @@ const set = (floorText: string | null, text: string, label: string, act: (e: Mou
 
 void api.floor().then(
   (r) => {
-    if (r.kind === 'play') set(`Floor ${r.depth}`, "Today's deaths build tomorrow's floor.", 'Descend');
-    else if (r.kind === 'played') set(`Floor ${r.depth}`, `${r.run.outcome === 'won' ? 'Cleared' : 'Fell'} · score ${r.run.score}`, 'See your run');
+    if (r.kind === 'play') set(`Floor ${r.depth}`, r.ghosts.fell ? `${r.ghosts.fell} fell here today.` : "Today's deaths build tomorrow's floor.", 'Descend');
+    else if (r.kind === 'played') set(`Floor ${r.depth}`, `${r.run.outcome === 'won' ? 'Cleared' : 'Fell'} · score ${r.run.score} · ${r.ghosts.fell} fell`, 'See your run');
     else if (r.kind === 'closed') set(`Floor ${r.depth}`, `Closed. Today is Floor ${r.today}.`, "Today's floor", () => r.todayUrl && (import.meta.env.DEV ? location.assign(r.todayUrl) : navigateTo(r.todayUrl)));
     else if (r.kind === 'login') set(`Floor ${r.depth}`, 'One run a day, under your name.', 'Log in to descend', () => showLoginPrompt());
     else set('Floor 0', 'No floor yet. Practice first.', 'Practice');

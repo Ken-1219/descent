@@ -257,9 +257,7 @@ h3 {
 }
 .ghost-card__name {
   font-size: var(--t-head);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere; /* 20-character usernames and "a nameless delver" wrap rather than clip at 320 px */
 }
 .ghost-card__carving {
   color: var(--wisp);
@@ -402,6 +400,7 @@ h3 {
 }
 .stage {
   grid-area: stage;
+  position: relative;
   display: grid;
   place-items: center;
   min-height: 0;
@@ -477,6 +476,91 @@ h3 {
 }
 .end__panel .btn {
   width: 100%;
+}
+.end__actions {
+  display: flex;
+  gap: var(--gap);
+}
+.end__actions .btn {
+  flex: 1;
+}
+/* The carving picker leaves the map undimmed so the tile where you fell stays readable above the panel. */
+.end--clear {
+  background: none;
+  pointer-events: none;
+}
+.end--clear .end__panel {
+  pointer-events: auto;
+}
+.picker {
+  width: 100%;
+  min-height: var(--tap);
+  padding: 0 var(--gap);
+  font: inherit;
+  color: var(--bone);
+  background: var(--ink-1);
+  border: var(--line) solid var(--bone);
+  border-radius: 0;
+}
+.picker:focus-visible {
+  outline: var(--line) solid var(--ember);
+  outline-offset: 2px;
+}
+.own-ghost {
+  margin: 0;
+  color: var(--wisp);
+}
+
+/* A carving read on approach: a line under the HUD, over the top of the map (aria-live). */
+.carving {
+  position: absolute;
+  inset: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap);
+  margin: 0;
+  padding: 0 var(--gap);
+  min-height: var(--tap);
+  color: var(--wisp);
+  background: color-mix(in srgb, var(--ink-1) 88%, transparent);
+  border-bottom: var(--line) solid var(--ink-2);
+}
+.carving[hidden],
+body:has(#end:not([hidden])) .carving {
+  display: none; /* the line is for play; an end panel replaces it */
+}
+.carving span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The ghost card: tap a wisp or press Read. Reading is not an action, so it sits over the game without stopping it. */
+.card {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: var(--pad);
+  background: color-mix(in srgb, var(--ink-0) 70%, transparent);
+}
+.card[hidden] {
+  display: none;
+}
+.ghost-card__img {
+  display: grid;
+  place-items: center;
+}
+.ghost-card__img img {
+  display: block;
+  width: 96px;
+  height: 96px;
+  object-fit: contain; /* snoovatars are portrait (380×496): show the whole figure */
+}
+.ghost-card__text {
+  min-width: 0;
 }
 
 /* Lab Bestiary: one row per family, one column per tier; a row scrolls sideways when the panel is narrow. */
@@ -625,4 +709,49 @@ h3 {
 }
 .splash__go {
   width: min(100%, 320px);
+}
+
+/* Lab Ghosts tab: the game at phone size. */
+.ghosts__frame {
+  display: block;
+  width: 390px;
+  max-width: 100%;
+  height: 720px;
+  border: var(--line) solid var(--ink-2);
+  background: var(--ink-0);
+}
+
+/* Short screens (320×320 feed card, landscape phones): the carving picker packs into ~130 px so the tile where you fell
+   and its neighbours stay above it. Title and save status share a row; the select sits beside Skip and Carve. */
+@media (max-height: 480px) {
+  .end--clear {
+    padding: var(--gap) var(--gap) calc(var(--gap) + env(safe-area-inset-bottom));
+  }
+  .end--clear .end__panel {
+    width: min(100%, 560px);
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: 'title status' 'line line' 'body actions';
+    gap: 6px var(--gap);
+    padding: var(--gap);
+    align-items: center;
+  }
+  .end--clear .title {
+    grid-area: title;
+    font-size: var(--t-title);
+  }
+  .end--clear .end__panel > p:not(.save) {
+    grid-area: line;
+    margin: 0;
+  }
+  .end--clear .picker {
+    grid-area: body;
+    min-width: 0;
+  }
+  .end--clear .save {
+    grid-area: status;
+    min-height: 0;
+  }
+  .end--clear .end__actions {
+    grid-area: actions;
+  }
 }

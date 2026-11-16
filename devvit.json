@@ -25,6 +25,20 @@
         "location": "subreddit",
         "forUserType": "moderator",
         "endpoint": "/internal/menu/post-create"
+      },
+      {
+        "label": "Seed bot ghosts",
+        "description": "Bot runs on today's floor (flagged, purgeable)",
+        "location": "subreddit",
+        "forUserType": "moderator",
+        "endpoint": "/internal/menu/seed-bots"
+      },
+      {
+        "label": "Purge bot ghosts",
+        "description": "Remove all bot runs from today's floor",
+        "location": "subreddit",
+        "forUserType": "moderator",
+        "endpoint": "/internal/menu/purge-bots"
       }
     ]
   },
@@ -45,5 +59,8 @@
         "cron": "0 15 * * *"
       }
     }
+  },
+  "forms": {
+    "seedBots": "/internal/form/seed-bots"
   }
 }

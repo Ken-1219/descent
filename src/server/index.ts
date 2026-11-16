@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { serve } from '@hono/node-server';
 import { context, createServer, getServerPort } from '@devvit/web/server';
 import { api } from './routes/api';
+import { forms } from './routes/forms';
 import { menu } from './routes/menu';
 import { triggers } from './routes/triggers';
 import { scheduler } from './routes/scheduler';
@@ -19,6 +20,7 @@ app.use(async (c, next) => {
 });
 
 internal.route('/menu', menu);
+internal.route('/form', forms);
 internal.route('/triggers', triggers);
 internal.route('/scheduler', scheduler);
 

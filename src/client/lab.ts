@@ -1,6 +1,6 @@
 // LOCAL ONLY: Design Lab. Never a Devvit entrypoint.
 import { PALETTE, TILE, type Token } from '../shared/content';
-import { bestiaryTab, caption, depthTab, figure, section } from './labfloors';
+import { bestiaryTab, caption, depthTab, figure, ghostsTab, section } from './labfloors';
 import {
   ANIMS, rgba, shine, type Light, buildAtlas, contrast, drawAnim,
   drawFrame, drawPack, frameAt, iconCanvas, loadPack, type Anim, type Atlas, type PackName,
@@ -127,8 +127,8 @@ const kitTab = () => {
     section(
       'Ghost card',
       row(
-        ghostCard({ name: 'ashen_delver', carving: 'Spikes ahead. Go left.', deaths: 6, trust: 14, liar: 3, canVote: false }),
-        ghostCard({ name: 'quiet_lantern', carving: 'The rat sleeps. Pass by.', deaths: 2, trust: 3, liar: 9, canVote: true })
+        ghostCard({ name: 'ashen_delver', carving: 'Trap ahead', cause: 'spikes', record: { deaths: 6, trust: 14, liar: 3 }, votes: { canVote: false } }),
+        ghostCard({ name: 'quiet_lantern', carving: 'Safe this way ←', cause: 'goblin', record: { deaths: 2, trust: 3, liar: 9 }, votes: { canVote: true } })
       ),
       caption('Voting unlocks after your run ends.')
     ),
@@ -297,6 +297,7 @@ const TABS: [string, string, () => Node[]][] = [
   ['cast', 'Cast', castTab],
   ['bestiary', 'Bestiary', bestiaryTab],
   ['depth', 'Depth', depthTab],
+  ['ghosts', 'Ghosts', ghostsTab],
 ];
 
 const show = () => {

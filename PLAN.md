@@ -143,6 +143,7 @@ src/shared/
   gen.ts                    tiersFor(), generate(depth, seed, mods), budget, crowd weights, player traps, fairness gates, safePath()
   bot.ts                    bot(floor, skill, seed): plays from what a player can see (visibility + tells); gate 3 and the curve
   sim.ts                    State, step(), tells(), replay(), score(), judge() (validates and replays a submitted log)
+  ghosts.ts                 ghost and carving types, carvingOf(), ghostView() (capped wire view), fixtureGhosts(); never read by the sim
   scenes.ts                 one scene per tier-table cell, trap and item: map, log, expected outcome (tests, Lab, ?scene= in dev only)
   api.ts                    wire types (reuse the template's shared types file if one exists)
 src/client/
@@ -156,11 +157,11 @@ src/client/
   style.css                 tokens and all UI CSS
   local.ts                  LOCAL ONLY: fake endpoints on localStorage, fixtures, advanceDay
   lab.html     lab.ts       LOCAL ONLY: Design Lab (Tokens, Kit, Cast, tab router)
-  labfloors.ts              LOCAL ONLY: Lab tabs that draw floors: Bestiary and Depth
+  labfloors.ts              LOCAL ONLY: Lab tabs that draw floors: Bestiary, Depth and Ghosts (fixtures)
   assets/                   atlas.png, fonts/*.woff2, fonts/OFL.txt, icon
 src/server/
   index.ts                  Hono app, one log line per request
-  routes/                   template route files: api.ts (/api/*), menu.ts, triggers.ts, scheduler.ts (cron)
+  routes/                   template route files: api.ts (/api/*), menu.ts, forms.ts (seed bots), triggers.ts, scheduler.ts (cron)
   game.ts                   Redis reads/writes: floors, runs, ghosts, votes, traps, souls, boards
   rollover.ts               daily job and mod menu actions
 tests/
@@ -532,12 +533,19 @@ Each phase lists Build, Show me (what to open), Checks, and Gate.
 - **Show me:** a post in the private test subreddit, playable end to end.
 - **Gate:** a run survives a page reload and appears in Redis. Reddit smoke test.
 
-### Phase 7 — Crowd systems (Nov 25–27)
+### Phase 7a — Ghosts and carvings (Nov 25–26)
 
-- **Build:** ghosts and carvings, compass heat and kill counts, curse vote, trap placement, carving votes, souls and honour; death and victory screens; ghost card. Endpoints `POST /api/carving`, `/api/vote`, `/api/trap`.
-- **Redis keys:** `f:{d}:ghosts`, `f:{d}:heat`, `f:{d}:kills`, `f:{d}:traps` hashes; `f:{d}:curse`, `f:{d}:cv`, `souls`, `honour` sorted sets.
-- **Milestone:** open the public test subreddit on Nov 25 and start recruiting.
+- **Build:** a death leaves a ghost on its tile (server-derived from the replay); one carving per ghost from about 12 fixed phrases, tile glyph by what the phrase claims (▲ warning, → path with the player's direction, ◆ treasure); the death write also records 3×3 compass heat and kills by cause (record only); capped ghost data in `GET /api/floor`; wisps on the map inside the torch radius (one, two for 2–4, a cluster with a count plate for 5+); carving line in the HUD on approach; ghost card (snoovatar, u/name, carving; room left for 7b's record and votes); carving picker on the death panel and the result plate; Floor 0 scripted ghosts; mod menu: seed N bot runs, purge bot runs. Endpoint `POST /api/carving`.
+- **Redis keys:** `f:{d}:ghosts`, `f:{d}:carvings`, `f:{d}:heat`, `f:{d}:kills` hashes.
+- **Rules:** nothing about a ghost comes from the client; ghosts never enter the simulation; a carving is final (set-if-absent); bot records carry `bot: true` and show as "a nameless delver"; bot deaths count toward heat, and purge removes them with their heat and kills.
 - **Show me:** die in one local profile, see that wisp in another.
+- **Gate:** every write is replay-derived or limited to one per user. Reddit smoke test.
+
+### Phase 7b — Votes, traps, curse, souls (Nov 27)
+
+- **Build:** carving votes (Trust/Liar on the ghost card, unlocked after your run), curse vote, Trapsetter trap placement, souls and honour, victory screen with curse vote and trap picker; heat and kills read by the intro and rollover inputs. Endpoints `POST /api/vote`, `/api/trap`. Bots are excluded from souls, honour and votes (their `bot` flag).
+- **Redis keys:** `f:{d}:traps` hash; `f:{d}:curse`, `f:{d}:cv`, `souls`, `honour` sorted sets.
+- **Milestone:** the public test subreddit opening (the owner schedules it).
 - **Gate:** every write is replay-derived or vote-limited to one per user.
 
 ### Phase 8 — Full rollover (Nov 28–29)
@@ -584,7 +592,7 @@ Each phase lists Build, Show me (what to open), Checks, and Gate.
 | 4 Obstacles | Thu Nov 19 – Fri Nov 20 | 2 |
 | 5 Generator | Sat Nov 21 – Sun Nov 22 | 2 |
 | 6 Server | Mon Nov 23 – Tue Nov 24 | 2 |
-| 7 Crowd | Wed Nov 25 – Fri Nov 27 | 3 |
+| 7a Ghosts, 7b Votes | Wed Nov 25 – Fri Nov 27 | 3 |
 | 8 Rollover | Sat Nov 28 – Sun Nov 29 | 2 |
 | 9 Screens | Mon Nov 30 – Tue Dec 1 | 2 |
 | 10 Boss | Wed Dec 2 – Thu Dec 3 | 2 |

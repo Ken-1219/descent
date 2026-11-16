@@ -14,6 +14,7 @@ export const NAMES = [
   'heart', 'heart-lost', 'key', 'flame', 'arrow-up', 'arrow-left',
   'slit', 'missing-step', 'steps', 'pit', 'crack', 'mortar', 'bars', 'chain', 'chain-crack', 'crumble', 'den', 'brazier', 'brazier-lit',
   'mark-aim', 'mark-line', 'mark-glint', 'mark-hungry', 'mark-eyes', 'trap-mark', 'digit-1', 'digit-2', 'digit-3', 'digit-4',
+  'glyph-warning', 'glyph-treasure', 'glyph-U', 'glyph-D', 'glyph-L', 'glyph-R',
 ] as const;
 export type SpriteName = (typeof NAMES)[number];
 
@@ -275,6 +276,24 @@ const DIGITS: Record<1 | 2 | 3 | 4, readonly string[]> = {
 };
 const digit = (n: 1 | 2 | 3 | 4) => tile(...DIGITS[n].map((r) => '..........' + r + '.'));
 
+// Carving glyphs, bottom-left of the tile in wisp with an ink outline: what the phrase claims, never whether it is true.
+// ▲ a warning, ◆ treasure, an arrow for a path. Down and right mirror up and left inside the corner (a frame flip
+// would move the glyph out of it).
+const corner = (...rows: string[]) => tile(...Array.from({ length: TILE - rows.length }, () => ''), ...rows.map((r) => ('.' + r).padEnd(TILE, '.')));
+const GLYPH_WARNING = corner('...o...', '..oto..', '.ottto.', 'ottttto', 'ooooooo');
+const GLYPH_TREASURE = corner('..o..', '.oto.', 'ottto', '.oto.', '..o..');
+const UP = ['..o..', '.oto.', 'ottto', 'ootoo', '.oto.', '.ooo.'];
+const LEFT = ['..o...', '.otooo', 'otttto', '.otooo', '..o...'];
+const mirror = (r: string) => [...r].reverse().join('');
+
+/** 3×5 digits for the ghost count plate ('#' is lit). */
+export const FONT_3X5: Readonly<Record<string, readonly string[]>> = {
+  0: ['###', '#.#', '#.#', '#.#', '###'], 1: ['.#.', '##.', '.#.', '.#.', '###'], 2: ['###', '..#', '###', '#..', '###'],
+  3: ['###', '..#', '.##', '..#', '###'], 4: ['#.#', '#.#', '###', '..#', '..#'], 5: ['###', '#..', '###', '..#', '###'],
+  6: ['###', '#..', '###', '#.#', '###'], 7: ['###', '..#', '.#.', '.#.', '.#.'], 8: ['###', '#.#', '###', '#.#', '###'],
+  9: ['###', '#.#', '###', '..#', '###'],
+};
+
 // Placeholders; Phase 2 owns the final bitmaps.
 export const SPRITES: Record<SpriteName, SpriteDef> = {
   // The Delver: see HERO_MAP. hero-flicker swaps the flame and eyes from ember to gilt for idle frame 2.
@@ -414,4 +433,10 @@ export const SPRITES: Record<SpriteName, SpriteDef> = {
   'digit-2': { map: digit(2), key: ART },
   'digit-3': { map: digit(3), key: ART },
   'digit-4': { map: digit(4), key: ART },
+  'glyph-warning': { map: GLYPH_WARNING, key: ART },
+  'glyph-treasure': { map: GLYPH_TREASURE, key: ART },
+  'glyph-U': { map: corner(...UP), key: ART },
+  'glyph-D': { map: corner(...[...UP].reverse()), key: ART },
+  'glyph-L': { map: corner(...LEFT), key: ART },
+  'glyph-R': { map: corner(...LEFT.map(mirror)), key: ART },
 };

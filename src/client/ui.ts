@@ -1,4 +1,5 @@
-import type { Item } from '../shared/content';
+import { CARVINGS, NAMELESS, type CarvingKind, type Item } from '../shared/content';
+import { CARVING_CHOICES, carvingLabel, carvingOf } from '../shared/ghosts';
 import { iconCanvas } from './sprites';
 
 type Kids = (Node | string)[];
@@ -66,26 +67,75 @@ export const dpad = () =>
     pad('D', 'Down', iconCanvas('arrow-up', 2, { flipY: true }))
   );
 
-export type GhostCard = { name: string; carving: string; deaths: number; trust: number; liar: number; canVote: boolean };
+/**
+ * The ghost card: avatar, u/name, carving, cause. `record` and `votes` are 7b's rows (lifetime record, Trust/Liar); the
+ * layout keeps their place so adding them needs no redesign. The Lab Kit shows the full card.
+ */
+export type GhostCard = {
+  name: string | null;
+  carving: string | null;
+  cause?: string;
+  avatar?: Node;
+  record?: { deaths: number; trust: number; liar: number };
+  votes?: { canVote: boolean };
+  onClose?: () => void;
+};
 
 export const ghostCard = (g: GhostCard) => {
   const stat = (k: string, v: number) => el('div', '', el('dt', '', k), el('dd', '', String(v)));
-  const trust = button('Trust');
-  const liar = button('Liar');
-  trust.disabled = liar.disabled = !g.canVote;
-  return el(
+  const actions = el('div', 'ghost-card__votes');
+  if (g.votes) {
+    const trust = button('Trust');
+    const liar = button('Liar');
+    trust.disabled = liar.disabled = !g.votes.canVote;
+    actions.append(trust, liar);
+  }
+  if (g.onClose) {
+    const close = button('Close', 'ghost-card__close');
+    close.addEventListener('click', g.onClose);
+    actions.append(close);
+  }
+  const card = el(
     'article',
     'plate ghost-card',
-    el('div', 'ghost-card__avatar', iconCanvas('wisp', 4)),
+    el('div', 'ghost-card__avatar', g.avatar ?? iconCanvas('wisp', 4)),
     el(
       'div',
-      '',
-      el('div', 'ghost-card__name', `u/${g.name}`),
-      el('p', 'ghost-card__carving', g.carving),
-      el('dl', 'ghost-card__record', stat('Deaths', g.deaths), stat('Trusted', g.trust), stat('Liar', g.liar))
+      'ghost-card__text',
+      el('div', 'ghost-card__name', g.name ? `u/${g.name}` : NAMELESS),
+      el('p', 'ghost-card__carving', g.carving ?? 'Left no carving.'),
+      ...(g.cause ? [el('p', 'ghost-card__cause muted', `Taken by the ${g.cause}.`)] : []),
+      ...(g.record ? [el('dl', 'ghost-card__record', stat('Deaths', g.record.deaths), stat('Trusted', g.record.trust), stat('Liar', g.record.liar))] : []),
     ),
-    el('div', 'ghost-card__votes', trust, liar)
+    actions,
   );
+  card.setAttribute('aria-label', `Ghost of ${g.name ? `u/${g.name}` : NAMELESS}`);
+  return card;
+};
+
+/** Picker groups: what each kind of phrase does, in words that never hint whether it is true. */
+const GROUP: Readonly<Record<CarvingKind, string>> = { warning: 'Warn', path: 'Show the way', treasure: 'Promise' };
+
+/** The carving picker: one native select (compact enough to keep the death tile in view at 320×320). */
+export const carvingPicker = (onChange: (raw: string | null) => void) => {
+  const select = el('select', 'picker');
+  select.setAttribute('aria-label', 'Carving');
+  const none = el('option', '', 'Choose a carving');
+  none.value = '';
+  select.append(none);
+  for (const kind of ['warning', 'path', 'treasure'] as const) {
+    const group = el('optgroup');
+    group.label = GROUP[kind];
+    for (const raw of CARVING_CHOICES) {
+      if (CARVINGS[raw.split(':')[0] ?? '']?.kind !== kind) continue;
+      const o = el('option', '', carvingLabel(raw));
+      o.value = raw;
+      group.append(o);
+    }
+    select.append(group);
+  }
+  select.addEventListener('change', () => onChange(carvingOf(select.value) ? select.value : null));
+  return select;
 };
 
 export type HudView = { hearts: number; hasKey: boolean; item: Item | null; torch: number; torchMax: number; depth: number };
@@ -119,13 +169,28 @@ export const controls = (root: HTMLElement) => {
   root.replaceChildren(item, el('p', 'keyhints', 'Arrows move. Space waits. E uses item.'), dpad());
 };
 
-/** End overlay and every designed state: headline, one line, one primary action at the bottom, an optional status line. */
-export const endPanel = (root: HTMLElement, headline: string, line: string, action: { label: string; run: () => void }, status?: Node) => {
-  const primary = button(action.label, 'btn--primary');
-  primary.addEventListener('click', action.run);
-  root.replaceChildren(el('div', 'plate end__panel', el('h1', 'title', headline), el('p', '', line), ...(status ? [status] : []), primary));
+export type PanelAction = { label: string; run: () => void; disabled?: boolean };
+/**
+ * End overlay and every designed state: headline, one line, optional body (the carving picker), an optional status
+ * line, then one primary action and at most one secondary, at the bottom.
+ */
+export const endPanel = (
+  root: HTMLElement,
+  p: { title: string; line: string; primary: PanelAction; secondary?: PanelAction; body?: Node[]; status?: Node; clear?: boolean },
+) => {
+  const make = (a: PanelAction, cls: string) => {
+    const b = button(a.label, cls);
+    b.disabled = !!a.disabled;
+    b.addEventListener('click', a.run);
+    return b;
+  };
+  const primary = make(p.primary, 'btn--primary');
+  const actions = el('div', 'end__actions', ...(p.secondary ? [make(p.secondary, '')] : []), primary);
+  root.replaceChildren(el('div', 'plate end__panel', el('h1', 'title', p.title), el('p', '', p.line), ...(p.body ?? []), ...(p.status ? [p.status] : []), actions));
+  root.classList.toggle('end--clear', !!p.clear); // leaves the map undimmed (the carving picker shows your tile)
   root.hidden = false;
-  primary.focus();
+  (p.body?.find((n): n is HTMLElement => n instanceof HTMLSelectElement) ?? primary).focus();
+  return primary;
 };
 
 /** "Saving", then "Saved" or "Not saved" with a retry (§15.1). `aria-live` so the change is announced. */
