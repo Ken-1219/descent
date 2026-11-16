@@ -366,7 +366,9 @@ test('curse tie-break: most votes wins, a tie goes to the mildest, one voter dec
   await submitRun('t2_w', 1, wins(floor), { name: 'win' });
   await voteCurse('t2_w', 1, 'overrun');
   await placeTrap('t2_w', 1, 4, 'spikes');
-  expect(await tally(1)).toMatchObject({ curse: 'overrun', traps: [{ owner: 't2_w', zone: 4, kind: 'spikes' }] });
+  const t = await tally(1);
+  expect(resolveCurse(t.curseVotes)).toBe('overrun');
+  expect(t.traps).toMatchObject([{ owner: 't2_w', zone: 4, kind: 'spikes' }]);
 });
 
 test('1,000 ghosts with votes: the played response stays under 50 KB and the server time budget', async () => {
@@ -410,5 +412,5 @@ test('dev reset also removes your curse vote, trap and carving votes, and what t
   expect(await redis.zScore('f:1:curse', 'frail')).toBe(0);
   expect(await redis.hGetAll('f:1:traps')).toEqual({});
   expect(await redis.hGetAll('f:1:votes')).toEqual({});
-  expect((await tally(1)).curse).toBeNull();
+  expect(resolveCurse((await tally(1)).curseVotes)).toBeNull();
 });

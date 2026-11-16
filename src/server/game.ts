@@ -1,7 +1,8 @@
 // Redis reads and writes for floors and runs. Routes pass identity in from the Devvit context; nothing here trusts a body.
 import { context, reddit, redis } from '@devvit/web/server';
-import { CURSES, GHOSTS, TRAP_TEXT, type Curse } from '../shared/content';
-import { generate, NO_MODS, resolveCurse, zoneOf, type Mods, type Trap } from '../shared/gen';
+import { CURSES, GHOSTS, NAMELESS, TRAP_TEXT, type Curse } from '../shared/content';
+import { trapHits, trapSouls, type Tally } from '../shared/crowd';
+import { generate, NO_MODS, zoneOf, type Mods, type Trap } from '../shared/gen';
 import { CARVING_CHOICES, carvingOf, ghostView, type GhostRecord, type GhostView, type Vote } from '../shared/ghosts';
 import { bot } from '../shared/bot';
 import { hash, mulberry32 } from '../shared/rng';
@@ -9,11 +10,12 @@ import { judge, start, step, type Action, type Floor, type RunResult } from '../
 import type { CarvingResponse, Choices, FloorResponse, RunResponse, Standings, TrapResponse, VoteResponse } from '../shared/api';
 
 type StoredMods = Mods & { seed: number };
-type StoredRun = RunResult & { log: string; at: number; bot?: true };
+/** `trapSouls`: what this run's replay gave trap owners (so the reset tool can take it back). */
+type StoredRun = RunResult & { log: string; at: number; bot?: true; name?: string | null; trapSouls?: Record<string, number> };
 /** Who a run belongs to: the name comes from the Devvit context (null for bots, shown as a nameless delver). */
 export type Who = { name: string | null; bot?: true };
 
-type Key = 'mods' | 'floor' | 'runs' | 'scores' | 'starts' | 'ghosts' | 'carvings' | 'heat' | 'kills' | 'resets' | 'traps' | 'curse' | 'cv' | 'votes';
+type Key = 'mods' | 'floor' | 'runs' | 'scores' | 'starts' | 'ghosts' | 'carvings' | 'heat' | 'kills' | 'resets' | 'traps' | 'curse' | 'cv' | 'votes' | 'trapped' | 'flair';
 const key = (d: number, k: Key) => `f:${d}:${k}`;
 const isBot = (user: string) => user.startsWith('bot:');
 
@@ -28,11 +30,17 @@ export const postUrl = (postId: string | null) => (postId ? `https://www.reddit.
  * tuning never regenerates a floor people are playing: the first write wins and every later read gets that copy.
  * Phase 6 mods are seed only (no curse, uniform zones, no traps); Phases 7–8 fill the same shape from real tallies.
  */
-export async function openFloor(depth: number): Promise<Floor> {
-  const mods: StoredMods = { ...NO_MODS, seed: hash(`descent:${context.subredditName}:${depth}`) };
+export const floorSeed = (depth: number) => hash(`descent:${context.subredditName}:${depth}`);
+export async function openFloor(depth: number, made?: { mods: Mods; floor: Floor }): Promise<Floor> {
+  const mods: StoredMods = { ...(made?.mods ?? NO_MODS), seed: floorSeed(depth) };
   await redis.set(key(depth, 'mods'), JSON.stringify(mods), { nx: true });
   const stored = await storedFloor(depth);
   if (stored) return stored;
+  if (made) {
+    // Phase 8: the rollover built this floor from yesterday's tally (ladder and band in crowd.ts); store it as made.
+    await redis.set(key(depth, 'floor'), JSON.stringify(made.floor), { nx: true });
+    return (await storedFloor(depth)) ?? made.floor;
+  }
   const m: StoredMods = JSON.parse((await redis.get(key(depth, 'mods'))) ?? JSON.stringify(mods));
   const t0 = Date.now();
   const g = generate(depth, m.seed, m);
@@ -47,25 +55,39 @@ const storedFloor = async (depth: number): Promise<Floor | null> => {
   return s ? JSON.parse(s) : null;
 };
 
-const result = ({ log: _, at: __, bot: ___, ...run }: StoredRun): RunResult => run;
+const result = ({ outcome, score, turns, torch, cause, tile }: StoredRun): RunResult => ({ outcome, score, turns, torch, cause, tile });
 
 /** GET /api/floor for `user` (undefined when logged out) on the post's depth. */
 export async function floorFor(user: string | undefined, depth: number | null): Promise<FloorResponse> {
   const t = await today();
+  if (depth === 0) return { kind: 'practice' }; // a "Post Floor 0" post plays the tutorial
   const d = depth ?? t.day;
   if (!d) return { kind: 'none' };
   if (!user) return { kind: 'login', depth: d };
   const floor = await storedFloor(d);
   if (!floor) return { kind: 'none' };
-  const mine = await redis.hGet(key(d, 'runs'), user);
-  const attempt = Number((await redis.hGet(key(d, 'resets'), user)) ?? 0);
+  const [mine, resets, tutorial, trapped] = await Promise.all([
+    redis.hGet(key(d, 'runs'), user),
+    redis.hGet(key(d, 'resets'), user),
+    redis.hGet('tutorial', user),
+    myTrap(d, user, floor),
+  ]);
+  const attempt = Number(resets ?? 0);
   if (mine) {
     // Your run has ended here, so the carvings' Trust and Liar totals (and your own votes) come with the ghosts.
     const ghosts = await withVotes(d, user, await ghostsOf(d, user));
-    return { kind: 'played', depth: d, seed: floor.seed ?? 0, floor, run: result(JSON.parse(mine)), ghosts, live: d === t.day, attempt, choices: await choicesOf(d, user) };
+    return { kind: 'played', depth: d, seed: floor.seed ?? 0, floor, run: result(JSON.parse(mine)), ghosts, live: d === t.day, attempt, choices: await choicesOf(d, user), myTrap: trapped };
   }
   if (d < t.day) return { kind: 'closed', depth: d, today: t.day, todayUrl: postUrl(t.postId) };
-  return { kind: 'play', depth: d, seed: floor.seed ?? 0, floor, ghosts: await ghostsOf(d, user), attempt };
+  return { kind: 'play', depth: d, seed: floor.seed ?? 0, floor, ghosts: await ghostsOf(d, user), attempt, tutorial: !!tutorial, myTrap: trapped };
+}
+
+/** Your trap on this floor (set yesterday) and what it has done so far: hurt and killed (A28). */
+async function myTrap(d: number, user: string, floor: Floor) {
+  const t = floor.traps?.find((x) => x.owner === user);
+  if (!t) return null;
+  const [hurt, killed] = await redis.hMGet(key(d, 'trapped'), [`${user}:hurt`, `${user}:killed`]);
+  return { kind: t.kind, x: t.x, y: t.y, hurt: Math.max(0, Number(hurt ?? 0)), killed: Math.max(0, Number(killed ?? 0)) };
 }
 
 const ghostRecords = async (d: number): Promise<Record<string, GhostRecord>> =>
@@ -88,7 +110,10 @@ export async function submitRun(user: string, depth: number, log: string, who: W
   const j = judge(floor, log);
   if (!j.ok) return { kind: 'rejected', reason: j.reason };
   const at = Date.now();
-  const run: StoredRun = { ...j.run, log, at, ...(who.bot ? { bot: true as const } : {}) };
+  // Trap souls (A15, A28) from this replay alone: never from your own trap, never from or to a bot.
+  const hits = who.bot ? [] : trapHits(floor, log, user);
+  const souls = Object.fromEntries(hits.map((h) => [h.owner, trapSouls(h)]));
+  const run: StoredRun = { ...j.run, log, at, name: who.name, ...(who.bot ? { bot: true as const } : {}), ...(hits.length ? { trapSouls: souls } : {}) };
   if (!(await redis.hSetNX(key(depth, 'runs'), user, JSON.stringify(run)))) {
     const won = await redis.hGet(key(depth, 'runs'), user);
     return won ? retry(JSON.parse(won), log) : { kind: 'rejected', reason: 'already played' };
@@ -98,8 +123,16 @@ export async function submitRun(user: string, depth: number, log: string, who: W
   const tx = await redis.watch();
   await tx.multi();
   await tx.zAdd(key(depth, 'scores'), { member: user, score: run.score });
+  // Flair at the next rollover: each player's latest run (A29). Bots have no account to flair.
+  if (who.name && !who.bot) await tx.hSet(key(depth, 'flair'), { [user]: JSON.stringify({ name: who.name, text: run.outcome === 'won' ? `Cleared floor ${depth}` : `Fell on floor ${depth}` }) });
+  for (const h of hits) {
+    await tx.zIncrBy('souls', h.owner, trapSouls(h));
+    if (h.hurt) await tx.hIncrBy(key(depth, 'trapped'), `${h.owner}:hurt`, h.hurt);
+    if (h.killed) await tx.hIncrBy(key(depth, 'trapped'), `${h.owner}:killed`, h.killed);
+  }
   if (run.outcome === 'dead') {
-    const ghost: GhostRecord = { name: who.name, x: run.tile.x, y: run.tile.y, cause: run.cause, at, ...(who.bot ? { bot: true as const } : {}) };
+    const killer = run.cause === 'trap' ? hits.find((h) => h.killed) : undefined;
+    const ghost: GhostRecord = { name: who.name, x: run.tile.x, y: run.tile.y, cause: run.cause, at, ...(who.bot ? { bot: true as const } : {}), ...(killer ? { by: killer.name ?? NAMELESS } : {}) };
     await tx.hSet(key(depth, 'ghosts'), { [user]: JSON.stringify(ghost) });
     await tx.hIncrBy(key(depth, 'heat'), String(zoneOf(run.tile, floor.rows.length)), 1);
     await tx.hIncrBy(key(depth, 'kills'), run.cause, 1);
@@ -190,8 +223,11 @@ export const avatar = async (name: string): Promise<string | null> => (await red
 const retry = (prior: StoredRun, log: string): RunResponse => (prior.log === log ? { kind: 'saved', run: result(prior) } : { kind: 'rejected', reason: 'already played' });
 
 /** Run starts are logged, not enforced (§2): the first start per user per floor is kept. */
+/** Any start, or the end of Floor 0 (depth 0), means this player has seen the tutorial: kept per user on the server so a
+ * deploy (a new webview origin, empty browser storage) never shows it again. */
 export const logStart = async (user: string, depth: number) => {
-  await redis.hSetNX(key(depth, 'starts'), user, String(Date.now()));
+  await redis.hSet('tutorial', { [user]: '1' });
+  if (depth > 0) await redis.hSetNX(key(depth, 'starts'), user, String(Date.now()));
 };
 
 /**
@@ -225,6 +261,13 @@ export async function resetRun(user: string): Promise<{ depth: number; had: bool
     else if (died) await tx.zIncrBy('souls', target, -1);
   }
   await tx.hDel(key(day, 'traps'), [user]);
+  // Phase 8: the trap souls this run gave, and the owners' hurt/killed counts.
+  if (run && floor) for (const h of trapHits(floor, run.log, user)) {
+    await tx.zIncrBy('souls', h.owner, -trapSouls(h));
+    if (h.hurt) await tx.hIncrBy(key(day, 'trapped'), `${h.owner}:hurt`, -h.hurt);
+    if (h.killed) await tx.hIncrBy(key(day, 'trapped'), `${h.owner}:killed`, -h.killed);
+  }
+  await tx.hDel(key(day, 'flair'), [user]);
   if (ghost && floor) {
     const g: GhostRecord = JSON.parse(ghost);
     await tx.hIncrBy(key(day, 'heat'), String(zoneOf(g, floor.rows.length)), -1);
@@ -319,13 +362,13 @@ export async function voteCurse(user: string, depth: number, curse: string): Pro
 }
 
 /** placeTrap: a stored win sets one trap for tomorrow (compass zone + kind). Phase 8 places it; nobody else sees it. */
-export async function placeTrap(user: string, depth: number, zone: number, kind: string): Promise<TrapResponse> {
+export async function placeTrap(user: string, depth: number, zone: number, kind: string, name: string | null = null): Promise<TrapResponse> {
   const l = await live(depth);
   if (!l.ok) return l.r;
   if (!Number.isInteger(zone) || zone < 0 || zone > 8 || !isTrapKind(kind)) return { kind: 'rejected', reason: 'trap' };
   if ((await runOf(depth, user))?.outcome !== 'won') return { kind: 'rejected', reason: 'not a winner' };
   const trap: Trap = { zone, kind };
-  if (!(await redis.hSetNX(key(depth, 'traps'), user, JSON.stringify({ ...trap, at: Date.now() })))) {
+  if (!(await redis.hSetNX(key(depth, 'traps'), user, JSON.stringify({ ...trap, name, at: Date.now() })))) {
     const stored = JSON.parse((await redis.hGet(key(depth, 'traps'), user)) ?? '{}');
     return stored.zone === zone && stored.kind === kind ? { kind: 'placed', trap } : { kind: 'rejected', reason: 'already placed' };
   }
@@ -333,10 +376,11 @@ export async function placeTrap(user: string, depth: number, zone: number, kind:
 }
 
 /**
- * The floor's crowd data as Phase 8's rollover reads it: deaths per compass zone (bots included: seeding exists to show
- * the crowd effect), kills by cause, the resolved curse, and the players' traps with their owners (bots never set one).
+ * The floor's crowd data as the rollover reads it (crowd.ts Tally): deaths per compass zone (bots included: seeding
+ * exists to show the crowd effect), kills by cause, the curse votes, and the players' traps with owner and name (bots
+ * never set one). Four reads, whatever the crowd size.
  */
-export async function tally(depth: number): Promise<{ deaths: number[]; kills: Record<string, number>; curse: Curse | null; traps: (Trap & { owner: string })[] }> {
+export async function tally(depth: number): Promise<Tally> {
   const [heat, kills, votes, traps] = await Promise.all([
     redis.hGetAll(key(depth, 'heat')),
     redis.hGetAll(key(depth, 'kills')),
@@ -345,11 +389,31 @@ export async function tally(depth: number): Promise<{ deaths: number[]; kills: R
   ]);
   return {
     deaths: Array.from({ length: 9 }, (_, z) => Math.max(0, Number(heat[String(z)] ?? 0))),
-    kills: Object.fromEntries(Object.entries(kills).map(([c, n]) => [c, Number(n)]).filter(([, n]) => Number(n) > 0)),
-    curse: resolveCurse(Object.fromEntries(votes)),
-    traps: Object.entries(traps).sort(([a], [b]) => (a < b ? -1 : 1)).map(([owner, v]) => {
+    kills: Object.fromEntries(Object.entries(kills).map(([c, n]): [string, number] => [c, Number(n)]).filter(([, n]) => n > 0)),
+    curseVotes: Object.fromEntries(votes),
+    traps: Object.entries(traps).sort(([a], [b]) => (a < b ? -1 : 1)).flatMap(([owner, v]): Trap[] => {
       const t = JSON.parse(v);
-      return { owner, zone: t.zone, kind: t.kind };
+      return isTrapKind(t.kind) ? [{ owner, name: t.name ?? null, zone: t.zone, kind: t.kind }] : [];
     }),
   };
+}
+
+/** Counts for the summary, the yesterday line and the Chronicle: deaths, runs, the deadliest zone. */
+export async function dayStats(depth: number): Promise<{ fell: number; runs: number; zone: number | null }> {
+  const [fell, runs, heat] = await Promise.all([redis.hLen(key(depth, 'ghosts')), redis.hLen(key(depth, 'runs')), redis.hGetAll(key(depth, 'heat'))]);
+  let zone: number | null = null;
+  for (let z = 0; z < 9; z++) if (Number(heat[String(z)] ?? 0) > (zone === null ? 0 : Number(heat[String(zone)] ?? 0))) zone = z;
+  return { fell, runs, zone };
+}
+
+/** Flair for up to `limit` players of a floor (A29), in Reddit's batches; returns how many are still waiting. */
+export async function drainFlair(depth: number, limit: number, batch: number): Promise<{ done: number; left: number }> {
+  const all = Object.entries(await redis.hGetAll(key(depth, 'flair'))).sort(([a], [b]) => (a < b ? -1 : 1));
+  const take = all.slice(0, limit);
+  for (let i = 0; i < take.length; i += batch) {
+    const chunk = take.slice(i, i + batch).map(([, v]): { username: string; text: string } => JSON.parse(v));
+    await reddit.setUserFlairBatch(context.subredditName, chunk).catch((e: unknown) => console.error(`flair batch failed: ${String(e)}`));
+  }
+  if (take.length) await redis.hDel(key(depth, 'flair'), take.map(([u]) => u));
+  return { done: take.length, left: all.length - take.length };
 }

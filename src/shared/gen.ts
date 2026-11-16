@@ -2,14 +2,15 @@
 import {
   BUDGET, CROWD, CURSE_TIE_ORDER, CURSES, CYCLE, DARK, ENTRANCE_CLEAR, FAMILIES, FAMILY_POS, FAMILY_WEIGHT, GATE_TORCH_PCT, GOBLINS, GRID, IMPS,
   FRESH_PER_ROOM, ITEM_RULE, ITEM_WEIGHT, MAX_TIER, MECHANISMS, PITS, PLACE_TRIES, RETRY_CAP, ROOM1_ENEMY_GAP, ROOMS, SKELETONS, SLACK, SPIKES,
-  TIERS, TILES_PER_INSTANCE, TRAP_MAX, TRAPS, WARDEN_POS, type Curse, type Family, type Item, type Tier,
+  TIERS, TILES_PER_INSTANCE, TRAP_MAX, TRAP_ZONE_MAX, TRAPS, WARDEN_POS, type Curse, type Family, type Item, type Tier,
 } from './content';
 import { bot } from './bot';
 import { DIRS, bfs, blocks, dist, find, isWall, same, setTile, slitLine, tileAt, width, type Pos } from './grid';
 import { hash, mulberry32 } from './rng';
-import { spikeStage, start, step, tierOf, type Action, type Floor, type Rect } from './sim';
+import { spikeStage, start, step, tierOf, type Action, type Floor, type PlacedTrap, type Rect } from './sim';
 
-export type Trap = { zone: number; kind: 'spikes' | 'dart' | 'stairs' };
+/** A survivor's trap for tomorrow: a compass zone and a kind; `owner` and `name` say whose it is (souls, death panels). */
+export type Trap = { zone: number; kind: 'spikes' | 'dart' | 'stairs'; owner?: string; name?: string | null };
 /** Yesterday's crowd: deaths per compass zone (0..8, row-major), the top-killing family, survivors' traps, active curses. */
 export type Mods = { curses: readonly Curse[]; deaths: readonly number[]; topFamily: Family | null; traps: readonly Trap[] };
 export const NO_MODS: Mods = { curses: [], deaths: [0, 0, 0, 0, 0, 0, 0, 0, 0], topFamily: null, traps: [] };
@@ -51,15 +52,20 @@ export function showcaseFamilies(depth: number): Family[] {
 /** Compass zone 0..8 (row-major thirds of the grid). */
 export const zoneOf = (p: Pos, side: number) => Math.min(2, Math.floor((3 * p.x) / side)) + 3 * Math.min(2, Math.floor((3 * p.y) / side));
 
-/** Budget weights per zone (×10) from yesterday's deaths: ranked 22, 16, 12, then 8; no deaths 6; none anywhere: uniform. */
+/**
+ * Budget weights per zone (×10) from yesterday's deaths, by share rather than count, so 5 deaths show and 1,000 rank like
+ * 100: ranked 22, 16, 12; a zone under CROWD.minSharePct of the deaths (or past third) counts as other, 8; no deaths 6.
+ * Under CROWD.minDeaths deaths in all, the weights stay uniform (one death never redraws a floor).
+ */
 export function zoneWeights(deaths: readonly number[]): number[] {
-  if (deaths.every((d) => d === 0)) return deaths.map(() => CROWD.uniformWeight);
+  const total = deaths.reduce((a, b) => a + b, 0);
+  if (total < CROWD.minDeaths) return deaths.map(() => CROWD.uniformWeight);
   const out = deaths.map(() => CROWD.emptyWeight);
   deaths
     .map((d, z) => ({ d, z }))
     .sort((a, b) => b.d - a.d || a.z - b.z)
     .forEach(({ d, z }, rank) => {
-      if (d > 0) out[z] = CROWD.rankWeights[rank] ?? CROWD.otherWeight;
+      if (d > 0) out[z] = d * 100 >= total * CROWD.minSharePct ? (CROWD.rankWeights[rank] ?? CROWD.otherWeight) : CROWD.otherWeight;
     });
   return out;
 }
@@ -283,11 +289,18 @@ function attempt(depth: number, seed: number, mods: Mods, fallback: number): Omi
     return [k, old ? [...news, old] : news];
   });
 
-  // Crowd: survivors' traps shuffled by seed; the first TRAP_MAX materialise, the rest weight their zone.
-  // Seeded shuffle: sort by a random key per trap (ties keep their order).
-  const traps = (fallback ? [] : mods.traps).map((t, i) => ({ t, i, key: rnd() })).sort((a, b) => a.key - b.key || a.i - b.i).map((x) => x.t);
+  // Crowd: survivors' traps in a seeded shuffle, then taken in order while their zone has room (TRAP_ZONE_MAX), up to
+  // TRAP_MAX; the rest add weight to their zone. Seeded shuffle: sort by a random key per trap (ties keep their order).
+  const shuffled = (fallback ? [] : mods.traps).map((t, i) => ({ t, i, key: rnd() })).sort((a, b) => a.key - b.key || a.i - b.i).map((x) => x.t);
+  const perZone = new Map<number, number>();
+  const traps: Trap[] = [];
   const zones = zoneWeights(mods.deaths);
-  for (const t of traps.slice(TRAP_MAX)) zones[t.zone] = (zones[t.zone] ?? 0) + CROWD.overflowTrapWeight;
+  for (const t of shuffled) {
+    if (traps.length < TRAP_MAX && (perZone.get(t.zone) ?? 0) < TRAP_ZONE_MAX) {
+      traps.push(t);
+      perZone.set(t.zone, (perZone.get(t.zone) ?? 0) + 1);
+    } else zones[t.zone] = (zones[t.zone] ?? 0) + CROWD.overflowTrapWeight;
+  }
 
   // Placement rules shared by every instance.
   const free = (p: Pos) => at(p) === '.' && !same(p, entrance) && !inside(room1, p) && dist(p, entrance) > ENTRANCE_CLEAR;
@@ -444,17 +457,39 @@ function attempt(depth: number, seed: number, mods: Mods, fallback: number): Omi
     const p = r ? pickIn(r, free) : null;
     if (kind && p) put(p, ITEM_CHAR[kind]);
   }
-  for (const t of traps.slice(0, TRAP_MAX)) {
+  const placed: PlacedTrap[] = [];
+  const mark = (p: Pos, t: Trap) => {
+    landed.set(zoneOf(p, side), (landed.get(zoneOf(p, side)) ?? 0) + 1);
+    if (t.owner) placed.push({ x: p.x, y: p.y, kind: t.kind, owner: t.owner, name: t.name ?? null });
+  };
+  // A trap whose zone has no valid tile moves to the nearest zone that has one (compass steps), rather than vanishing.
+  const zoneStep = (a: number, b: number) => Math.max(Math.abs((a % 3) - (b % 3)), Math.abs(Math.floor(a / 3) - Math.floor(b / 3)));
+  // TRAP_ZONE_MAX holds for where traps land, so a moved trap never overfills its new zone.
+  const landed = new Map<number, number>();
+  const nearest = (zone: number, all: Pos[]) => {
+    const ps = all.filter((p) => (landed.get(zoneOf(p, side)) ?? 0) < TRAP_ZONE_MAX);
+    const d = Math.min(...ps.map((p) => zoneStep(zone, zoneOf(p, side))));
+    return ps.filter((p) => zoneStep(zone, zoneOf(p, side)) === d);
+  };
+  for (const t of traps) {
     if (t.kind === 'dart') {
-      const walls = find(rows, '#').filter((p) => zoneOf(p, side) === t.zone);
+      const walls = nearest(t.zone, find(rows, '#').filter((p) => {
+        const line = slitLine(rows, p, TRAPS.dart.range);
+        return line.length >= 2 && line.every((q) => !same(q, stairs) && dist(q, entrance) > ENTRANCE_CLEAR && !inside(room1, q));
+      }));
       const slit = walls[int(walls.length)];
-      const line = slit ? slitLine(rows, slit, TRAPS.dart.range) : [];
-      if (slit && line.length >= 2 && line.every((p) => !same(p, stairs) && dist(p, entrance) > ENTRANCE_CLEAR && !inside(room1, p))) put(slit, 'Z');
+      if (slit) {
+        put(slit, 'Z');
+        mark(slit, t);
+      }
       continue;
     }
-    const spots = later.flatMap((r) => cells(r)).filter((p) => free(p) && zoneOf(p, side) === t.zone);
+    const spots = nearest(t.zone, later.flatMap((r) => cells(r)).filter(free));
     const p = spots[int(spots.length)];
-    if (p) put(p, TRAP_CHAR[t.kind]);
+    if (p) {
+      put(p, TRAP_CHAR[t.kind]);
+      mark(p, t);
+    }
   }
   for (const r of rooms) {
     const torch = { x: r.x + int(r.w), y: r.y - 1 };
@@ -463,7 +498,7 @@ function attempt(depth: number, seed: number, mods: Mods, fallback: number): Omi
   put(entrance, '@');
 
   // Torch and fairness gates, on the finished floor.
-  const floor: Floor = { depth, rows, torch: 1, mercy: false, seed, tiers, dark: darkRooms, ...(mods.curses.length ? { curses: mods.curses } : {}) };
+  const floor: Floor = { depth, rows, torch: 1, mercy: false, seed, tiers, dark: darkRooms, ...(mods.curses.length ? { curses: mods.curses } : {}), ...(placed.length ? { traps: placed } : {}) };
   const safe = safePath(floor);
   if (!safe) return null;
   const slack = Math.max(SLACK.minPct, SLACK.startPct - SLACK.perDepthPct * depth) + SLACK.perRoomPct * (rooms.length - ROOMS.base);

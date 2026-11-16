@@ -9,12 +9,16 @@ export type { GhostView, RunResult, Trap, Vote };
 export type Standings = [Curse, number][];
 /** A winner's choices on the played plate: their curse vote (and the standings once they voted), their own trap. */
 export type Choices = { curse: Curse | null; standings: Standings | null; trap: Trap | null };
+/** Your trap on this floor (set yesterday) and what it has done here so far. */
+export type MyTrap = { kind: Trap['kind']; x: number; y: number; hurt: number; killed: number } | null;
 
 /** GET /api/floor. The depth is the post's own (postData), so an old post shows its floor as closed. */
 export type FloorResponse =
   /** `attempt`: how often the mod reset tool cleared this player's run here (keys the client's saved log). */
-  | { kind: 'play'; depth: number; seed: number; floor: Floor; ghosts: GhostView; attempt: number }
-  | { kind: 'played'; depth: number; seed: number; floor: Floor; run: RunResult; ghosts: GhostView; live: boolean; attempt: number; choices: Choices }
+  | { kind: 'play'; depth: number; seed: number; floor: Floor; ghosts: GhostView; attempt: number; tutorial: boolean; myTrap: MyTrap }
+  | { kind: 'played'; depth: number; seed: number; floor: Floor; run: RunResult; ghosts: GhostView; live: boolean; attempt: number; choices: Choices; myTrap: MyTrap }
+  /** A "Post Floor 0" post: the tutorial, never stored or submitted. */
+  | { kind: 'practice' }
   | { kind: 'closed'; depth: number; today: number; todayUrl: string | null }
   | { kind: 'login'; depth: number }
   | { kind: 'none' };

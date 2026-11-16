@@ -145,7 +145,8 @@ export const carvingPicker = (onChange: (raw: string | null) => void) => {
   return select;
 };
 
-export type HudView = { hearts: number; hasKey: boolean; item: Item | null; torch: number; torchMax: number; depth: number };
+/** `curse`: the floor's curse name (the crowd's vote), shown as a chip after the floor number. */
+export type HudView = { hearts: number; hasKey: boolean; item: Item | null; torch: number; torchMax: number; depth: number; curse: string | null };
 const ITEM_NAME: Record<Item, string> = { potion: 'potion', oil: 'lamp oil', bomb: 'bomb' };
 
 /** Builds the HUD once; `update` replaces only the pieces whose value changed. */
@@ -156,9 +157,13 @@ export const createHud = (root: HTMLElement, lowPct: number, maxHearts: number, 
   root.replaceChildren(floor, parts.hearts, parts.key, parts.item, parts.wick);
   parts.item.replaceChildren(slot('Item slot empty'));
   return (v: HudView) => {
-    if (v.depth !== last?.depth) {
+    // A cursed floor: the number turns blood with a blood mark after it (a shape too, not colour alone); the name is in
+    // the label here, and spelled out by the yesterday line and the plates (no room for it in a 320 px HUD).
+    if (v.depth !== last?.depth || v.curse !== last?.curse) {
       floor.textContent = String(v.depth);
-      floor.setAttribute('aria-label', `Floor ${v.depth}`);
+      floor.toggleAttribute('data-cursed', !!v.curse);
+      floor.title = v.curse ? `Cursed: ${v.curse}` : '';
+      floor.setAttribute('aria-label', v.curse ? `Floor ${v.depth}, curse: ${v.curse}` : `Floor ${v.depth}`);
     }
     if (v.hearts !== last?.hearts) parts.hearts.replaceChildren(hearts(v.hearts, maxHearts));
     if (v.hasKey !== last?.hasKey) parts.key.replaceChildren(v.hasKey ? slot('Key held', iconCanvas('key', 2)) : slot('No key'));

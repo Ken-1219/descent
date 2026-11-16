@@ -143,6 +143,7 @@ src/shared/
   gen.ts                    tiersFor(), generate(depth, seed, mods), budget, crowd weights, player traps, fairness gates, safePath()
   bot.ts                    bot(floor, skill, seed): plays from what a player can see (visibility + tells); gate 3 and the curve
   sim.ts                    State, step(), tells(), replay(), score(), judge() (validates and replays a submitted log)
+  crowd.ts                  Phase 8: tally → mods, the rollover ladder and no-spiral band, trap attribution from a replay (server and Lab)
   ghosts.ts                 ghost and carving types, carvingOf(), ghostView() (capped wire view), fixtureGhosts(); never read by the sim
   scenes.ts                 one scene per tier-table cell, trap and item: map, log, expected outcome (tests, Lab, ?scene= in dev only)
   api.ts                    wire types (reuse the template's shared types file if one exists)
@@ -157,7 +158,7 @@ src/client/
   style.css                 tokens and all UI CSS
   local.ts                  LOCAL ONLY: fake endpoints on localStorage, fixtures, advanceDay
   lab.html     lab.ts       LOCAL ONLY: Design Lab (Tokens, Kit, Cast, tab router)
-  labfloors.ts              LOCAL ONLY: Lab tabs that draw floors: Bestiary, Depth and Ghosts (fixtures)
+  labfloors.ts              LOCAL ONLY: Lab tabs that draw floors: Bestiary, Depth, Ghosts (fixtures) and Rollover (tally → floor)
   assets/                   atlas.png, fonts/*.woff2, fonts/OFL.txt, icon
 src/server/
   index.ts                  Hono app, one log line per request
@@ -169,6 +170,7 @@ tests/
   bundle.test.ts            production build: server carries gen and bot; client carries no gen, bot, scenes, Lab, local or hook
   gen.test.ts               tiers, determinism, crowd, curses, traps, 2,000-floor gates, generate() timing
   curve.test.ts             bot win-rate curve on two seed lists (own file so Vitest runs it in parallel)
+  rollover.test.ts          Phase 8: tally, ladder, band, 28 bot days, trap selection and trap souls, flair bounds
   play.mcp.js               end-to-end browser check run through the Playwright MCP (rules, input, death, resize)
 shots/                      gitignored
 docs/superpowers/           per-phase specs and plans written by Superpowers
@@ -553,6 +555,7 @@ Each phase lists Build, Show me (what to open), Checks, and Gate.
 
 - **Build:** `rollover.ts`: tally heat, kills, curse and traps → next floor's mods → new post → summary comment → flair → Chronicle record. Mod-only menu actions in `devvit.json`: advance day, seed N bot runs, post Floor 0.
 - **Rules:** rollover is idempotent (a second call for the same day does nothing). Bot ghosts are named "a nameless delver" and have no snoovatar.
+- **Redis keys (built):** `rolled` hash (a depth is opened once, cron or dev tool); `f:{d}:trapped` hash (owner hurt/killed); `f:{d}:flair` hash (queued flair); `chronicle` hash; `tutorial` hash (the Floor 0 flag per user). The floor JSON carries its placed traps (owner, name) and `yesterday`.
 - **Tests:** two identical tallies give identical mods; double rollover creates one post.
 - **Show me:** local `advanceDay()` three times with painted deaths; the hazards follow the deaths.
 - **Gate:** one real overnight rollover succeeds unattended. Reddit smoke test.
@@ -775,6 +778,8 @@ The test for every animation: would a person drawing this frame by frame have do
 (Claude Code appends out-of-phase ideas here, one line each.)
 
 - Load: on Reddit, a cold chunk takes ~2.2 s from this machine whatever its size (372 KB and 203 KB took the same), so the Devvit CDN's per-request cost, not bytes, now sets time-to-interactive (3.28 s). Revisit if the human phone check shows the same; options: fewer requests (inline the atlas), or warm the chunk from the splash.
+- Resume: keep the in-progress run log on the server (keyed by user and floor), so a deploy (new webview origin, empty storage) resumes a run instead of restarting it.
+- Carvings list: snoovatars in the rows (polish pass).
 - Curve rises after torch pricing: 9→10 (+10 on list A, +20 on B, 50 seeds) and 25→26 (+28 on A, +36 on B; depth 25 is 25% on 200 seeds). Both are torch-driven band effects; revisit once real deaths exist.
 
 ## Sources

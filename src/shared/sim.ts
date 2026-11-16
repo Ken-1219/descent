@@ -44,7 +44,12 @@ export type Floor = {
   dark?: readonly Rect[];
   /** Active curses (the crowd's vote); content.ts holds what each one changes. */
   curses?: readonly Curse[];
+  /** Phase 8: the players' traps placed on this floor (tile, kind, owner), so a death names its trap's owner from the floor alone. */
+  traps?: readonly PlacedTrap[];
+  /** Phase 8: what yesterday's floor left: how many fell and cleared, the deadliest compass zone, today's curse. */
+  yesterday?: { depth: number; fell: number; cleared: number; zone: number | null; curse: Curse | null };
 };
+export type PlacedTrap = { x: number; y: number; kind: 'spikes' | 'dart' | 'stairs'; owner: string; name: string | null };
 export type Kind = 'goblin' | 'imp' | 'skeleton';
 export type Mode = 'idle' | 'alert' | 'chase' | 'windup' | 'pile';
 /** `aim`: the tiles a wind-up will strike next turn. `timer`: a bone pile's countdown. `pack`: lowest id of its pack. */

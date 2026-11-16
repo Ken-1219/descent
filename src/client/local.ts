@@ -1,9 +1,12 @@
 // LOCAL ONLY (dev builds): the /api/* endpoints faked on localStorage with the same shared code the server runs, so the
 // harness plays real generated floors. URL knobs: ?post=N opens an older post's floor, ?loggedOut=1 a logged-out viewer,
 // ?ghosts=N adds N fixture ghosts (0, 1, 20, 300, 1000) to every floor, like other players' deaths; ?floor=f0 serves
-// Floor 0's map as the day's floor (no mercy), so tests can win it with a known route.
+// Floor 0's map as the day's floor (no mercy), so tests can win it with a known route; ?floor=trap makes its spikes a
+// player's trap (owner u/trapper); ?curse=frail curses the floor; ?yesterday=1 adds yesterday's line; ?mytrap=2,1 makes
+// this profile the owner of a trap that has hurt 2 and killed 1 here.
 import { generate } from '../shared/gen';
 import { CURSES, FLOOR_0, TRAP_TEXT, type Curse } from '../shared/content';
+import type { MyTrap } from '../shared/api';
 import type { Trap } from '../shared/gen';
 import { carvingOf, fixtureGhosts, ghostView, type GhostRecord, type GhostView, type Vote } from '../shared/ghosts';
 import { hash } from '../shared/rng';
@@ -17,7 +20,16 @@ const day = () => read<number>('day') ?? 1;
 const floorOf = (d: number): Floor => {
   const stored = read<Floor>(`floor:${d}`);
   if (stored) return stored;
-  const f = new URLSearchParams(location.search).get('floor') === 'f0' ? { ...FLOOR_0, depth: d, mercy: false, seed: d } : generate(d, hash(`descent:local:${d}`)).floor;
+  const q = new URLSearchParams(location.search);
+  const base: Floor = q.get('floor') === 'f0' ? { ...FLOOR_0, depth: d, mercy: false, seed: d }
+    : q.get('floor') === 'trap' ? { ...FLOOR_0, depth: d, mercy: false, seed: d, rows: FLOOR_0.rows.map((r) => r.replaceAll('^', 'x')), traps: [2, 3, 4].map((y) => ({ x: 10, y, kind: 'spikes' as const, owner: 't2_trapper', name: 'trapper' })) }
+    : generate(d, hash(`descent:local:${d}`)).floor;
+  const curse = Object.keys(CURSES).find((c): c is Curse => c === q.get('curse'));
+  const f: Floor = {
+    ...base,
+    ...(curse ? { curses: [curse] } : {}),
+    ...(q.get('yesterday') ? { yesterday: { depth: d - 1 || 1, fell: 23, cleared: 9, zone: 2, curse: curse ?? null } } : {}),
+  };
   write(`floor:${d}`, f);
   return f;
 };
@@ -45,10 +57,10 @@ export const local: Api = {
     const mine = runOf(d);
     if (mine) {
       const { log: _, ...run } = mine;
-      return { kind: 'played', depth: d, seed: floor.seed ?? 0, floor, run, ghosts: withVotes(d, ghostsOf(d)), live: d === day(), attempt: 0, choices: choicesOf(d) };
+      return { kind: 'played', depth: d, seed: floor.seed ?? 0, floor, run, ghosts: withVotes(d, ghostsOf(d)), live: d === day(), attempt: 0, choices: choicesOf(d), myTrap: myTrap() };
     }
     if (d < day()) return { kind: 'closed', depth: d, today: day(), todayUrl: `${location.pathname}?post=${day()}` };
-    return { kind: 'play', depth: d, seed: floor.seed ?? 0, floor, ghosts: ghostsOf(d), attempt: 0 };
+    return { kind: 'play', depth: d, seed: floor.seed ?? 0, floor, ghosts: ghostsOf(d), attempt: 0, tutorial: !!read('tutorial'), myTrap: myTrap() };
   },
   run: async ({ depth, log }) => {
     net();
@@ -61,10 +73,15 @@ export const local: Api = {
     const j = judge(floorOf(depth), log);
     if (!j.ok) return { kind: 'rejected', reason: j.reason };
     write(`run:${depth}`, { ...j.run, log });
-    if (j.run.outcome === 'dead') write(`ghost:${depth}`, { name: 'local_delver', x: j.run.tile.x, y: j.run.tile.y, cause: j.run.cause, at: Date.now() });
+    const f = floorOf(depth);
+    const by = j.run.cause === 'trap' ? f.traps?.find((t) => t.x === j.run.tile.x && t.y === j.run.tile.y)?.name : undefined;
+    if (j.run.outcome === 'dead') write(`ghost:${depth}`, { name: 'local_delver', x: j.run.tile.x, y: j.run.tile.y, cause: j.run.cause, at: Date.now(), ...(by ? { by } : {}) });
     return { kind: 'saved', run: j.run };
   },
-  start: async () => net(),
+  start: async () => {
+    net();
+    write('tutorial', true); // the server keeps the tutorial flag per player
+  },
   carve: async ({ depth, carving }) => {
     net();
     if (depth < day()) return { kind: 'closed', today: day(), todayUrl: `${location.pathname}?post=${day()}` };
@@ -107,6 +124,11 @@ export const local: Api = {
     write(`trap:${depth}`, { zone, kind });
     return { kind: 'placed', trap: { zone, kind } };
   },
+};
+
+const myTrap = (): MyTrap => {
+  const m = params.get('mytrap')?.split(',').map(Number);
+  return m ? { kind: 'spikes', x: 10, y: 3, hurt: m[0] ?? 0, killed: m[1] ?? 0 } : null;
 };
 
 /** Fixture totals (a few votes each, seeded by position in the list) plus this profile's own votes. */

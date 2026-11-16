@@ -384,6 +384,7 @@ h3 {
 .play {
   height: 100dvh;
   display: grid;
+  grid-template-columns: minmax(0, 1fr); /* the HUD's content never widens the page past the viewport */
   grid-template-rows: auto minmax(0, 1fr) auto;
   grid-template-areas: 'hud' 'stage' 'controls';
   overflow: hidden;
@@ -840,4 +841,26 @@ body:has(#end:not([hidden])) .carving {
   .carvings {
     max-height: 30vh;
   }
+}
+
+/* Phase 8: the yesterday line (before your first move; wraps on phones) and the cursed floor number. */
+.yesterday {
+  color: var(--bone);
+  padding-block: 4px;
+}
+.yesterday[hidden],
+body:has(#end:not([hidden])) .yesterday {
+  display: none;
+}
+.hud__floor[data-cursed] {
+  color: var(--blood);
+}
+.hud__floor[data-cursed]::after {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 3px;
+  vertical-align: super;
+  background: var(--blood);
 }

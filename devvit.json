@@ -46,6 +46,20 @@
         "location": "subreddit",
         "forUserType": "moderator",
         "endpoint": "/internal/menu/reset-run"
+      },
+      {
+        "label": "Roll over now",
+        "description": "Dev tool: open tomorrow's floor from today's crowd",
+        "location": "subreddit",
+        "forUserType": "moderator",
+        "endpoint": "/internal/menu/roll-now"
+      },
+      {
+        "label": "Post Floor 0",
+        "description": "A practice post that plays the tutorial",
+        "location": "subreddit",
+        "forUserType": "moderator",
+        "endpoint": "/internal/menu/post-floor0"
       }
     ]
   },
@@ -64,6 +78,9 @@
       "rollover": {
         "endpoint": "/internal/scheduler/rollover",
         "cron": "0 15 * * *"
+      },
+      "flair": {
+        "endpoint": "/internal/scheduler/flair"
       }
     }
   },
@@ -74,9 +91,9 @@
     "subreddit": {
       "devTools": {
         "type": "boolean",
-        "label": "Dev tools (reset my run)",
+        "label": "Dev tools (reset my run, roll over now)",
         "helpText": "Switch off before submission.",
-        "defaultValue": true
+        "defaultValue": false
       }
     }
   }

@@ -1,8 +1,8 @@
 import { Hono } from 'hono';
 import type { UiResponse } from '@devvit/web/shared';
 import { context, settings } from '@devvit/web/server';
-import { postUrl, purgeBots, resetRun } from '../game';
-import { startFirstFloor } from '../rollover';
+import { postUrl, purgeBots, resetRun, today } from '../game';
+import { postFloor0, rollNow, startFirstFloor } from '../rollover';
 import type { Env } from '../index';
 
 export const menu = new Hono<Env>();
@@ -33,15 +33,36 @@ menu.post('/purge-bots', async (c) => {
   return c.json<UiResponse>({ showToast: `Removed ${r.removed} bot runs from Floor ${r.depth}` });
 });
 
+const devTools = async () => !!(await settings.get<boolean>('devTools'));
+const devOff = () => ({ showToast: 'Dev tools are switched off in the app settings' });
+
 // Dev tool: replay the live floor with one account. Switched off with the devTools setting before submission.
 menu.post('/reset-run', async (c) => {
   const user = context.userId;
-  if (!(await settings.get<boolean>('devTools'))) {
+  if (!(await devTools())) {
     c.set('note', 'reset refused: devTools off');
-    return c.json<UiResponse>({ showToast: 'Dev tools are switched off in the app settings' });
+    return c.json<UiResponse>(devOff());
   }
   if (!user) return c.json<UiResponse>({ showToast: 'Log in first' });
   const r = await resetRun(user);
   c.set('note', `RESET run of ${context.username ?? user} on floor ${r.depth} (${r.had ? 'had a run' : 'no run'})`);
   return c.json<UiResponse>({ showToast: r.had ? `Your Floor ${r.depth} run is cleared` : `No run on Floor ${r.depth} to clear` });
+});
+
+// Dev tool: open tomorrow's floor now (the daily cron still runs: this claims no date). Logged by the rollover itself.
+menu.post('/roll-now', async (c) => {
+  if (!(await devTools())) {
+    c.set('note', 'roll over refused: devTools off');
+    return c.json<UiResponse>(devOff());
+  }
+  const r = await rollNow();
+  c.set('note', r.posted ? `ROLL OVER NOW by ${context.username ?? context.userId}: floor ${r.posted} posted` : 'roll over now: nothing to do');
+  const url = r.posted ? postUrl((await today()).postId) : null;
+  return c.json<UiResponse>(url ? { navigateTo: url } : { showToast: 'Nothing to roll over' });
+});
+
+menu.post('/post-floor0', async (c) => {
+  const p = await postFloor0();
+  c.set('note', `posted Floor 0 practice ${p.id}`);
+  return c.json<UiResponse>({ navigateTo: postUrl(p.id) ?? '' });
 });

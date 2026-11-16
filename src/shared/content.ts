@@ -201,8 +201,10 @@ export const SLACK = { startPct: 268, perDepthPct: 2, minPct: 235, perRoomPct: 8
 export const GATE_TORCH_PCT = 70;
 
 /** Compass zones ranked by yesterday's deaths: weights ×10. Zones with no deaths 6; no deaths anywhere: uniform. */
-export const CROWD = { rankWeights: [22, 16, 12], otherWeight: 8, emptyWeight: 6, uniformWeight: 10, topFamilyPct: 150, overflowTrapWeight: 2 };
+export const CROWD = { rankWeights: [22, 16, 12], otherWeight: 8, emptyWeight: 6, uniformWeight: 10, topFamilyPct: 150, overflowTrapWeight: 2, minDeaths: 3, minSharePct: 5, minKills: 3 };
 export const TRAP_MAX = 12;
+/** Player traps per compass zone, so one crowded zone can't wall off a floor. */
+export const TRAP_ZONE_MAX = 3;
 
 /** Floor shape: enemies stay beyond every wake range (4) of each room-1 tile; no hazard within 2 tiles of the entrance. */
 export const ROOM1_ENEMY_GAP = 5;
@@ -295,3 +297,14 @@ export const CURSE_TEXT: Readonly<Record<Curse, { name: string; effect: string }
 /** Trapsetter traps (always open to survivors) and the compass zones they go in (3×3, reading order). */
 export const TRAP_TEXT: Readonly<Record<'spikes' | 'dart' | 'stairs', string>> = { spikes: 'Spikes', dart: 'Dart slit', stairs: 'False stairs' };
 export const ZONE_NAMES: readonly string[] = ['North-west', 'North', 'North-east', 'West', 'Centre', 'East', 'South-west', 'South', 'South-east'];
+
+// ---- Phase 8: rollover ----
+
+/** No difficulty spiral: a floor with crowd mods may lose at most `maxDropPct` win-rate points (skill-60 bot, `seeds` runs) against that day's plain floor. */
+export const BAND = { seeds: 16, maxDropPct: 20, skillPct: 60 };
+/** Death causes as families, for yesterday's top killer (player traps and falls name no family). */
+export const KILL_FAMILY: Readonly<Record<string, Family>> = {
+  spikes: 'spikes', goblin: 'goblins', imp: 'imps', dart: 'mechanisms', skeleton: 'skeletons', arrow: 'skeletons', pit: 'pits', dark: 'dark',
+};
+/** Flair updates per rollover run (§15.3); the rest continue in a follow-up job. Reddit's batch call takes 100. */
+export const FLAIR = { perRun: 200, batch: 100 };

@@ -32,7 +32,7 @@ api.post('/run', async (c) => {
 
 api.post('/start', async (c) => {
   const { depth } = await c.req.json<Partial<StartRequest>>().catch((): Partial<StartRequest> => ({}));
-  if (context.userId && typeof depth === 'number' && Number.isInteger(depth) && depth > 0) await logStart(context.userId, depth);
+  if (context.userId && typeof depth === 'number' && Number.isInteger(depth) && depth >= 0) await logStart(context.userId, depth); // 0: Floor 0 done
   c.set('note', `d${depth ?? '-'} start`);
   return c.json({ ok: true });
 });
@@ -78,7 +78,7 @@ api.post('/trap', async (c) => {
   let r: TrapResponse;
   if (!user) r = { kind: 'rejected', reason: 'logged out' };
   else if (typeof depth !== 'number' || typeof zone !== 'number' || typeof kind !== 'string') r = { kind: 'rejected', reason: 'shape' };
-  else r = await placeTrap(user, depth, zone, kind);
+  else r = await placeTrap(user, depth, zone, kind, context.username ?? null);
   c.set('note', `d${depth ?? '-'} trap ${kind ?? '-'} zone ${zone ?? '-'}: ${r.kind}${r.kind === 'rejected' ? ` (${r.reason})` : ''}`);
   return c.json<TrapResponse>(r, r.kind === 'rejected' ? 400 : 200);
 });

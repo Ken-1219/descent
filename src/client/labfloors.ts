@@ -1,6 +1,7 @@
 // LOCAL ONLY: the Lab tabs that draw whole floors: Bestiary (one scene per tier-table cell) and Depth (generated floors,
 // crowd painting, the win-rate curve). Split from lab.ts, which passed 600 lines. Never a Devvit entrypoint.
-import { FAMILIES, PALETTE, TILE } from '../shared/content';
+import { CURSE_TEXT, FAMILIES, PALETTE, TILE, TRAP_TEXT, ZONE_NAMES } from '../shared/content';
+import { modsFrom, rolloverFloor, type Tally } from '../shared/crowd';
 import { SCENES, type Scene } from '../shared/scenes';
 import { bot } from '../shared/bot';
 import { NO_MODS, generate, zoneWeights, type Mods } from '../shared/gen';
@@ -398,4 +399,79 @@ export const ghostsTab = () => {
   }));
   pick(20);
   return [section('Ghost fixtures', caption('The day\'s floor with N other players\' deaths; one deadly spot is in sight from the start.'), row, frame)];
+};
+
+/**
+ * Rollover tab: a tally (deaths per zone, kills, curse votes, survivors' traps) → the mods it asks for → the ladder step
+ * and band → tomorrow's floor, with each placed player trap. For tuning the crowd effect.
+ */
+let rollGen = 0;
+export const rolloverTab = () => {
+  const gen = ++rollGen;
+  const box = el('div', '', caption('Loading the pack...'));
+  void loadPack().then((pack) => {
+    if (gen !== rollGen) return;
+    const atlas = buildAtlas();
+    const deaths = Array<number>(9).fill(0);
+    const depth = el('input');
+    Object.assign(depth, { type: 'range', min: '2', max: '30', value: '8' });
+    depth.setAttribute('aria-label', 'Tomorrow\'s depth');
+    const curse = el('select', 'picker');
+    curse.setAttribute('aria-label', 'Curse votes');
+    curse.append(...[['', 'No curse votes'], ...Object.entries(CURSE_TEXT).map(([c, t]) => [c, `${t.name} wins the vote`])].map(([c = '', label = '']) => {
+      const o = el('option', '', label);
+      o.value = c;
+      return o;
+    }));
+    const killer = el('select', 'picker');
+    killer.setAttribute('aria-label', 'Top killer');
+    killer.append(...['', 'goblin', 'imp', 'spikes', 'skeleton', 'dark'].map((k) => {
+      const o = el('option', '', k ? `${k}: 9 kills` : 'No kills');
+      o.value = k;
+      return o;
+    }));
+    const traps = el('input');
+    Object.assign(traps, { type: 'number', min: '0', max: '1000', value: '5' });
+    traps.setAttribute('aria-label', 'Survivors setting traps');
+    const compass = el('div', 'compass');
+    const out = el('div', 'depth__big');
+    const draw = () => {
+      const n = Math.max(0, Math.min(1000, Number(traps.value) || 0));
+      const tally: Tally = {
+        deaths,
+        kills: killer.value ? { [killer.value]: 9 } : {},
+        curseVotes: curse.value ? { [curse.value]: 3 } : {},
+        traps: Array.from({ length: n }, (_, i) => ({ zone: (i * 5) % 9, kind: (['spikes', 'dart', 'stairs'] as const)[i % 3] ?? 'spikes', owner: `t2_${i}`, name: `survivor_${i}` })),
+      };
+      const d = Number(depth.value);
+      const r = rolloverFloor(d, 7, tally);
+      const m = modsFrom(tally);
+      const side = r.floor.rows[0]?.length ?? 15;
+      const zoom = Math.max(1, Math.min(3, Math.floor((panelWidth() - 8) / (side * TILE))));
+      out.replaceChildren(
+        floorCanvas(r.floor, atlas, pack, zoom),
+        el('p', 'lab__caption', `Ladder step: ${r.step}${r.tried.length ? ` (after ${r.tried.map((t) => `${t.step}: ${t.why}`).join('; ')})` : ''} · win ${r.win}% vs plain ${r.plainWin}%`),
+        el('p', 'muted', `Mods asked: curse ${m.curses[0] ?? 'none'} · top family ${m.topFamily ?? 'none'} · zone weights ×${zoneWeights(deaths).map((w) => (w / 10).toFixed(1)).join(' ')} · ${m.traps.length} traps asked`),
+        el('p', 'muted', `Placed: ${(r.floor.traps ?? []).map((t) => `${TRAP_TEXT[t.kind]} by u/${t.name} at ${t.x},${t.y}`).join(' · ') || 'no player traps'}`),
+        el('p', 'muted', census(r.floor)),
+      );
+      out.dataset.step = r.step;
+      compass.replaceChildren(...deaths.map((v, z) => {
+        const b = button(`${v} fell`);
+        b.setAttribute('aria-label', `${ZONE_NAMES[z]}: ${v} deaths`);
+        b.addEventListener('click', () => {
+          deaths[z] = DEATH_STEPS[(DEATH_STEPS.indexOf(v) + 1) % DEATH_STEPS.length] ?? 0;
+          draw();
+        });
+        return b;
+      }));
+    };
+    for (const c of [depth, curse, killer, traps]) c.addEventListener('change', draw);
+    box.replaceChildren(
+      section('Today\'s tally', caption('Tap zones to add deaths; pick a killer, a curse and how many survivors set traps.'), compass, el('div', 'depth__controls', depth, curse, killer, traps)),
+      section('Tomorrow', out),
+    );
+    draw();
+  });
+  return [box];
 };

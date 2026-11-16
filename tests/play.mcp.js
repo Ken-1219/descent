@@ -706,5 +706,90 @@ async (page) => {
     }
   }
 
+
+  // 15. Phase 8: the yesterday line, a cursed floor, a death to a player's trap, the owner's news, the server tutorial flag
+  {
+    const ctxAt = async (vp, q = '', init = () => localStorage.setItem('descent:f0', '1')) => {
+      const ctx = await browser.newContext({ viewport: vp });
+      await ctx.addInitScript(init);
+      const p = await ctx.newPage();
+      p.on('pageerror', (e) => errs.push(String(e)));
+      p.on('console', (m) => { if (m.type() === 'error') errs.push(m.text()); });
+      await p.goto(`${URL}${q}`);
+      await p.waitForFunction(() => window.__descent);
+      await p.evaluate(() => window.__descent.ready);
+      return { ctx, p };
+    };
+    const kill = (p) => p.evaluate(async () => { window.__descent.skipAnim(true); for (const a of 'DRRURRRRRRRLRLR') await window.__descent.act(a); });
+    {
+      const { ctx, p } = await ctxAt({ width: 390, height: 844 }, '?floor=f0&yesterday=1&curse=frail');
+      const line = await p.locator('#yesterday').innerText();
+      const chip = await p.locator('.hud__floor').getAttribute('aria-label');
+      await p.evaluate(async () => { window.__descent.skipAnim(true); await window.__descent.act('D'); });
+      check('the yesterday line names the deaths, the deadliest zone and the curse before the first move, then goes', /Yesterday 23 fell on Floor \d+, most in the north-east\./.test(line) && /Curse: Frail/.test(line) && (await p.locator('#yesterday').isHidden()), line);
+      check('a cursed floor shows its curse: a blood mark on the floor number, named in its label', /curse: Frail/.test(String(chip)) && (await p.locator('.hud__floor[data-cursed]').count()) === 1 && (await S(p)).hearts === 2, String(chip));
+      await ctx.close();
+    }
+    {
+      const { ctx, p } = await ctxAt({ width: 390, height: 844 }, '?floor=trap');
+      await kill(p);
+      await p.waitForSelector('#end select.picker');
+      const death = await p.locator('#end').innerText();
+      await p.getByRole('button', { name: 'Skip' }).click();
+      await p.waitForFunction(() => /Score/.test(document.getElementById('end').innerText));
+      await p.reload();
+      await p.waitForFunction(() => window.__descent);
+      await p.waitForFunction(() => /Score/.test(document.getElementById('end').innerText));
+      const plate = await p.locator('#end').innerText();
+      const mine = await p.evaluate(() => window.__descent.ghosts().list.find((g) => g.mine));
+      check('a death to a player\'s trap names its owner: death panel, plate after reload, and your ghost', /The spikes set by u\/trapper took you/.test(death) && /A trap set by u\/trapper took you/.test(plate) && mine?.by === 'trapper', `${death.split('\n')[2]} | ${plate.split('\n')[2]}`);
+      await ctx.close();
+    }
+    {
+      const { ctx, p } = await ctxAt({ width: 390, height: 844 }, '?floor=f0&mytrap=2,1&yesterday=1');
+      const line = await p.locator('#yesterday').innerText();
+      await p.evaluate(async () => { window.__descent.skipAnim(true); for (let i = 0; i < 1500 && !window.__descent.state().ended; i++) await window.__descent.act('W'); });
+      await p.waitForSelector('#end select.picker');
+      await p.getByRole('button', { name: 'Skip' }).click();
+      await p.waitForFunction(() => /Score/.test(document.getElementById('end').innerText));
+      const plate = await p.locator('#end').innerText();
+      check('a trap owner sees what their trap did, before the run and on the plate', /Your spikes hurt 2 and took 1 here\./.test(line) && /Your spikes hurt 2 and took 1 here\./.test(plate), line);
+      await ctx.close();
+    }
+    {
+      // Empty browser storage (a deploy), but the server remembers the tutorial: the day's floor opens directly.
+      const { ctx, p } = await ctxAt({ width: 390, height: 844 }, '', () => localStorage.setItem('descent:local:tutorial', 'true'));
+      check('the Floor 0 flag lives on the server: empty storage still skips the tutorial', (await S(p)).floor === 1 && (await p.evaluate(() => localStorage.getItem('descent:f0'))) === null, `floor ${(await S(p)).floor}`);
+      await ctx.close();
+    }
+    {
+      const bad = [];
+      const layout = (p, what, vp) => p.evaluate(() => {
+        const out = [];
+        if (document.documentElement.scrollWidth > innerWidth) out.push('hscroll');
+        for (const el of document.querySelectorAll('#yesterday:not([hidden]), .hud__floor, #end:not([hidden]) .end__panel')) {
+          const r = el.getBoundingClientRect();
+          if (r.width && (r.right > innerWidth + 0.5 || r.bottom > innerHeight + 0.5 || r.left < 0)) out.push(`${el.id || el.className} off screen`);
+        }
+        const hud = document.getElementById('hud');
+        if (hud.scrollWidth > hud.clientWidth + 1) out.push('HUD overflows');
+        for (const b of document.querySelectorAll('#end button')) { const r = b.getBoundingClientRect(); if (r.width && r.height < 44) out.push(`small ${b.textContent}`); }
+        return out;
+      }).then((o) => bad.push(...o.map((x) => `${vp.width}x${vp.height} ${what}: ${x}`)));
+      for (const vp of [{ width: 320, height: 320 }, { width: 360, height: 640 }, { width: 844, height: 390 }, { width: 1280, height: 800 }]) {
+        const { ctx, p } = await ctxAt(vp, '?floor=trap&curse=light-sleepers&yesterday=1&mytrap=3,2');
+        await layout(p, 'yesterday line', vp);
+        await kill(p);
+        await p.waitForSelector('#end select.picker');
+        await layout(p, 'trap death', vp);
+        await p.getByRole('button', { name: 'Skip' }).click();
+        await p.waitForFunction(() => /Score/.test(document.getElementById('end').innerText));
+        await layout(p, 'plate', vp);
+        await ctx.close();
+      }
+      check('layout 320×320 to 1280×800: yesterday line, curse chip, trap death and plate fit', bad.length === 0, bad.join(' ; '));
+    }
+  }
+
   return { passed: results.filter((r) => r.pass).length, failed: results.filter((r) => !r.pass), total: results.length, errs, results: results.map((r) => `${r.pass ? 'PASS' : 'FAIL'} ${r.name}${r.detail ? ' — ' + r.detail : ''}`) };
 }

@@ -1,8 +1,9 @@
 /// <reference types="vite/client" />
 // Boot, input router, HUD wiring and the dev hook. Rules live in src/shared/sim.ts; this file only sends actions.
-import { CURSE_TEXT, FLOOR_0, FLOOR_0_GHOSTS, HEARTS, ITEMS, NAMELESS, PALETTE, TILE, TORCH_LOW_PCT, TRAP_TEXT, ZONE_NAMES, type Curse } from '../shared/content';
+import { CURSE_TEXT, FLOOR_0, FLOOR_0_GHOSTS, HEARTS, ITEMS, NAMELESS, PALETTE, TILE, TORCH_LOW_PCT, TRAPS, TRAP_TEXT, ZONE_NAMES, type Curse } from '../shared/content';
+import { slitLine } from '../shared/grid';
 import { navigateTo, showLoginPrompt } from '@devvit/web/client';
-import type { FloorResponse, GhostView, RunResult } from '../shared/api';
+import type { FloorResponse, GhostView, MyTrap, RunResult } from '../shared/api';
 import { carvingLabel, type Ghost, type Vote } from '../shared/ghosts';
 import { isAction, replay, start, step, type Action, type End, type Floor, type Pos } from '../shared/sim';
 import { api, submit } from './net';
@@ -18,6 +19,7 @@ const stage = $('stage');
 const end = $('end');
 const pad = $('controls');
 const carvingLine = $('carving');
+const yesterdayLine = $('yesterday');
 const cardRoot = $('card');
 
 // The map view keeps at least 9×9 tiles at the largest integer zoom (2–4), then fills the stage with whole tiles.
@@ -60,7 +62,8 @@ const store = {
 };
 const liveOf = (r: Day): Live => ({ depth: r.depth, seed: r.seed, attempt: r.attempt, floor: r.floor, log: store.get(logKey(r)) ?? '' });
 const playable = day !== 'error' && day.kind === 'play' ? day : null;
-if (playable && store.get(F0_KEY)) live = liveOf(playable);
+// The tutorial flag is kept on the server too: a deploy (new origin, empty storage) never shows Floor 0 again.
+if (playable && (store.get(F0_KEY) || playable.tutorial)) live = liveOf(playable);
 let floor: Floor = devFloor ?? live?.floor ?? FLOOR_0;
 // Resume: the saved log replays with animations skipped (it is the same fold the server runs).
 const begin = () => (live ? replay(floor, [...live.log].filter(isAction)) : start(floor));
@@ -81,8 +84,10 @@ void loadPack().then((p) => {
 });
 const hud = createHud($('hud'), TORCH_LOW_PCT, HEARTS, (item) => (pack ? packIcon(pack, ITEMS[item].frames[0], 2) : undefined));
 const view = () => {
-  hud({ hearts: state.hearts, hasKey: state.hasKey, item: pack ? state.item : null, torch: state.torch, torchMax: state.floor.torch, depth: state.floor.depth });
+  const curse = state.floor.curses?.[0];
+  hud({ hearts: state.hearts, hasKey: state.hasKey, item: pack ? state.item : null, torch: state.torch, torchMax: state.floor.torch, depth: state.floor.depth, curse: curse ? CURSE_TEXT[curse].name : null });
   nearby();
+  yesterday();
 };
 controls(pad);
 view();
@@ -127,8 +132,21 @@ const settle = () => {
 };
 
 const CAUSES: Record<string, string> = { trap: 'trap', pit: 'fall' };
-const endLine = (ended: End, turns: number) =>
-  ended.kind === 'won' ? `${turns} turns. The stairs go down.` : `The ${CAUSES[ended.cause] ?? ended.cause} took you on turn ${turns}.`;
+const endLine = (ended: End, turns: number, by: string | null = null) =>
+  ended.kind === 'won' ? `${turns} turns. The stairs go down.` : by ? `${by} took you on turn ${turns}.` : `The ${CAUSES[ended.cause] ?? ended.cause} took you on turn ${turns}.`;
+/** A player's trap that took you: found from the floor alone (its placed traps), so it names its owner (Phase 8). */
+function trapOwner(): string | null {
+  if (state.ended?.cause !== 'trap') return null;
+  const p = state.pos;
+  const t = state.floor.traps?.find((x) => (x.kind === 'dart' ? slitLine(state.tiles, x, TRAPS.dart.range).some((q) => q.x === p.x && q.y === p.y) : x.x === p.x && x.y === p.y));
+  return t ? `The ${TRAP_TEXT[t.kind].toLowerCase()} set by ${t.name ? `u/${t.name}` : NAMELESS}` : null;
+}
+/** What your trap (set yesterday) has done on this floor: shown before your run and on your plate. */
+function trapNews(t: MyTrap) {
+  if (!t) return '';
+  const name = TRAP_TEXT[t.kind].toLowerCase();
+  return t.hurt || t.killed ? `Your ${name} hurt ${t.hurt} and took ${t.killed} here.` : `Your ${name} wait here; nobody has stepped on them yet.`;
+}
 const practice: PanelAction = { label: 'Practice Floor 0', run: () => play(FLOOR_0, null) };
 const fellLine = (n: number) => (n === 1 ? '1 fell here today.' : `${n} fell here today.`);
 let played: RunResult | null = null;
@@ -138,6 +156,7 @@ let runSaved: Promise<boolean> = Promise.resolve(false);
 const finish = (ended: End) => {
   const title = ended.kind === 'won' ? `Floor ${state.floor.depth} cleared` : 'You fell';
   if (!live) {
+    if (state.floor.depth === 0 && !store.get(F0_KEY)) void api.start({ depth: 0 }).catch(() => undefined); // tutorial seen, on the server
     store.set(F0_KEY, '1');
     // After Floor 0, the day's floor is the next thing (no dead ends), unless it is already played or out of reach.
     const next = playable && !played ? { label: `Descend to Floor ${playable.depth}`, run: () => play(playable.floor, playable) } : { label: 'Descend again', run: () => play(floor, null) };
@@ -145,7 +164,7 @@ const finish = (ended: End) => {
   }
   const save = saveLine();
   sendRun(live, save);
-  if (ended.kind === 'dead') return pickCarving(title, endLine(ended, state.turn), save, live.depth);
+  if (ended.kind === 'dead') return pickCarving(title, endLine(ended, state.turn, trapOwner()), save, live.depth);
   pickCurse(title, endLine(ended, state.turn), save, live.depth);
 };
 
@@ -268,9 +287,10 @@ async function result(prefetched?: FloorResponse) {
   flushVotes(r.depth);
   const ended: End = { kind: r.run.outcome, cause: r.run.cause };
   const title = r.run.outcome === 'won' ? `Floor ${r.depth} cleared` : `You fell on Floor ${r.depth}`;
-  const line = `Score ${r.run.score}. ${endLine(ended, r.run.turns)} ${fellLine(r.ghosts.fell)}`;
+  const line = `Score ${r.run.score}. ${endLine(ended, r.run.turns, r.run.outcome === 'dead' ? (mine?.by ? `A trap set by u/${mine.by}` : null) : null)} ${fellLine(r.ghosts.fell)}`;
   const c = r.choices;
   const body: Node[] = [
+    ...(r.myTrap ? [el('p', 'own-ghost', trapNews(r.myTrap))] : []),
     ...(mine ? [ownGhost(mine)] : []),
     ...(c.curse ? [el('p', 'own-ghost', `Your curse vote: ${CURSE_TEXT[c.curse].name}. ${(c.standings ?? []).map(([k, n]) => `${CURSE_TEXT[k].name} ${n}`).join(' · ')}`)] : []),
     ...(c.trap ? [el('p', 'own-ghost', `Your trap: ${TRAP_TEXT[c.trap.kind]}, ${ZONE_NAMES[c.trap.zone]?.toLowerCase()}`)] : []),
@@ -366,6 +386,28 @@ function setGhosts(g: GhostView) {
 /** Steps from the hero, diagonals counting one: 1 is on or next to. */
 const reach = (p: Pos) => Math.max(Math.abs(p.x - state.pos.x), Math.abs(p.y - state.pos.y));
 
+/**
+ * Before your first move on the day's floor, one line says what yesterday did to today: how many fell and where, the
+ * curse, and what your own trap has done (the full intro screen is Phase 9).
+ */
+function yesterday() {
+  const y = state.floor.yesterday;
+  const show = !!live && state.turn === 0 && !state.ended;
+  const t = playable?.myTrap ?? null;
+  if (!show || (!y && !t)) {
+    yesterdayLine.hidden = true;
+    return;
+  }
+  const parts = [
+    y ? (y.fell ? `Yesterday ${y.fell} fell on Floor ${y.depth}${y.zone === null ? '' : `, most in the ${ZONE_NAMES[y.zone]?.toLowerCase()}`}.` : `Nobody fell on Floor ${y.depth} yesterday.`) : '',
+    y?.curse ? `Curse: ${CURSE_TEXT[y.curse].name}, ${CURSE_TEXT[y.curse].effect}.` : '',
+    trapNews(t),
+  ].filter(Boolean);
+  yesterdayLine.textContent = parts.join(' ');
+  yesterdayLine.hidden = false;
+  carvingLine.hidden = true; // one line at a time; carvings show from the first move on
+}
+
 /** On or next to a carved ghost, its carving shows in a line under the HUD (aria-live): no input needed. */
 function nearby() {
   const near = shown.list.filter((g) => g.carving && reach(g) <= 1);
@@ -406,7 +448,7 @@ function openCard(g: Ghost, onClose?: () => void) {
   const votes = !real ? undefined
     : !ended ? { canVote: false, note: 'Vote after your run.' }
     : { canVote: !!plate?.live, ...(g.votes ? { totals: g.votes } : {}), ...(g.myVote ? { mine: g.myVote } : {}), onVote: (v: Vote) => castVote(depth, g, v) };
-  cardRoot.replaceChildren(ghostCard({ name: g.name, carving: g.carving ? carvingLabel(g.carving) : null, cause: g.cause, avatar, ...(votes ? { votes } : {}), onClose: close }));
+  cardRoot.replaceChildren(ghostCard({ name: g.name, carving: g.carving ? carvingLabel(g.carving) : null, cause: g.by ? `trap set by u/${g.by}` : g.cause, avatar, ...(votes ? { votes } : {}), onClose: close }));
   cardRoot.hidden = false;
   cardRoot.querySelector<HTMLButtonElement>('.ghost-card__close')?.focus();
 }
@@ -538,6 +580,7 @@ else if (day.kind === 'login') endPanel(end, { title: 'Log in to descend', line:
 else if (day.kind === 'closed') closed(day.depth, day.today, day.todayUrl);
 else if (day.kind === 'played') void result(day);
 else if (day.kind === 'none' && !devFloor) endPanel(end, { title: 'No floor yet', line: 'The first floor opens soon.', primary: practice });
+// day.kind === 'practice': a "Post Floor 0" post simply plays Floor 0, which is already loaded.
 else if (state.ended) finish(state.ended); // resumed onto a finished run: show it and (re)submit, which is a safe retry
 
 void scene.ready.then(() => performance.mark('descent:interactive'));
