@@ -289,3 +289,23 @@ export const carvingsList = (ghosts: readonly Ghost[], open: (g: Ghost) => void)
   }
   return list;
 };
+
+/**
+ * The intro's compass: per zone, yesterday's deaths (☠) and today's danger counted from the stored floor (▲), so where
+ * the crowd died and where the hazards actually went read side by side. The heaviest of each is marked by shape too.
+ */
+export const introCompass = (deaths: readonly number[] | null, danger: readonly number[]) => {
+  const most = (xs: readonly number[]) => (Math.max(...xs) > 0 ? xs.indexOf(Math.max(...xs)) : -1);
+  const dz = deaths ? most(deaths) : -1;
+  const hz = most(danger);
+  const grid = el('div', 'intro-compass');
+  grid.setAttribute('role', 'img');
+  grid.setAttribute('aria-label', `Compass. ${ZONE_NAMES.map((z, i) => `${z}: ${deaths ? `${deaths[i] ?? 0} fell, ` : ''}danger ${danger[i] ?? 0}`).join('. ')}`);
+  ZONE_NAMES.forEach((_, i) => {
+    const cell = el('div', 'intro-compass__cell', ...(deaths ? [el('span', 'intro-compass__dead', `☠ ${deaths[i] ?? 0}`)] : []), el('span', 'intro-compass__danger', `▲ ${danger[i] ?? 0}`));
+    if (i === dz) cell.dataset.deadliest = '';
+    if (i === hz) cell.dataset.danger = '';
+    grid.append(cell);
+  });
+  return grid;
+};

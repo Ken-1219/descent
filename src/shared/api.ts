@@ -16,7 +16,7 @@ export type MyTrap = { kind: Trap['kind']; x: number; y: number; hurt: number; k
 export type FloorResponse =
   /** `attempt`: how often the mod reset tool cleared this player's run here (keys the client's saved log). */
   | { kind: 'play'; depth: number; seed: number; floor: Floor; ghosts: GhostView; attempt: number; tutorial: boolean; myTrap: MyTrap }
-  | { kind: 'played'; depth: number; seed: number; floor: Floor; run: RunResult; ghosts: GhostView; live: boolean; attempt: number; choices: Choices; myTrap: MyTrap }
+  | { kind: 'played'; depth: number; seed: number; floor: Floor; run: RunResult; ghosts: GhostView; live: boolean; attempt: number; choices: Choices; myTrap: MyTrap; streak: number; nextAt: number }
   /** A "Post Floor 0" post: the tutorial, never stored or submitted. */
   | { kind: 'practice' }
   | { kind: 'closed'; depth: number; today: number; todayUrl: string | null }
@@ -41,8 +41,19 @@ export type CarvingResponse =
   | { kind: 'closed'; today: number; todayUrl: string | null }
   | { kind: 'rejected'; reason: string };
 
-/** GET /api/avatar?name=: the snoovatar for a ghost card, fetched only when the card opens. */
-export type AvatarResponse = { url: string | null };
+/** GET /api/card?ghost=&depth=: a ghost's snoovatar and lifetime record (minus today's votes), fetched when its card opens. */
+export type CardResponse = { avatar: string | null; record: { deaths: number; trust: number; liar: number } | null };
+
+/** A board row: rank (ties: value, then user id, both descending), display name, value; `you` marks the caller. */
+export type BoardRow = { rank: number; name: string; value: number; you?: true };
+export type BoardRows = { rows: BoardRow[]; me: BoardRow | null; total: number };
+/** GET /api/board?depth=: loaded only when the Board opens. Bots never appear. */
+export type BoardResponse = { depth: number; today: BoardRows; deepest: BoardRows; souls: BoardRows; honour: BoardRows; trapsetter: BoardRow | null; liar: BoardRow | null };
+/** GET /api/pulse?depth=: the already-played screen's 20 s poll. */
+export type PulseResponse = { fell: number; carved: number };
+/** GET /api/chronicle: one row per floor, newest first. */
+export type ChronicleRow = { depth: number; fell: number; cleared: number; curse: Curse | null; zone: number | null; killer: string | null };
+export type ChronicleResponse = { rows: ChronicleRow[] };
 
 /** POST /api/vote: Trust or Liar on a ghost's carving (after your run), or a winner's curse vote. Final once stored. */
 export type VoteRequest = { depth: number; ghost: string; vote: Vote } | { depth: number; curse: Curse };

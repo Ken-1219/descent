@@ -472,6 +472,9 @@ h3 {
 }
 .end__panel {
   width: min(100%, 360px);
+  max-height: calc(100dvh - var(--pad) * 3 - env(safe-area-inset-bottom));
+  overflow-y: auto;
+  overscroll-behavior: contain;
   display: grid;
   gap: var(--pad);
 }
@@ -481,6 +484,12 @@ h3 {
 .end__actions {
   display: flex;
   gap: var(--gap);
+  /* A long panel scrolls; its actions stay in reach at the bottom. */
+  position: sticky;
+  bottom: calc(var(--pad) * -1);
+  margin-bottom: calc(var(--pad) * -1);
+  padding-bottom: var(--pad);
+  background: var(--ink-2);
 }
 .end__actions .btn {
   flex: 1;
@@ -692,7 +701,7 @@ body:has(#end:not([hidden])) .carving {
   height: 100%;
   min-height: 0;
   display: grid;
-  grid-template-rows: auto auto 1fr auto;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
   justify-items: center;
   align-items: start;
   gap: var(--gap);
@@ -843,15 +852,7 @@ body:has(#end:not([hidden])) .carving {
   }
 }
 
-/* Phase 8: the yesterday line (before your first move; wraps on phones) and the cursed floor number. */
-.yesterday {
-  color: var(--bone);
-  padding-block: 4px;
-}
-.yesterday[hidden],
-body:has(#end:not([hidden])) .yesterday {
-  display: none;
-}
+/* Phase 8: the cursed floor number (a blood number and mark). */
 .hud__floor[data-cursed] {
   color: var(--blood);
 }
@@ -863,4 +864,131 @@ body:has(#end:not([hidden])) .yesterday {
   margin-left: 3px;
   vertical-align: super;
   background: var(--blood);
+}
+
+/* Phase 9: the intro compass (yesterday's deaths and today's danger per zone), the board, the Chronicle, the plate. */
+.intro-compass {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 2px;
+}
+.intro-compass__cell {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0 4px;
+  padding: 2px 6px;
+  min-height: 36px;
+  align-content: center;
+  background: var(--ink-1);
+  border: var(--line) solid var(--ink-2);
+}
+.intro-compass__dead {
+  color: var(--wisp);
+}
+.intro-compass__danger {
+  color: var(--bone);
+}
+.intro-compass__cell[data-deadliest] {
+  border-color: var(--wisp);
+  border-style: dashed;
+}
+.intro-compass__cell[data-danger] {
+  border-color: var(--blood);
+}
+.intro__line,
+.intro__legend,
+.intro__new {
+  margin: 0;
+}
+.intro__new {
+  color: var(--gilt);
+}
+.minimap {
+  display: block;
+  width: auto;
+  height: 63px;
+  image-rendering: pixelated;
+  align-self: center;
+  justify-self: start;
+}
+.plate__meta {
+  margin: 0;
+  color: var(--pale);
+}
+.plate__links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--gap);
+}
+.end__panel .plate__links .btn {
+  width: auto;
+  flex: 1;
+}
+.board__tabs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+}
+.end__panel .board__tabs .btn {
+  padding: 0 4px;
+}
+.board,
+.chronicle {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 40vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.board__row {
+  display: grid;
+  grid-template-columns: 3ch minmax(0, 1fr) auto;
+  gap: var(--gap);
+  padding: 2px 0;
+}
+.board__name {
+  overflow-wrap: anywhere; /* a 20-character Reddit name wraps at 320 px; it never clips */
+}
+.board__row--you {
+  color: var(--ember);
+}
+.board__gap {
+  padding-left: 3ch;
+}
+.chronicle__row {
+  display: grid;
+  gap: 0;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--ink-1);
+}
+.chronicle__floor {
+  font-family: var(--font-title);
+  font-size: var(--t-head);
+}
+@media (max-height: 480px) {
+  .intro-compass__cell {
+    min-height: 26px;
+    padding: 0 4px;
+  }
+  .minimap {
+    display: none;
+  }
+  .board,
+  .chronicle {
+    max-height: 30vh;
+  }
+}
+
+.splash__view {
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+.splash__view .minimap {
+  height: 100%;
+  max-height: 168px;
+  min-height: 0;
 }

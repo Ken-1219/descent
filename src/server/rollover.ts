@@ -3,6 +3,7 @@
 import { context, reddit, redis, scheduler } from '@devvit/web/server';
 import { CURSE_TEXT, FLAIR, ZONE_NAMES } from '../shared/content';
 import { EMPTY_TALLY, rolloverFloor } from '../shared/crowd';
+import { showcaseFamilies } from '../shared/gen';
 import type { Floor } from '../shared/sim';
 import { dayStats, drainFlair, floorSeed, openFloor, tally, today } from './game';
 
@@ -40,13 +41,15 @@ async function advance(day: number, why: string): Promise<{ posted: number | nul
   const [t, stats] = await Promise.all([tally(day), dayStats(day)]);
   const rolled = rolloverFloor(next, floorSeed(next), t);
   const curse = rolled.mods.curses[0] ?? null;
-  const yesterday = { depth: day, fell: stats.fell, cleared: Math.max(0, stats.runs - stats.fell), zone: stats.zone, curse };
-  const floor: Floor = { ...rolled.floor, yesterday };
+  const killer = Object.entries(t.kills).sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))[0]?.[0] ?? null;
+  // The intro reads all of this from the floor itself: yesterday's deaths per zone, the top killer, today's new family.
+  const yesterday = { depth: day, fell: stats.fell, cleared: Math.max(0, stats.runs - stats.fell), zone: stats.zone, curse, deaths: [...t.deaths], killer };
+  const floor: Floor = { ...rolled.floor, yesterday, showcase: showcaseFamilies(next) };
   const p = await post(next, { mods: rolled.mods, floor, seed: rolled.seed });
   console.log(`ROLLOVER ${why}: floor ${day} -> ${next}, ladder step "${rolled.step}"${rolled.tried.length ? ` (after ${rolled.tried.map((x) => `${x.step}: ${x.why}`).join('; ')})` : ''}, win ${rolled.win}% vs plain ${rolled.plainWin}% (plain band check ${rolled.plainBandWin}% after ${rolled.rerolls} rerolls), ${floor.traps?.length ?? 0} player traps, curse ${curse ?? 'none'}, ${Date.now() - t0} ms`);
   await reddit.submitComment({ id: p.id, text: summary(yesterday, floor.traps?.length ?? 0) }).catch((e: unknown) => console.error(`summary comment failed: ${String(e)}`));
-  const killer = Object.entries(t.kills).sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))[0]?.[0] ?? null;
-  await redis.hSet('chronicle', { [String(day)]: JSON.stringify({ ...yesterday, killer }) });
+  const { deaths: _, ...ledger } = yesterday;
+  await redis.hSet('chronicle', { [String(day)]: JSON.stringify(ledger) });
   await flair(day);
   return { posted: next };
 }
@@ -83,7 +86,7 @@ export async function startFirstFloor(): Promise<{ depth: number; postId: string
   }
   await redis.hSet('rolled', { '1': '1' });
   const r = rolloverFloor(1, floorSeed(1), EMPTY_TALLY); // no crowd yet: a plain floor inside the plain band
-  const p = await post(1, { mods: r.mods, floor: r.floor, seed: r.seed });
+  const p = await post(1, { mods: r.mods, floor: { ...r.floor, showcase: showcaseFamilies(1) }, seed: r.seed });
   return { depth: 1, postId: p.id, created: true };
 }
 

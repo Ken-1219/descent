@@ -7,6 +7,7 @@ async (page) => {
   const results = [];
   const errs = [];
   const check = (name, pass, detail) => results.push({ name, pass: !!pass, detail });
+  try {
   const KEY = { U: 'ArrowUp', D: 'ArrowDown', L: 'ArrowLeft', R: 'ArrowRight', W: ' ' };
   const TO_DOOR = ['D', 'R', 'R', 'U', 'R', 'R']; // key, walk to (5,2), bump the door open
   const WIN = ['D', 'R', 'R', 'U', 'R', 'R', 'R', 'R', 'D', 'D', 'D', 'D', 'L', 'L', 'L', 'L', 'L', 'L'];
@@ -92,7 +93,7 @@ async (page) => {
     check('end overlay shown with one primary action', (await endVisible(p)) && (await p.locator('#end .btn--primary').count()) === 1, '');
     await p.keyboard.press('Enter');
     const r = await S(p);
-    check('first visit: Enter on "Descend to Floor 1" after Floor 0 opens the day\'s floor', r.floor === 1 && r.turn === 0 && !r.ended && !(await endVisible(p)), `floor ${r.floor} turn ${r.turn}`);
+    check('first visit: Enter on "Descend to Floor 1" after Floor 0 opens the day\'s floor at its intro', r.floor === 1 && r.turn === 0 && !r.ended && (await p.evaluate(() => document.getElementById('end').classList.contains('end--intro'))), `floor ${r.floor} turn ${r.turn}`);
     await p.evaluate(() => window.__descent.load(0));
     const t0 = Date.now();
     for (const a of WIN) { await p.keyboard.press(KEY[a]); await p.waitForTimeout(125); }
@@ -364,6 +365,7 @@ async (page) => {
       await p.goto(`${URL}${opts.q ?? ''}`);
       await p.waitForFunction(() => window.__descent);
       await p.evaluate(() => window.__descent.ready);
+      await p.evaluate(() => { const e = document.getElementById('end'); if (e.classList.contains('end--intro')) e.querySelector('.btn--primary').click(); });
       return { ctx, p };
     };
     const endText = (p) => p.locator('#end').innerText();
@@ -414,7 +416,8 @@ async (page) => {
     await c2.p.waitForURL(/post=2/);
     await c2.p.waitForFunction(() => window.__descent);
     await c2.p.evaluate(() => window.__descent.ready);
-    check('"Go to today\'s floor" opens today\'s floor', (await S(c2.p)).floor === 2 && !(await endVisible(c2.p)), `floor ${(await S(c2.p)).floor}`);
+    check('"Go to today\'s floor" opens today\'s floor (at its intro)', (await S(c2.p)).floor === 2 && (await c2.p.evaluate(() => document.getElementById('end').classList.contains('end--intro'))), `floor ${(await S(c2.p)).floor}`);
+    await c2.p.evaluate(() => document.querySelector('#end .btn--primary').click());
     // A dropped connection: Saving, then Not saved with a retry that succeeds once the network is back.
     await c2.p.evaluate(() => { window.__descent.skipAnim(true); window.__descent.offline(true); });
     await c2.p.evaluate(async () => { for (let i = 0; i < 1500 && !window.__descent.state().ended; i++) await window.__descent.act('W'); });
@@ -442,6 +445,7 @@ async (page) => {
       await p.goto(`${URL}${q}`);
       await p.waitForFunction(() => window.__descent);
       await p.evaluate(() => window.__descent.ready);
+      await p.evaluate(() => { const e = document.getElementById('end'); if (e.classList.contains('end--intro')) e.querySelector('.btn--primary').click(); });
       return { ctx, p };
     };
     const endText = (p) => p.locator('#end').innerText();
@@ -589,6 +593,7 @@ async (page) => {
       await p.goto(`${URL}${q}`);
       await p.waitForFunction(() => window.__descent);
       await p.evaluate(() => window.__descent.ready);
+      await p.evaluate(() => { const e = document.getElementById('end'); if (e.classList.contains('end--intro')) e.querySelector('.btn--primary').click(); });
       return { ctx, p };
     };
     const endText = async (p) => (await p.locator('#end').innerText()).replace(/\n+/g, ' | ');
@@ -646,7 +651,7 @@ async (page) => {
       await p.locator('#end .carvings__open').click();
       await p.locator('#end .carvings__row').first().click();
       const cardAfter = await p.locator('#card').innerText();
-      check('totals hidden during the run (no numbers, "Vote after your run"), shown after it', during && /Vote after your run/.test(cardDuring) && !/Trust|Liar/.test(cardDuring) && /Trust \d+/.test(cardAfter) && /Liar \d+/.test(cardAfter), `${cardDuring.replace(/\n+/g, ' | ')} → ${cardAfter.replace(/\n+/g, ' | ')}`);
+      check('totals hidden during the run (no vote buttons or counts, "Vote after your run"), shown after it', during && /Vote after your run/.test(cardDuring) && !/Trust \d|Liar \d/.test(cardDuring) && /Trust \d+/.test(cardAfter) && /Liar \d+/.test(cardAfter), `${cardDuring.replace(/\n+/g, ' | ')} → ${cardAfter.replace(/\n+/g, ' | ')}`);
       await p.evaluate(() => window.__descent.offline(true));
       await p.locator('#card').getByRole('button', { name: /^Trust/ }).click();
       await p.waitForTimeout(300);
@@ -718,15 +723,13 @@ async (page) => {
       await p.goto(`${URL}${q}`);
       await p.waitForFunction(() => window.__descent);
       await p.evaluate(() => window.__descent.ready);
+      await p.evaluate(() => { const e = document.getElementById('end'); if (e.classList.contains('end--intro')) e.querySelector('.btn--primary').click(); });
       return { ctx, p };
     };
     const kill = (p) => p.evaluate(async () => { window.__descent.skipAnim(true); for (const a of 'DRRURRRRRRRLRLR') await window.__descent.act(a); });
     {
       const { ctx, p } = await ctxAt({ width: 390, height: 844 }, '?floor=f0&yesterday=1&curse=frail');
-      const line = await p.locator('#yesterday').innerText();
       const chip = await p.locator('.hud__floor').getAttribute('aria-label');
-      await p.evaluate(async () => { window.__descent.skipAnim(true); await window.__descent.act('D'); });
-      check('the yesterday line names the deaths, the deadliest zone and the curse before the first move, then goes', /Yesterday 23 fell on Floor \d+, most in the north-east\./.test(line) && /Curse: Frail/.test(line) && (await p.locator('#yesterday').isHidden()), line);
       check('a cursed floor shows its curse: a blood mark on the floor number, named in its label', /curse: Frail/.test(String(chip)) && (await p.locator('.hud__floor[data-cursed]').count()) === 1 && (await S(p)).hearts === 2, String(chip));
       await ctx.close();
     }
@@ -746,14 +749,18 @@ async (page) => {
       await ctx.close();
     }
     {
-      const { ctx, p } = await ctxAt({ width: 390, height: 844 }, '?floor=f0&mytrap=2,1&yesterday=1');
-      const line = await p.locator('#yesterday').innerText();
+      const { ctx, p } = await ctxAt({ width: 390, height: 844 }, '?floor=f0&mytrap=2,1&yesterday=1&nointro=0');
+      await p.goto(`${URL}?floor=f0&mytrap=2,1&yesterday=1`);
+      await p.waitForFunction(() => window.__descent);
+      await p.evaluate(() => window.__descent.ready);
+      const line = await p.locator('#end').innerText();
+      await p.evaluate(() => document.querySelector('#end .btn--primary').click());
       await p.evaluate(async () => { window.__descent.skipAnim(true); for (let i = 0; i < 1500 && !window.__descent.state().ended; i++) await window.__descent.act('W'); });
       await p.waitForSelector('#end select.picker');
       await p.getByRole('button', { name: 'Skip' }).click();
       await p.waitForFunction(() => /Score/.test(document.getElementById('end').innerText));
       const plate = await p.locator('#end').innerText();
-      check('a trap owner sees what their trap did, before the run and on the plate', /Your spikes hurt 2 and took 1 here\./.test(line) && /Your spikes hurt 2 and took 1 here\./.test(plate), line);
+      check('a trap owner sees what their trap did, on the intro and on the plate', /Your spikes hurt 2 and took 1 here\./.test(line) && /Your spikes hurt 2 and took 1 here\./.test(plate), line.replace(/\n+/g, ' | '));
       await ctx.close();
     }
     {
@@ -767,7 +774,7 @@ async (page) => {
       const layout = (p, what, vp) => p.evaluate(() => {
         const out = [];
         if (document.documentElement.scrollWidth > innerWidth) out.push('hscroll');
-        for (const el of document.querySelectorAll('#yesterday:not([hidden]), .hud__floor, #end:not([hidden]) .end__panel')) {
+        for (const el of document.querySelectorAll('.hud__floor, #end:not([hidden]) .end__panel')) {
           const r = el.getBoundingClientRect();
           if (r.width && (r.right > innerWidth + 0.5 || r.bottom > innerHeight + 0.5 || r.left < 0)) out.push(`${el.id || el.className} off screen`);
         }
@@ -778,7 +785,6 @@ async (page) => {
       }).then((o) => bad.push(...o.map((x) => `${vp.width}x${vp.height} ${what}: ${x}`)));
       for (const vp of [{ width: 320, height: 320 }, { width: 360, height: 640 }, { width: 844, height: 390 }, { width: 1280, height: 800 }]) {
         const { ctx, p } = await ctxAt(vp, '?floor=trap&curse=light-sleepers&yesterday=1&mytrap=3,2');
-        await layout(p, 'yesterday line', vp);
         await kill(p);
         await p.waitForSelector('#end select.picker');
         await layout(p, 'trap death', vp);
@@ -787,9 +793,149 @@ async (page) => {
         await layout(p, 'plate', vp);
         await ctx.close();
       }
-      check('layout 320×320 to 1280×800: yesterday line, curse chip, trap death and plate fit', bad.length === 0, bad.join(' ; '));
+      check('layout 320×320 to 1280×800: cursed floor number, trap death and plate fit', bad.length === 0, bad.join(' ; '));
     }
   }
 
+
+  // 16. Phase 9: the intro in each state, two taps from the splash, the board (inside and outside the top), the lifetime record
+  {
+    const raw = async (vp, url) => {
+      const ctx = await browser.newContext({ viewport: vp });
+      await ctx.addInitScript(() => localStorage.setItem('descent:f0', '1'));
+      const p = await ctx.newPage();
+      p.on('pageerror', (e) => errs.push(String(e)));
+      p.on('console', (m) => { if (m.type() === 'error') errs.push(m.text()); });
+      await p.goto(url);
+      return { ctx, p };
+    };
+    const ready = async (p) => { await p.waitForFunction(() => window.__descent); await p.evaluate(() => window.__descent.ready); };
+    const endText = async (p) => (await p.locator('#end').innerText()).replace(/\n+/g, ' | ');
+    const isIntro = (p) => p.evaluate(() => document.getElementById('end').classList.contains('end--intro'));
+    const states = [
+      ['Floor 1 (no yesterday)', '?floor=f0', /The first floor\. Nobody has fallen yet\./, /No curse today\./],
+      ['under 3 deaths', '?floor=f0&yesterday=few', /Only 2 fell on Floor \d+: too few to move anything\./, /No curse today\./],
+      ['a full day, cursed', '?yesterday=1&curse=frail&ghosts=20', /23 fell on Floor \d+, most in the north-east; 9 cleared it\./, /Cursed: Frail, start on 2 hearts\./],
+    ];
+    for (const [name, q, a, b] of states) {
+      const { ctx, p } = await raw({ width: 390, height: 844 }, `${URL}${q}`);
+      await ready(p);
+      const t = await endText(p);
+      const cells = await p.locator('.intro-compass__cell').count();
+      check(`intro, ${name}: states what today's floor holds, one Descend`, (await isIntro(p)) && a.test(t) && b.test(t) && cells === 9 && (await p.locator('#end .btn--primary').innerText()) === 'Descend', t.slice(0, 160));
+      await ctx.close();
+    }
+    {
+      // The danger line follows the stored floor: the fixture's deaths peak in the north-east, the floor's danger elsewhere.
+      const { ctx, p } = await raw({ width: 390, height: 844 }, `${URL}?yesterday=1&ghosts=20`);
+      await ready(p);
+      const t = await endText(p);
+      const marked = await p.evaluate(() => ({ dead: [...document.querySelectorAll('.intro-compass__cell')].findIndex((c) => c.hasAttribute('data-deadliest')), danger: [...document.querySelectorAll('.intro-compass__cell')].findIndex((c) => c.hasAttribute('data-danger')) }));
+      check('intro reads today\'s stored floor: where the danger actually is, beside where the crowd died', marked.dead === 2 && marked.danger >= 0 && (marked.danger === 2 || /Today's danger gathered in the/.test(t)), JSON.stringify(marked));
+      await ctx.close();
+    }
+    {
+      // Two taps: splash Descend, then intro Descend; the first move is then open.
+      const { ctx, p } = await raw({ width: 390, height: 844 }, 'http://localhost:5190/splash.html');
+      await p.waitForFunction(() => !document.getElementById('go').disabled);
+      await p.locator('#go').click(); // tap 1
+      await ready(p);
+      await p.locator('#end .btn--primary').click(); // tap 2
+      await p.keyboard.press('ArrowDown'); // the first move
+      await p.waitForTimeout(300);
+      const s1 = await S(p);
+      check('a returning player reaches the first move in two taps from the splash', s1.floor === 1 && s1.turn === 1 && (await p.locator('#end').isHidden()), `floor ${s1.floor} turn ${s1.turn}`);
+      await ctx.close();
+    }
+    const die = (p) => p.evaluate(async () => { window.__descent.skipAnim(true); for (let i = 0; i < 1500 && !window.__descent.state().ended; i++) await window.__descent.act('W'); });
+    const toPlate = async (p) => {
+      await p.evaluate(() => { const e = document.getElementById('end'); if (e.classList.contains('end--intro')) e.querySelector('.btn--primary').click(); });
+      await die(p);
+      await p.waitForSelector('#end select.picker');
+      await p.getByRole('button', { name: 'Skip' }).click();
+      await p.waitForFunction(() => /Score/.test(document.getElementById('end').innerText));
+    };
+    {
+      const { ctx, p } = await raw({ width: 390, height: 844 }, `${URL}?board=5&ghosts=20`);
+      await ready(p);
+      await toPlate(p);
+      const plate = await endText(p);
+      const maps = await p.locator('#end .minimap').count();
+      await p.locator('#end .board__open').click();
+      await p.waitForSelector('#end .board__row');
+      const inside = await p.evaluate(() => ({ you: [...document.querySelectorAll('#end .board__row--you')].length, gap: !!document.querySelector('#end .board__gap'), rows: document.querySelectorAll('#end .board__row').length }));
+      check('the already-played plate: streak, live count, countdown, mini-map, Board and Chronicle', /Streak 1 floor/.test(plate) && /fell here today/.test(plate) && /next floor in \dh/.test(plate) && maps === 1, plate.slice(0, 200));
+      check('the board with you inside the top rows: your row marked, no gap', inside.you === 1 && !inside.gap && inside.rows === 6, JSON.stringify(inside));
+      await p.locator('#end .btn--primary').click(); // Back
+      await p.locator('#end .carvings__open').click();
+      await p.locator('#end .carvings__row').first().click();
+      await p.waitForFunction(() => /Deaths/.test(document.getElementById('card').innerText));
+      const card = (await p.locator('#card').innerText()).replace(/\n+/g, ' | ');
+      check('the ghost card shows the lifetime record (deaths, trusted, liar)', /Deaths \| 7 \| Trusted \| 12 \| Liar \| 3/.test(card), card);
+      await p.keyboard.press('Escape');
+      await ctx.close();
+    }
+    {
+      const { ctx, p } = await raw({ width: 390, height: 844 }, `${URL}?board=40`);
+      await ready(p);
+      await toPlate(p);
+      await p.locator('#end .board__open').click();
+      await p.waitForSelector('#end .board__row');
+      const outside = await p.evaluate(() => ({ you: document.querySelector('#end .board__row--you')?.textContent, gap: !!document.querySelector('#end .board__gap'), rows: document.querySelectorAll('#end .board__row').length }));
+      check('the board with you outside the top rows: top 10, a gap, then your row and rank', outside.gap && outside.rows === 11 && /^41/.test(outside.you ?? ''), JSON.stringify(outside));
+      await p.locator('#end .btn--primary').click();
+      await p.locator('#end .chronicle__open').click();
+      await p.waitForFunction(() => /Chronicle/.test(document.getElementById('end').innerText));
+      check('the Chronicle opens from the plate', /ledger/.test(await endText(p)), (await endText(p)).slice(0, 100));
+      await ctx.close();
+    }
+    {
+      const bad = [];
+      const layout = (p, what, vp) => p.evaluate(() => {
+        const out = [];
+        if (document.documentElement.scrollWidth > innerWidth) out.push('hscroll');
+        const panel = document.querySelector('#end:not([hidden]) .end__panel');
+        if (panel) {
+          const r = panel.getBoundingClientRect();
+          if (r.top < -0.5 || r.bottom > innerHeight + 0.5 || r.right > innerWidth + 0.5) out.push('panel off screen');
+          const prim = panel.querySelector('.btn--primary')?.getBoundingClientRect();
+          if (!prim || prim.bottom > innerHeight + 0.5 || prim.top < 0) out.push('primary off screen');
+        }
+        for (const b of document.querySelectorAll('#end button')) { const r = b.getBoundingClientRect(); if (r.width && (r.height < 44 || r.width < 44)) out.push(`small ${b.textContent.trim().slice(0, 10)}`); }
+        for (const n of document.querySelectorAll('#end .board__name')) if (n.scrollWidth > n.clientWidth + 1) out.push(`name clipped ${n.textContent}`);
+        return out;
+      }).then((o) => bad.push(...o.map((x) => `${vp.width}x${vp.height} ${what}: ${x}`)));
+      for (const vp of [{ width: 320, height: 320 }, { width: 360, height: 640 }, { width: 844, height: 390 }, { width: 1280, height: 800 }]) {
+        for (const q of ['?floor=f0', '?floor=f0&yesterday=few', '?yesterday=1&curse=frail&mytrap=2,1&ghosts=20&board=40']) {
+          const { ctx, p } = await raw(vp, `${URL}${q}`);
+          await ready(p);
+          await layout(p, `intro ${q}`, vp);
+          if (q.includes('board')) {
+            await toPlate(p);
+            await layout(p, 'plate', vp);
+            await p.locator('#end .board__open').click();
+            await p.waitForSelector('#end .board__row');
+            await layout(p, 'board', vp);
+            await p.locator('#end .btn--primary').click();
+            await p.locator('#end .chronicle__open').click();
+            await p.waitForFunction(() => /Chronicle/.test(document.getElementById('end').innerText));
+            await layout(p, 'chronicle', vp);
+          }
+          await ctx.close();
+        }
+        const sp = await raw(vp, 'http://localhost:5190/splash.html?ghosts=20');
+        await sp.p.waitForFunction(() => !document.getElementById('go').disabled);
+        const s = await sp.p.evaluate(() => { const b = document.getElementById('go').getBoundingClientRect(); return document.documentElement.scrollWidth <= innerWidth && b.bottom <= innerHeight + 0.5 && b.height >= 44 && !!document.querySelector('.splash__view canvas'); });
+        if (!s) bad.push(`${vp.width}x${vp.height} splash`);
+        await sp.ctx.close();
+      }
+      check('layout 320×320 to 1280×800: intro states, plate, board (a 20-character name unclipped), Chronicle and splash fit', bad.length === 0, bad.join(' ; '));
+    }
+  }
+
+  } catch (e) {
+    // A step that throws (a timeout) is recorded after the last check that ran, so the rest of the report survives.
+    check(`suite stopped after "${results.at(-1)?.name}"`, false, String(e).split('\n')[0]);
+  }
   return { passed: results.filter((r) => r.pass).length, failed: results.filter((r) => !r.pass), total: results.length, errs, results: results.map((r) => `${r.pass ? 'PASS' : 'FAIL'} ${r.name}${r.detail ? ' — ' + r.detail : ''}`) };
 }

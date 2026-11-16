@@ -1,14 +1,16 @@
 /// <reference types="vite/client" />
 // Boot, input router, HUD wiring and the dev hook. Rules live in src/shared/sim.ts; this file only sends actions.
-import { CURSE_TEXT, FLOOR_0, FLOOR_0_GHOSTS, HEARTS, ITEMS, NAMELESS, PALETTE, TILE, TORCH_LOW_PCT, TRAPS, TRAP_TEXT, ZONE_NAMES, type Curse } from '../shared/content';
-import { slitLine } from '../shared/grid';
+import { BOARD, CURSE_TEXT, FLOOR_0, FLOOR_0_GHOSTS, HEARTS, ITEMS, KILL_FAMILY, NAMELESS, PALETTE, TILE, TORCH_LOW_PCT, TRAPS, TRAP_TEXT, ZONE_NAMES, type Curse } from '../shared/content';
+import { slitLine, zoneOf } from '../shared/grid';
 import { navigateTo, showLoginPrompt } from '@devvit/web/client';
 import type { FloorResponse, GhostView, MyTrap, RunResult } from '../shared/api';
 import { carvingLabel, type Ghost, type Vote } from '../shared/ghosts';
 import { isAction, replay, start, step, type Action, type End, type Floor, type Pos } from '../shared/sim';
 import { api, submit } from './net';
 import { iconCanvas, loadPack, packIcon } from './sprites';
-import { button, carvingPicker, carvingsList, controls, createHud, cursePicker, el, endPanel, ghostCard, saveLine, trapPicker, type PanelAction } from './ui';
+import { button, carvingPicker, carvingsList, controls, createHud, cursePicker, el, endPanel, ghostCard, introCompass, saveLine, trapPicker, type PanelAction } from './ui';
+import { miniMap } from './minimap';
+import { boardPanel, chroniclePanel } from './screens';
 
 const $ = (id: string) => {
   const node = document.getElementById(id);
@@ -19,7 +21,6 @@ const stage = $('stage');
 const end = $('end');
 const pad = $('controls');
 const carvingLine = $('carving');
-const yesterdayLine = $('yesterday');
 const cardRoot = $('card');
 
 // The map view keeps at least 9×9 tiles at the largest integer zoom (2–4), then fills the stage with whole tiles.
@@ -87,7 +88,6 @@ const view = () => {
   const curse = state.floor.curses?.[0];
   hud({ hearts: state.hearts, hasKey: state.hasKey, item: pack ? state.item : null, torch: state.torch, torchMax: state.floor.torch, depth: state.floor.depth, curse: curse ? CURSE_TEXT[curse].name : null });
   nearby();
-  yesterday();
 };
 controls(pad);
 view();
@@ -287,7 +287,7 @@ async function result(prefetched?: FloorResponse) {
   flushVotes(r.depth);
   const ended: End = { kind: r.run.outcome, cause: r.run.cause };
   const title = r.run.outcome === 'won' ? `Floor ${r.depth} cleared` : `You fell on Floor ${r.depth}`;
-  const line = `Score ${r.run.score}. ${endLine(ended, r.run.turns, r.run.outcome === 'dead' ? (mine?.by ? `A trap set by u/${mine.by}` : null) : null)} ${fellLine(r.ghosts.fell)}`;
+  const line = `Score ${r.run.score}. ${endLine(ended, r.run.turns, r.run.outcome === 'dead' ? (mine?.by ? `A trap set by u/${mine.by}` : null) : null)}`;
   const c = r.choices;
   const body: Node[] = [
     ...(r.myTrap ? [el('p', 'own-ghost', trapNews(r.myTrap))] : []),
@@ -295,12 +295,23 @@ async function result(prefetched?: FloorResponse) {
     ...(c.curse ? [el('p', 'own-ghost', `Your curse vote: ${CURSE_TEXT[c.curse].name}. ${(c.standings ?? []).map(([k, n]) => `${CURSE_TEXT[k].name} ${n}`).join(' · ')}`)] : []),
     ...(c.trap ? [el('p', 'own-ghost', `Your trap: ${TRAP_TEXT[c.trap.kind]}, ${ZONE_NAMES[c.trap.zone]?.toLowerCase()}`)] : []),
   ];
+  // The already-played screen: your wisp on the map, the streak, the live count (polled), the countdown, then more.
+  body.unshift(miniMap(r.floor.rows, r.ghosts.tiles.map(([x, y]) => ({ x, y, mine: !!mine && mine.x === x && mine.y === y }))));
+  const fellNow = el('span', 'plate__fell', fellLine(r.ghosts.fell));
+  const clock = el('span', 'plate__clock', '');
+  body.push(el('p', 'plate__meta', `Streak ${r.streak} floor${r.streak === 1 ? '' : 's'} · `, fellNow, ' · ', clock));
+  const links = el('div', 'plate__links');
   const others = shown.list.filter((g) => g.carving && !g.mine).length;
-  if (others) {
-    const open = button(`Carvings (${others})`, 'carvings__open');
-    open.addEventListener('click', () => carvingsPanel(r.depth));
-    body.push(open);
-  }
+  const link = (label: string, cls: string, go: () => void) => {
+    const b = button(label, cls);
+    b.addEventListener('click', go);
+    links.append(b);
+  };
+  if (others) link(`Carvings (${others})`, 'carvings__open', () => carvingsPanel(r.depth));
+  const back = { label: 'Back', run: () => void result(plate ?? undefined) };
+  link('Board', 'board__open', () => void boardPanel(end, r.depth, back));
+  link('Chronicle', 'chronicle__open', () => void chroniclePanel(end, back, killerName));
+  body.push(links);
   // While the floor is live, the next unfinished choice is the plate's one primary action.
   const won = r.run.outcome === 'won';
   const next: PanelAction | null = !r.live ? null
@@ -309,8 +320,28 @@ async function result(prefetched?: FloorResponse) {
     : mine && !mine.carving ? { label: 'Carve', run: () => pickCarving(title, line, saveLine(), r.depth) }
     : null;
   endPanel(end, { title, line, body, primary: next ?? practice, ...(next ? { secondary: practice } : {}) });
+  watch(r.depth, r.nextAt, fellNow, clock); // after the plate is in the page: the clock stops once it leaves
 }
 let plate: (FloorResponse & { kind: 'played' }) | null = null;
+
+/**
+ * The plate's live parts: the countdown to the next floor (each second) and the ghost count, polled every BOARD.pollMs
+ * only while the plate shows and the tab is visible (§15.3), asking for the counts alone.
+ */
+let watching = 0;
+function watch(depth: number, nextAt: number, fell: HTMLElement, clock: HTMLElement) {
+  clearInterval(watching);
+  let ticks = 0;
+  const tick = () => {
+    if (end.hidden || !document.body.contains(clock)) return clearInterval(watching);
+    const left = Math.max(0, nextAt - Date.now());
+    const h = Math.floor(left / 3_600_000), m = Math.floor((left % 3_600_000) / 60_000), sec = Math.floor((left % 60_000) / 1000);
+    clock.textContent = left ? `next floor in ${h}h ${String(m).padStart(2, '0')}m ${String(sec).padStart(2, '0')}s` : 'the next floor is opening';
+    if (++ticks % (BOARD.pollMs / 1000) === 0 && !document.hidden) void api.pulse(depth).then((p) => (fell.textContent = fellLine(p.fell)), () => undefined);
+  };
+  tick();
+  watching = window.setInterval(tick, 1000);
+}
 
 /** After your run: the floor's carvings, each opening its card with Trust and Liar. */
 function carvingsPanel(depth: number) {
@@ -359,11 +390,12 @@ function play(f: Floor, real: Day | null) {
   floor = f;
   live = real && liveOf(real);
   again();
+  if (live && state.turn === 0 && !state.ended) intro();
 }
 
 function again() {
   end.hidden = true;
-  end.classList.remove('end--clear');
+  end.classList.remove('end--clear', 'end--intro');
   queued = null;
   state = begin();
   scene.reset(state);
@@ -386,26 +418,54 @@ function setGhosts(g: GhostView) {
 /** Steps from the hero, diagonals counting one: 1 is on or next to. */
 const reach = (p: Pos) => Math.max(Math.abs(p.x - state.pos.x), Math.abs(p.y - state.pos.y));
 
+/** Today's danger per compass zone, counted from the stored floor itself (hazards and enemies), for the intro. */
+const DANGER = '^Oo,_giKGYxFSuZs';
+const dangerOf = (f: Floor) => {
+  const z = Array<number>(9).fill(0);
+  f.rows.forEach((row, y) => [...row].forEach((c, x) => DANGER.includes(c) && (z[zoneOf({ x, y }, f.rows.length)] = (z[zoneOf({ x, y }, f.rows.length)] ?? 0) + 1)));
+  return z;
+};
+const killerName = (k: string) => KILL_FAMILY[k] ?? (k === 'trap' ? 'player traps' : `the ${k}`);
+const zoneName = (z: number) => ZONE_NAMES[z]?.toLowerCase() ?? '';
+
 /**
- * Before your first move on the day's floor, one line says what yesterday did to today: how many fell and where, the
- * curse, and what your own trap has done (the full intro screen is Phase 9).
+ * The intro (replaces Phase 8's yesterday line): before your first move on the day's floor. It reads today's stored
+ * floor, not only yesterday's tally: the compass shows where the crowd died and where today's danger actually is, so a
+ * displaced effect says where the hazards went. One action, Descend (splash Descend + this = two taps to your first move).
  */
-function yesterday() {
-  const y = state.floor.yesterday;
-  const show = !!live && state.turn === 0 && !state.ended;
-  const t = playable?.myTrap ?? null;
-  if (!show || (!y && !t)) {
-    yesterdayLine.hidden = true;
-    return;
+function intro() {
+  const f = state.floor;
+  const y = f.yesterday;
+  const danger = dangerOf(f);
+  const deaths = y?.deaths ?? null;
+  const fell = deaths ? deaths.reduce((a, b) => a + b, 0) : (y?.fell ?? 0);
+  const hz = danger.indexOf(Math.max(...danger));
+  const lines: string[] = [];
+  if (!y) lines.push('The first floor. Nobody has fallen yet.');
+  else if (fell < 3) lines.push(`Only ${fell} fell on Floor ${y.depth}: too few to move anything.`);
+  else {
+    lines.push(`${y.fell} fell on Floor ${y.depth}${y.zone === null ? '' : `, most in the ${zoneName(y.zone)}`}; ${y.cleared} cleared it.`);
+    if (y.zone !== null && Math.max(...danger) > 0 && hz !== y.zone) lines.push(`Today's danger gathered in the ${zoneName(hz)}.`);
+    if (y.killer) lines.push(`Top killer: ${killerName(y.killer)}.`);
   }
-  const parts = [
-    y ? (y.fell ? `Yesterday ${y.fell} fell on Floor ${y.depth}${y.zone === null ? '' : `, most in the ${ZONE_NAMES[y.zone]?.toLowerCase()}`}.` : `Nobody fell on Floor ${y.depth} yesterday.`) : '',
-    y?.curse ? `Curse: ${CURSE_TEXT[y.curse].name}, ${CURSE_TEXT[y.curse].effect}.` : '',
-    trapNews(t),
-  ].filter(Boolean);
-  yesterdayLine.textContent = parts.join(' ');
-  yesterdayLine.hidden = false;
-  carvingLine.hidden = true; // one line at a time; carvings show from the first move on
+  const traps = f.traps?.length ?? 0;
+  if (traps) lines.push(`Survivors set ${traps} trap${traps === 1 ? '' : 's'} here.`);
+  const news = trapNews(playable?.myTrap ?? null);
+  if (news) lines.push(news);
+  const fresh = f.showcase?.[0];
+  const curse = f.curses?.[0];
+  endPanel(end, {
+    title: `Floor ${f.depth}`,
+    line: curse ? `Cursed: ${CURSE_TEXT[curse].name}, ${CURSE_TEXT[curse].effect}.` : 'No curse today.',
+    body: [
+      introCompass(deaths, danger),
+      el('p', 'intro__legend muted', deaths ? '☠ fell yesterday · ▲ danger today' : '▲ danger today'),
+      ...lines.map((t) => el('p', 'intro__line', t)),
+      ...(fresh ? [el('p', 'intro__new', `New today: ${fresh}.`)] : []),
+    ],
+    primary: { label: 'Descend', run: () => (end.hidden = true) },
+  });
+  end.classList.add('end--intro');
 }
 
 /** On or next to a carved ghost, its carving shows in a line under the HUD (aria-live): no input needed. */
@@ -426,8 +486,12 @@ let afterCard: (() => void) | undefined;
 /** The ghost card: tap a wisp or press Read. The snoovatar loads only now; the wisp stays if there is none. */
 function openCard(g: Ghost, onClose?: () => void) {
   const avatar = el('div', 'ghost-card__img', iconCanvas('wisp', 4));
-  if (g.name)
-    void api.avatar(g.name).then(({ url }) => {
+  // The snoovatar and the lifetime record load only now (A36): lifetime numbers minus today's votes on today's carving.
+  const record = el('dl', 'ghost-card__record');
+  const known = state.floor.depth > 0 && !devFloor && !g.id.startsWith('floor0:') && !g.id.startsWith('tile:');
+  if (known)
+    void api.card(g.id, state.floor.depth).then(({ avatar: url, record: r }) => {
+      if (r) record.replaceChildren(...([['Deaths', r.deaths], ['Trusted', r.trust], ['Liar', r.liar]] as const).map(([k, v]) => el('div', '', el('dt', '', k), el('dd', '', String(v)))));
       if (!url) return;
       const img = el('img');
       img.alt = '';
@@ -449,6 +513,7 @@ function openCard(g: Ghost, onClose?: () => void) {
     : !ended ? { canVote: false, note: 'Vote after your run.' }
     : { canVote: !!plate?.live, ...(g.votes ? { totals: g.votes } : {}), ...(g.myVote ? { mine: g.myVote } : {}), onVote: (v: Vote) => castVote(depth, g, v) };
   cardRoot.replaceChildren(ghostCard({ name: g.name, carving: g.carving ? carvingLabel(g.carving) : null, cause: g.by ? `trap set by u/${g.by}` : g.cause, avatar, ...(votes ? { votes } : {}), onClose: close }));
+  cardRoot.querySelector('.ghost-card__text')?.append(record);
   cardRoot.hidden = false;
   cardRoot.querySelector<HTMLButtonElement>('.ghost-card__close')?.focus();
 }
@@ -582,6 +647,7 @@ else if (day.kind === 'played') void result(day);
 else if (day.kind === 'none' && !devFloor) endPanel(end, { title: 'No floor yet', line: 'The first floor opens soon.', primary: practice });
 // day.kind === 'practice': a "Post Floor 0" post simply plays Floor 0, which is already loaded.
 else if (state.ended) finish(state.ended); // resumed onto a finished run: show it and (re)submit, which is a safe retry
+else if (live && state.turn === 0) intro(); // a fresh run on the day's floor starts at the intro
 
 void scene.ready.then(() => performance.mark('descent:interactive'));
 

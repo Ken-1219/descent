@@ -5,7 +5,7 @@ import {
   TIERS, TILES_PER_INSTANCE, TRAP_MAX, TRAP_ZONE_MAX, TRAPS, WARDEN_POS, type Curse, type Family, type Item, type Tier,
 } from './content';
 import { bot } from './bot';
-import { DIRS, bfs, blocks, dist, find, isWall, same, setTile, slitLine, tileAt, width, type Pos } from './grid';
+import { DIRS, bfs, blocks, dist, find, isWall, same, setTile, slitLine, tileAt, width, zoneOf, type Pos } from './grid';
 import { hash, mulberry32 } from './rng';
 import { spikeStage, start, step, tierOf, type Action, type Floor, type PlacedTrap, type Rect } from './sim';
 
@@ -49,8 +49,6 @@ export function showcaseFamilies(depth: number): Family[] {
   return fresh.length ? fresh : rotate ? [rotate] : [];
 }
 
-/** Compass zone 0..8 (row-major thirds of the grid). */
-export const zoneOf = (p: Pos, side: number) => Math.min(2, Math.floor((3 * p.x) / side)) + 3 * Math.min(2, Math.floor((3 * p.y) / side));
 
 /**
  * Budget weights per zone (×10) from yesterday's deaths, by share rather than count, so 5 deaths show and 1,000 rank like

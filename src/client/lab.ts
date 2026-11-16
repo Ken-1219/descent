@@ -1,6 +1,6 @@
 // LOCAL ONLY: Design Lab. Never a Devvit entrypoint.
 import { PALETTE, TILE, type Token } from '../shared/content';
-import { bestiaryTab, caption, depthTab, figure, ghostsTab, rolloverTab, section } from './labfloors';
+import { bestiaryTab, caption, depthTab, figure, ghostsTab, rolloverTab, screensTab, section } from './labfloors';
 import {
   ANIMS, rgba, shine, type Light, buildAtlas, contrast, drawAnim,
   drawFrame, drawPack, frameAt, iconCanvas, loadPack, type Anim, type Atlas, type PackName,
@@ -299,6 +299,7 @@ const TABS: [string, string, () => Node[]][] = [
   ['depth', 'Depth', depthTab],
   ['ghosts', 'Ghosts', ghostsTab],
   ['rollover', 'Rollover', rolloverTab],
+  ['screens', 'Screens', screensTab],
 ];
 
 const show = () => {

@@ -7,7 +7,7 @@ import { replay, score, start, step, type Action, type Floor } from '../src/shar
 import { carve, floorFor, ghostsOf, openFloor, placeTrap, purgeBots, resetRun, seedBots, submitRun, tally, voteCarving, voteCurse } from '../src/server/game';
 import { resolveCurse } from '../src/shared/gen';
 import { CARVINGS } from '../src/shared/content';
-import { zoneOf } from '../src/shared/gen';
+import { zoneOf } from '../src/shared/grid';
 import { judge } from '../src/shared/sim';
 import { rollover, startFirstFloor } from '../src/server/rollover';
 

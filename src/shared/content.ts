@@ -314,3 +314,8 @@ export const KILL_FAMILY: Readonly<Record<string, Family>> = {
 };
 /** Flair updates per rollover run (§15.3); the rest continue in a follow-up job. Reddit's batch call takes 100. */
 export const FLAIR = { perRun: 200, batch: 100 };
+
+// ---- Phase 9: screens ----
+
+/** Board rows per board (plus the caller's own row), Chronicle rows, and the already-played poll (§15.3: every 20 s). */
+export const BOARD = { top: 10, chronicle: 30, pollMs: 20_000 };

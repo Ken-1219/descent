@@ -1,6 +1,9 @@
 /// <reference types="vite/client" />
 // The feed card: floor number, Descend, played state. No Phaser and no sim: one request, a few DOM writes (§15.3).
 import { context, navigateTo, requestExpandedMode, showLoginPrompt } from '@devvit/web/client';
+import { CURSE_TEXT, PALETTE } from '../shared/content';
+import type { Floor } from '../shared/sim';
+import { miniMap } from './minimap';
 import { api } from './net';
 
 const $ = (id: string) => {
@@ -11,6 +14,7 @@ const $ = (id: string) => {
 const floor = $('floor');
 const line = $('line');
 const go = $('go');
+const view = $('view');
 if (!(go instanceof HTMLButtonElement)) throw new Error('#go must be a button');
 
 // The post knows its floor, so the number shows before any request returns.
@@ -29,9 +33,47 @@ const set = (floorText: string | null, text: string, label: string, act: (e: Mou
   onGo = act;
 };
 
+/**
+ * Today's floor in miniature with its wisps, and a 3-second loop over it: a delver falls (ember), a wisp rises where it
+ * fell, and tomorrow's trap appears (blood). Reduced motion keeps the still map.
+ */
+function render(f: Floor, tiles: readonly (readonly [number, number, number])[]) {
+  const map = miniMap(f.rows, tiles.map(([x, y]) => ({ x, y })), 4);
+  view.replaceChildren(map);
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const ctx = map.getContext('2d');
+  const floorTiles = f.rows.flatMap((row, y) => [...row].flatMap((c, x) => (c === '.' ? [{ x, y }] : [])));
+  const base = ctx?.getImageData(0, 0, map.width, map.height);
+  if (!ctx || !base || !floorTiles.length) return;
+  let step = 0;
+  let at = floorTiles[0] ?? { x: 0, y: 0 };
+  let trap = at;
+  setInterval(() => {
+    if (step === 0) {
+      at = floorTiles[(Date.now() >> 10) % floorTiles.length] ?? at;
+      trap = floorTiles[((Date.now() >> 10) * 7) % floorTiles.length] ?? trap;
+    }
+    ctx.putImageData(base, 0, 0);
+    const dot = (p: { x: number; y: number }, colour: string) => {
+      ctx.fillStyle = colour;
+      ctx.fillRect(p.x * 4, p.y * 4, 4, 4);
+    };
+    if (step === 0) dot(at, PALETTE.ember);
+    if (step === 1) dot({ x: at.x, y: Math.max(0, at.y - 1) }, PALETTE.wisp);
+    if (step === 2) {
+      dot(at, PALETTE.wisp);
+      dot(trap, PALETTE.blood);
+    }
+    step = (step + 1) % 3;
+  }, 1000);
+}
+
 void api.floor().then(
   (r) => {
-    if (r.kind === 'play') set(`Floor ${r.depth}`, r.ghosts.fell ? `${r.ghosts.fell} fell here today.` : "Today's deaths build tomorrow's floor.", 'Descend');
+    if (r.kind === 'play' || r.kind === 'played') render(r.floor, r.ghosts.tiles);
+    const curse = (r.kind === 'play' || r.kind === 'played') && r.floor.curses?.[0];
+    if (curse) floor.dataset.curse = CURSE_TEXT[curse].name;
+    if (r.kind === 'play') set(`Floor ${r.depth}${curse ? ` · ${CURSE_TEXT[curse].name}` : ''}`, r.ghosts.fell ? `${r.ghosts.fell} fell here today.` : "Today's deaths build tomorrow's floor.", 'Descend');
     else if (r.kind === 'played') set(`Floor ${r.depth}`, `${r.run.outcome === 'won' ? 'Cleared' : 'Fell'} · score ${r.run.score} · ${r.ghosts.fell} fell`, 'See your run');
     else if (r.kind === 'closed') set(`Floor ${r.depth}`, `Closed. Today is Floor ${r.today}.`, "Today's floor", () => r.todayUrl && (import.meta.env.DEV ? location.assign(r.todayUrl) : navigateTo(r.todayUrl)));
     else if (r.kind === 'login') set(`Floor ${r.depth}`, 'One run a day, under your name.', 'Log in to descend', () => showLoginPrompt());

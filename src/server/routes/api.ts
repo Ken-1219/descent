@@ -1,7 +1,8 @@
 import { Hono } from 'hono';
 import { context } from '@devvit/web/server';
-import type { AvatarResponse, CarvingRequest, CarvingResponse, FloorResponse, RunRequest, RunResponse, StartRequest, TrapRequest, TrapResponse, VoteResponse } from '../../shared/api';
-import { avatar, carve, floorFor, logStart, placeTrap, submitRun, voteCarving, voteCurse } from '../game';
+import type { BoardResponse, CardResponse, CarvingRequest, ChronicleResponse, PulseResponse, CarvingResponse, FloorResponse, RunRequest, RunResponse, StartRequest, TrapRequest, TrapResponse, VoteResponse } from '../../shared/api';
+import { carve, floorFor, logStart, placeTrap, submitRun, voteCarving, voteCurse } from '../game';
+import { boardsFor, cardFor, chronicle, pulse } from '../boards';
 import type { Env } from '../index';
 
 // Identity always comes from the Devvit context, never from a request body.
@@ -48,12 +49,35 @@ api.post('/carving', async (c) => {
   return c.json<CarvingResponse>(r, r.kind === 'rejected' ? 400 : 200);
 });
 
-// Only when a ghost card opens; a reddit username is the only input and the answer is a public avatar URL.
-api.get('/avatar', async (c) => {
-  const name = c.req.query('name') ?? '';
-  const url = /^[A-Za-z0-9_-]{3,20}$/.test(name) ? await avatar(name).catch(() => null) : null;
-  c.set('note', `avatar ${url ? 'found' : 'none'}`);
-  return c.json<AvatarResponse>({ url });
+// Only when a ghost card opens: the avatar and the lifetime record (minus today's votes, so it reveals nothing about today).
+api.get('/card', async (c) => {
+  const ghost = c.req.query('ghost') ?? '';
+  const depth = Number(c.req.query('depth'));
+  const r = Number.isInteger(depth) && depth > 0 ? await cardFor(ghost, depth) : { avatar: null, record: null };
+  c.set('note', `card ${ghost.startsWith('bot:') ? 'bot' : 'player'}: avatar ${r.avatar ? 'found' : 'none'}`);
+  return c.json<CardResponse>(r);
+});
+
+// The board loads on demand (never with the floor), capped to top rows plus your own.
+api.get('/board', async (c) => {
+  const depth = Number(c.req.query('depth'));
+  if (!Number.isInteger(depth) || depth < 1) return c.json({ kind: 'rejected', reason: 'depth' }, 400);
+  const r = await boardsFor(context.userId, depth);
+  c.set('note', `d${depth} board: today ${r.today.total}, you ${r.today.me ? `#${r.today.me.rank}` : '-'}`);
+  return c.json<BoardResponse>(r);
+});
+
+api.get('/pulse', async (c) => {
+  const depth = Number(c.req.query('depth'));
+  const r = Number.isInteger(depth) && depth > 0 ? await pulse(depth) : { fell: 0, carved: 0 };
+  c.set('note', `d${depth} pulse ${r.fell} fell`);
+  return c.json<PulseResponse>(r);
+});
+
+api.get('/chronicle', async (c) => {
+  const r = await chronicle();
+  c.set('note', `chronicle ${r.rows.length} rows`);
+  return c.json<ChronicleResponse>(r);
 });
 
 // A carving vote ({ ghost, vote }) or a winner's curse vote ({ curse }); the server checks both against what it holds.

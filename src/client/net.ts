@@ -1,13 +1,16 @@
 /// <reference types="vite/client" />
 // The client's only network code. Dev builds route to local.ts (localStorage); production fetches /api/*.
-import type { AvatarResponse, CarvingRequest, CarvingResponse, FloorResponse, RunRequest, RunResponse, StartRequest, TrapRequest, TrapResponse, VoteRequest, VoteResponse } from '../shared/api';
+import type { BoardResponse, CardResponse, ChronicleResponse, PulseResponse, CarvingRequest, CarvingResponse, FloorResponse, RunRequest, RunResponse, StartRequest, TrapRequest, TrapResponse, VoteRequest, VoteResponse } from '../shared/api';
 
 export type Api = {
   floor: () => Promise<FloorResponse>;
   run: (r: RunRequest) => Promise<RunResponse>;
   start: (r: StartRequest) => Promise<void>;
   carve: (r: CarvingRequest) => Promise<CarvingResponse>;
-  avatar: (name: string) => Promise<AvatarResponse>;
+  card: (ghost: string, depth: number) => Promise<CardResponse>;
+  board: (depth: number) => Promise<BoardResponse>;
+  pulse: (depth: number) => Promise<PulseResponse>;
+  chronicle: () => Promise<ChronicleResponse>;
   vote: (r: VoteRequest) => Promise<VoteResponse>;
   trap: (r: TrapRequest) => Promise<TrapResponse>;
 };
@@ -23,7 +26,10 @@ const remote: Api = {
   run: (r) => send('/api/run', r),
   start: (r) => send('/api/start', r),
   carve: (r) => send('/api/carving', r),
-  avatar: (name) => send(`/api/avatar?name=${encodeURIComponent(name)}`),
+  card: (ghost, depth) => send(`/api/card?ghost=${encodeURIComponent(ghost)}&depth=${depth}`),
+  board: (depth) => send(`/api/board?depth=${depth}`),
+  pulse: (depth) => send(`/api/pulse?depth=${depth}`),
+  chronicle: () => send('/api/chronicle'),
   vote: (r) => send('/api/vote', r),
   trap: (r) => send('/api/trap', r),
 };

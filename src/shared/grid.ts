@@ -98,3 +98,6 @@ export function ray(tiles: readonly string[], from: Pos, to: Pos, len: number): 
   }
   return out;
 }
+
+/** Compass zone 0–8 (3×3, reading order) of a tile on a square grid of `side` tiles: crowd heat, traps, the intro. */
+export const zoneOf = (p: Pos, side: number) => Math.min(2, Math.floor((3 * p.x) / side)) + 3 * Math.min(2, Math.floor((3 * p.y) / side));

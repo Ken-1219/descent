@@ -158,13 +158,16 @@ src/client/
   style.css                 tokens and all UI CSS
   local.ts                  LOCAL ONLY: fake endpoints on localStorage, fixtures, advanceDay
   lab.html     lab.ts       LOCAL ONLY: Design Lab (Tokens, Kit, Cast, tab router)
-  labfloors.ts              LOCAL ONLY: Lab tabs that draw floors: Bestiary, Depth, Ghosts (fixtures) and Rollover (tally → floor)
+  labfloors.ts              LOCAL ONLY: Lab tabs that draw floors: Bestiary, Depth, Ghosts (fixtures), Rollover (tally → floor), Screens
+  screens.ts                Phase 9: the Board (tabs, your row) and the Chronicle, loaded on demand from the plate
+  minimap.ts                Phase 9: a floor's rows and wisps on a 2D canvas (splash and already-played; no Phaser, no sim)
   assets/                   atlas.png, fonts/*.woff2, fonts/OFL.txt, icon
 src/server/
   index.ts                  Hono app, one log line per request
   routes/                   template route files: api.ts (/api/*), menu.ts, forms.ts (seed bots), triggers.ts, scheduler.ts (cron)
   game.ts                   Redis reads/writes: floors, runs, ghosts, votes, traps, souls, boards
   rollover.ts               daily job and mod menu actions
+  boards.ts                 Phase 9: read-only views: boards (top 10 + your row), ghost card record, pulse counts, Chronicle, next rollover
 tests/
   shared.test.ts  server.test.ts
   bundle.test.ts            production build: server carries gen and bot; client carries no gen, bot, scenes, Lab, local or hook
@@ -566,6 +569,7 @@ Each phase lists Build, Show me (what to open), Checks, and Gate.
 - **Build:** final splash with mini-render, live wisps and the 3-second loop; intro; already-played with polling and countdown; board; Chronicle. Lab tab Screens.
 - **Checks:** every fixture at every viewport; splash at 320×320; long usernames don't clip.
 - **Gate:** someone who has never seen the game explains it after 5 seconds of the splash. Second human phone check.
+- **Redis keys (built):** lifetime sorted sets `deepest`, `deaths`, `liars`, `trapsouls` (with `souls`, `honour`); hashes `names` (user → name) and `streak` (user → `{ last, n }`). All written when a run or vote is accepted, never in the rollover; the run record keeps `undo { deepest, streak }` for the reset tool. Floor JSON `yesterday` gains `deaths[9]` and `killer`; `showcase` lists the family new today. Routes `/api/card`, `/api/board`, `/api/pulse`, `/api/chronicle` (A33–A37 in the Phase 9 spec).
 
 ### Phase 10 — Boss and content completion (Dec 2–3)
 

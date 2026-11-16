@@ -3,10 +3,11 @@
 // ?ghosts=N adds N fixture ghosts (0, 1, 20, 300, 1000) to every floor, like other players' deaths; ?floor=f0 serves
 // Floor 0's map as the day's floor (no mercy), so tests can win it with a known route; ?floor=trap makes its spikes a
 // player's trap (owner u/trapper); ?curse=frail curses the floor; ?yesterday=1 adds yesterday's line; ?mytrap=2,1 makes
-// this profile the owner of a trap that has hurt 2 and killed 1 here.
+// this profile the owner of a trap that has hurt 2 and killed 1 here; ?yesterday=few gives a day of 2 deaths;
+// ?board=N fills the board with N players (this profile ranked by its own run).
 import { generate } from '../shared/gen';
 import { CURSES, FLOOR_0, TRAP_TEXT, type Curse } from '../shared/content';
-import type { MyTrap } from '../shared/api';
+import type { BoardRows, MyTrap } from '../shared/api';
 import type { Trap } from '../shared/gen';
 import { carvingOf, fixtureGhosts, ghostView, type GhostRecord, type GhostView, type Vote } from '../shared/ghosts';
 import { hash } from '../shared/rng';
@@ -28,7 +29,9 @@ const floorOf = (d: number): Floor => {
   const f: Floor = {
     ...base,
     ...(curse ? { curses: [curse] } : {}),
-    ...(q.get('yesterday') ? { yesterday: { depth: d - 1 || 1, fell: 23, cleared: 9, zone: 2, curse: curse ?? null } } : {}),
+    ...(q.get('yesterday') === 'few' ? { yesterday: { depth: d - 1 || 1, fell: 2, cleared: 5, zone: 4, curse: curse ?? null, deaths: [0, 0, 0, 0, 2, 0, 0, 0, 0], killer: 'spikes' } }
+      : q.get('yesterday') ? { yesterday: { depth: d - 1 || 1, fell: 23, cleared: 9, zone: 2, curse: curse ?? null, deaths: [1, 2, 14, 0, 3, 0, 1, 2, 0], killer: 'goblin' } } : {}),
+    showcase: ['goblins'],
   };
   write(`floor:${d}`, f);
   return f;
@@ -57,7 +60,7 @@ export const local: Api = {
     const mine = runOf(d);
     if (mine) {
       const { log: _, ...run } = mine;
-      return { kind: 'played', depth: d, seed: floor.seed ?? 0, floor, run, ghosts: withVotes(d, ghostsOf(d)), live: d === day(), attempt: 0, choices: choicesOf(d), myTrap: myTrap() };
+      return { kind: 'played', depth: d, seed: floor.seed ?? 0, floor, run, ghosts: withVotes(d, ghostsOf(d)), live: d === day(), attempt: 0, choices: choicesOf(d), myTrap: myTrap(), streak: read<number>('streak') ?? 1, nextAt: Date.now() + 5 * 3_600_000 + 12 * 60_000 };
     }
     if (d < day()) return { kind: 'closed', depth: d, today: day(), todayUrl: `${location.pathname}?post=${day()}` };
     return { kind: 'play', depth: d, seed: floor.seed ?? 0, floor, ghosts: ghostsOf(d), attempt: 0, tutorial: !!read('tutorial'), myTrap: myTrap() };
@@ -94,7 +97,27 @@ export const local: Api = {
     write(`carving:${depth}`, canon);
     return { kind: 'carved', carving: canon };
   },
-  avatar: async () => ({ url: null }),
+  card: async (ghost) => ({ avatar: null, record: ghost.startsWith('bot:') || ghost.startsWith('floor0:') ? null : { deaths: 7, trust: 12, liar: 3 } }),
+  pulse: async (depth) => {
+    net();
+    return { fell: ghostsOf(depth).fell, carved: 0 };
+  },
+  chronicle: async () => ({ rows: Array.from({ length: day() - 1 }, (_, i) => ({ depth: day() - 1 - i, fell: 10 + i, cleared: 3, curse: i % 2 ? 'frail' : null, zone: i % 9, killer: 'goblin' })) }),
+  board: async (depth) => {
+    net();
+    // A fixture crowd of N players, plus this profile's own run (if any) ranked among them; same tie rule as the server.
+    const n = Number(params.get('board') ?? 0);
+    const mine = runOf(depth);
+    const all = Array.from({ length: n }, (_, i) => ({ name: i === 1 ? 'Twenty_Char_Name_123' : `delver_${i}`, value: 1500 - i, you: false }));
+    if (mine) all.push({ name: 'local_delver', value: mine.score, you: true });
+    all.sort((a, b) => b.value - a.value || (a.name < b.name ? 1 : -1));
+    const rows = (list: typeof all): BoardRows => {
+      const ranked = list.map((r, i) => ({ rank: i + 1, name: r.name, value: r.value, ...(r.you ? { you: true as const } : {}) }));
+      return { rows: ranked.slice(0, 10), me: ranked.find((r) => r.you) ?? null, total: ranked.length };
+    };
+    const life = rows(all.map((r) => ({ ...r, value: Math.max(1, Math.floor(r.value / 100)) })));
+    return { depth, today: rows(all), deepest: life, souls: life, honour: life, trapsetter: { rank: 1, name: 'delver_3', value: 9 }, liar: { rank: 1, name: 'delver_7', value: 5 } };
+  },
   vote: async (r) => {
     net();
     if (r.depth < day()) return { kind: 'closed', today: day(), todayUrl: `${location.pathname}?post=${day()}` };

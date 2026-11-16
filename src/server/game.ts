@@ -2,7 +2,9 @@
 import { context, reddit, redis } from '@devvit/web/server';
 import { CURSES, GHOSTS, NAMELESS, TRAP_TEXT, type Curse } from '../shared/content';
 import { trapHits, trapSouls, type Tally } from '../shared/crowd';
-import { generate, NO_MODS, zoneOf, type Mods, type Trap } from '../shared/gen';
+import { nextRollover } from './boards';
+import { generate, NO_MODS, type Mods, type Trap } from '../shared/gen';
+import { zoneOf } from '../shared/grid';
 import { CARVING_CHOICES, carvingOf, ghostView, type GhostRecord, type GhostView, type Vote } from '../shared/ghosts';
 import { bot } from '../shared/bot';
 import { hash, mulberry32 } from '../shared/rng';
@@ -11,7 +13,14 @@ import type { CarvingResponse, Choices, FloorResponse, RunResponse, Standings, T
 
 type StoredMods = Mods & { seed: number };
 /** `trapSouls`: what this run's replay gave trap owners (so the reset tool can take it back). */
-type StoredRun = RunResult & { log: string; at: number; bot?: true; name?: string | null; trapSouls?: Record<string, number> };
+type StoredRun = RunResult & { log: string; at: number; bot?: true; name?: string | null; trapSouls?: Record<string, number>; undo?: Undo };
+/** Phase 9: the caller's lifetime values before this run, so the reset tool can put them back. */
+type Undo = { deepest: number | null; streak: string | null };
+/** A streak counted in floors (A34): your last depth with a run, and how many consecutive depths led to it. */
+const nextStreak = (prev: string | null, depth: number) => {
+  const p: { last: number; n: number } | null = prev ? JSON.parse(prev) : null;
+  return { last: depth, n: p && p.last === depth - 1 ? p.n + 1 : 1 };
+};
 /** Who a run belongs to: the name comes from the Devvit context (null for bots, shown as a nameless delver). */
 export type Who = { name: string | null; bot?: true };
 
@@ -76,7 +85,8 @@ export async function floorFor(user: string | undefined, depth: number | null): 
   if (mine) {
     // Your run has ended here, so the carvings' Trust and Liar totals (and your own votes) come with the ghosts.
     const ghosts = await withVotes(d, user, await ghostsOf(d, user));
-    return { kind: 'played', depth: d, seed: floor.seed ?? 0, floor, run: result(JSON.parse(mine)), ghosts, live: d === t.day, attempt, choices: await choicesOf(d, user), myTrap: trapped };
+    const streak = JSON.parse((await redis.hGet('streak', user)) ?? '{"n":0}').n;
+    return { kind: 'played', depth: d, seed: floor.seed ?? 0, floor, run: result(JSON.parse(mine)), ghosts, live: d === t.day, attempt, choices: await choicesOf(d, user), myTrap: trapped, streak, nextAt: nextRollover(Date.now()) };
   }
   if (d < t.day) return { kind: 'closed', depth: d, today: t.day, todayUrl: postUrl(t.postId) };
   return { kind: 'play', depth: d, seed: floor.seed ?? 0, floor, ghosts: await ghostsOf(d, user), attempt, tutorial: !!tutorial, myTrap: trapped };
@@ -113,7 +123,9 @@ export async function submitRun(user: string, depth: number, log: string, who: W
   // Trap souls (A15, A28) from this replay alone: never from your own trap, never from or to a bot.
   const hits = who.bot ? [] : trapHits(floor, log, user);
   const souls = Object.fromEntries(hits.map((h) => [h.owner, trapSouls(h)]));
-  const run: StoredRun = { ...j.run, log, at, name: who.name, ...(who.bot ? { bot: true as const } : {}), ...(hits.length ? { trapSouls: souls } : {}) };
+  const [prevStreak, prevDeepest] = who.bot ? [null, undefined] : await Promise.all([redis.hGet('streak', user), redis.zScore('deepest', user)]);
+  const undo: Undo = { deepest: prevDeepest ?? null, streak: prevStreak ?? null };
+  const run: StoredRun = { ...j.run, log, at, name: who.name, ...(who.bot ? { bot: true as const } : { undo }), ...(hits.length ? { trapSouls: souls } : {}) };
   if (!(await redis.hSetNX(key(depth, 'runs'), user, JSON.stringify(run)))) {
     const won = await redis.hGet(key(depth, 'runs'), user);
     return won ? retry(JSON.parse(won), log) : { kind: 'rejected', reason: 'already played' };
@@ -122,11 +134,19 @@ export async function submitRun(user: string, depth: number, log: string, who: W
   // Everything comes from the replay and the context; heat and kills are recorded now and read from 7b on.
   const tx = await redis.watch();
   await tx.multi();
-  await tx.zAdd(key(depth, 'scores'), { member: user, score: run.score });
+  // Phase 9: boards and lifetime numbers move here, when the run is accepted (never in the rollover); bots never appear.
+  if (!who.bot) {
+    await tx.zAdd(key(depth, 'scores'), { member: user, score: run.score });
+    if (who.name) await tx.hSet('names', { [user]: who.name });
+    await tx.hSet('streak', { [user]: JSON.stringify(nextStreak(undo.streak, depth)) });
+    if (run.outcome === 'won' && depth > (undo.deepest ?? 0)) await tx.zAdd('deepest', { member: user, score: depth });
+    if (run.outcome === 'dead') await tx.zIncrBy('deaths', user, 1);
+  }
   // Flair at the next rollover: each player's latest run (A29). Bots have no account to flair.
   if (who.name && !who.bot) await tx.hSet(key(depth, 'flair'), { [user]: JSON.stringify({ name: who.name, text: run.outcome === 'won' ? `Cleared floor ${depth}` : `Fell on floor ${depth}` }) });
   for (const h of hits) {
     await tx.zIncrBy('souls', h.owner, trapSouls(h));
+    await tx.zIncrBy('trapsouls', h.owner, trapSouls(h));
     if (h.hurt) await tx.hIncrBy(key(depth, 'trapped'), `${h.owner}:hurt`, h.hurt);
     if (h.killed) await tx.hIncrBy(key(depth, 'trapped'), `${h.owner}:killed`, h.killed);
   }
@@ -217,9 +237,6 @@ export async function purgeBots(): Promise<{ depth: number; removed: number }> {
   return { depth: day, removed: bots.length };
 }
 
-/** The snoovatar URL for a ghost card (null when the user has none). */
-export const avatar = async (name: string): Promise<string | null> => (await reddit.getSnoovatarUrl(name)) ?? null;
-
 const retry = (prior: StoredRun, log: string): RunResponse => (prior.log === log ? { kind: 'saved', run: result(prior) } : { kind: 'rejected', reason: 'already played' });
 
 /** Run starts are logged, not enforced (§2): the first start per user per floor is kept. */
@@ -258,16 +275,28 @@ export async function resetRun(user: string): Promise<{ depth: number; had: bool
     if (isBot(target)) continue;
     const died = voter === user ? run?.outcome === 'dead' : (await runOf(day, voter))?.outcome === 'dead';
     if (v === 'trust') await tx.zIncrBy('honour', target, -1);
-    else if (died) await tx.zIncrBy('souls', target, -1);
+    else {
+      await tx.zIncrBy('liars', target, -1);
+      if (died) await tx.zIncrBy('souls', target, -1);
+    }
   }
   await tx.hDel(key(day, 'traps'), [user]);
   // Phase 8: the trap souls this run gave, and the owners' hurt/killed counts.
   if (run && floor) for (const h of trapHits(floor, run.log, user)) {
     await tx.zIncrBy('souls', h.owner, -trapSouls(h));
+    await tx.zIncrBy('trapsouls', h.owner, -trapSouls(h));
     if (h.hurt) await tx.hIncrBy(key(day, 'trapped'), `${h.owner}:hurt`, -h.hurt);
     if (h.killed) await tx.hIncrBy(key(day, 'trapped'), `${h.owner}:killed`, -h.killed);
   }
   await tx.hDel(key(day, 'flair'), [user]);
+  // Phase 9: this run's lifetime entries, back to what they were before it.
+  if (run?.undo) {
+    if (run.undo.streak) await tx.hSet('streak', { [user]: run.undo.streak });
+    else await tx.hDel('streak', [user]);
+    if (run.undo.deepest !== null) await tx.zAdd('deepest', { member: user, score: run.undo.deepest });
+    else if (run.outcome === 'won') await tx.zRem('deepest', [user]);
+    if (run.outcome === 'dead') await tx.zIncrBy('deaths', user, -1);
+  }
   if (ghost && floor) {
     const g: GhostRecord = JSON.parse(ghost);
     await tx.hIncrBy(key(day, 'heat'), String(zoneOf(g, floor.rows.length)), -1);
@@ -341,7 +370,10 @@ export async function voteCarving(user: string, depth: number, ghost: string, vo
   await tx.zIncrBy(key(depth, 'cv'), `${ghost}:${vote}`, 1);
   if (!isBot(ghost)) {
     if (vote === 'trust') await tx.zIncrBy('honour', ghost, 1);
-    else if (run.outcome === 'dead') await tx.zIncrBy('souls', ghost, 1);
+    else {
+      await tx.zIncrBy('liars', ghost, 1); // the lifetime record and the Most Notorious Liar plate
+      if (run.outcome === 'dead') await tx.zIncrBy('souls', ghost, 1);
+    }
   }
   await tx.exec();
   return { kind: 'voted', vote, standings: null };

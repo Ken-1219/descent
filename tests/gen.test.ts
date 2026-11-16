@@ -1,6 +1,7 @@
 import { test, expect } from 'vitest';
 import { CURSES, FAMILIES, GATE_TORCH_PCT, ROOM1_ENEMY_GAP, ENTRANCE_CLEAR, TRAP_MAX, type Family } from '../src/shared/content';
-import { NO_MODS, budgetFor, generate, isWardenFloor, safePath, showcaseFamilies, strandFree, tiersFor, zoneOf, zoneWeights, type Mods } from '../src/shared/gen';
+import { NO_MODS, budgetFor, generate, isWardenFloor, safePath, showcaseFamilies, strandFree, tiersFor, zoneWeights, type Mods } from '../src/shared/gen';
+import { zoneOf } from '../src/shared/grid';
 import { lightRadius, start } from '../src/shared/sim';
 
 const all = (t: number) => {

@@ -475,3 +475,33 @@ export const rolloverTab = () => {
   });
   return [box];
 };
+
+/** Screens tab: every Phase 9 screen and state at phone size, from local fixtures (local.ts knobs). */
+export const screensTab = () => {
+  try {
+    localStorage.setItem('descent:f0', '1');
+  } catch {
+    /* frames then open on Floor 0 */
+  }
+  const SCREENS: [string, string][] = [
+    ['Intro: Floor 1 (no yesterday)', 'game.html?floor=f0'],
+    ['Intro: under 3 deaths', 'game.html?floor=f0&yesterday=few'],
+    ['Intro: full, cursed, your trap', 'game.html?yesterday=1&curse=frail&mytrap=2,1&ghosts=20'],
+    ['Splash', 'splash.html?ghosts=20'],
+    ['Splash, cursed', 'splash.html?ghosts=20&curse=deep-dark'],
+  ];
+  const frame = el('iframe', 'ghosts__frame');
+  frame.title = 'Screen';
+  const pick = (url: string) => {
+    frame.src = url;
+    for (const b of row.children) b.setAttribute('aria-pressed', String(b.getAttribute('data-url') === url));
+  };
+  const row = el('div', 'lab__row', ...SCREENS.map(([label, url]) => {
+    const b = button(label);
+    b.dataset.url = url;
+    b.addEventListener('click', () => pick(url));
+    return b;
+  }));
+  pick(SCREENS[0]?.[1] ?? 'game.html');
+  return [section('Screens', caption('The played plate, Board and Chronicle open from a finished run in any frame.'), row, frame)];
+};
