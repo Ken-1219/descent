@@ -146,7 +146,8 @@ export const carvingPicker = (onChange: (raw: string | null) => void) => {
 };
 
 /** `curse`: the floor's curse name (the crowd's vote), shown as a chip after the floor number. */
-export type HudView = { hearts: number; hasKey: boolean; item: Item | null; torch: number; torchMax: number; depth: number; curse: string | null };
+/** `chain`: on the Warden's floor, the links left on its shared chain (its HP less what this run broke); else null. */
+export type HudView = { hearts: number; hasKey: boolean; item: Item | null; torch: number; torchMax: number; depth: number; curse: string | null; chain: number | null };
 const ITEM_NAME: Record<Item, string> = { potion: 'potion', oil: 'lamp oil', bomb: 'bomb' };
 
 /** Builds the HUD once; `update` replaces only the pieces whose value changed. */
@@ -166,7 +167,13 @@ export const createHud = (root: HTMLElement, lowPct: number, maxHearts: number, 
       floor.setAttribute('aria-label', v.curse ? `Floor ${v.depth}, curse: ${v.curse}` : `Floor ${v.depth}`);
     }
     if (v.hearts !== last?.hearts) parts.hearts.replaceChildren(hearts(v.hearts, maxHearts));
-    if (v.hasKey !== last?.hasKey) parts.key.replaceChildren(v.hasKey ? slot('Key held', iconCanvas('key', 2)) : slot('No key'));
+    // The key never appears on a Warden floor, so its slot shows the chain there.
+    if (v.chain !== null && v.chain !== last?.chain) {
+      const box = slot(`Warden chain: ${v.chain} links left`, iconCanvas('chain', 2));
+      box.append(el('span', 'hud__links', String(v.chain)));
+      parts.key.replaceChildren(box);
+    }
+    else if (v.chain === null && (v.hasKey !== last?.hasKey || last?.chain !== null)) parts.key.replaceChildren(v.hasKey ? slot('Key held', iconCanvas('key', 2)) : slot('No key'));
     if (v.item !== last?.item) parts.item.replaceChildren(v.item ? slot(`Item: ${ITEM_NAME[v.item]}`, itemIcon(v.item)) : slot('Item slot empty'));
     if (v.torch !== last?.torch) parts.wick.replaceChildren(wick(v.torch, v.torchMax, v.torch * 100 <= v.torchMax * lowPct));
     last = v;
@@ -308,4 +315,16 @@ export const introCompass = (deaths: readonly number[] | null, danger: readonly 
     grid.append(cell);
   });
   return grid;
+};
+
+/** The Warden's chain as a meter: links left of the pool (a shape and a number, not colour alone). */
+export const chainMeter = (hp: number, pool: number) => {
+  const m = el('div', 'chain-meter', el('span', 'chain-meter__fill'), el('span', 'chain-meter__text', `${hp} of ${pool} links`));
+  m.setAttribute('role', 'meter');
+  m.setAttribute('aria-valuemin', '0');
+  m.setAttribute('aria-valuemax', String(pool));
+  m.setAttribute('aria-valuenow', String(hp));
+  m.setAttribute('aria-label', `Warden chain: ${hp} of ${pool} links`);
+  m.style.setProperty('--left', `${pool ? Math.round((100 * hp) / pool) : 0}%`);
+  return m;
 };

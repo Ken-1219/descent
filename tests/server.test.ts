@@ -78,7 +78,7 @@ test('POST /api/run: forged logs are rejected; the server derives outcome, score
   const log = played(floor);
   const r = await submitRun('t2_a', 1, log, who);
   const s = replay(floor, [...log] as Action[]);
-  expect(r).toEqual({ kind: 'saved', run: { outcome: s.ended?.kind, score: score(s), turns: s.turn, torch: s.torch, cause: s.ended?.cause, tile: s.pos } });
+  expect(r).toEqual({ kind: 'saved', run: { outcome: s.ended?.kind, score: score(s), turns: s.turn, torch: s.torch, cause: s.ended?.cause, tile: s.pos, dealt: 0 } });
   const stored = JSON.parse((await redis.hGet('f:1:runs', 't2_a')) ?? '{}');
   expect(stored).toMatchObject({ log, score: score(s) });
   expect(Math.floor(((await redis.zScore('f:1:scores', 't2_a')) ?? 0) / BOARD.order)).toBe(score(s));

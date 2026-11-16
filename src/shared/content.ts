@@ -68,13 +68,14 @@ export const TORCH_OUT_DRAIN = 2;
 export const GOBLIN_SIGHT = 4;
 export const GOBLIN_HP = 1;
 
+/** Floor 0 (final, Phase 10): move, key and door, spikes, a goblin's wind-up, the stairs, ghosts; a potion off the route teaches the item button. */
 export const FLOOR_0: Floor = {
   depth: 0,
   torch: 120,
   mercy: true,
   rows: [
     '#####T#####T#####',
-    '#.....#.........#',
+    '#.....#.......p.#',
     '#.@...D...^.....#',
     '#...k.#...^..g..#',
     '#.....#...^.....#',
@@ -247,6 +248,29 @@ export const FRESH_PER_ROOM = 2;
 export const SCORE = { won: 1000, perHeart: 100 };
 /** A submitted log is rejected past this many actions. Free bumps are never logged, so a real run stays far below it. */
 export const RUN = { maxActions: 1500 };
+
+// ---- Phase 10: the Warden (§8 position 7). Chained in the arena: it never moves and never dies inside a run. ----
+/**
+ * `sight`: wakes when you are this close (Manhattan, to its nearest tile) with line of sight. `reach`: a slam runs this far
+ * out from the block. `gap`: quiet turns between slams. `cross`: both bands at once. `twice`: a second slam right after.
+ * `perRun`: links one run can break (a bump past it is a blocked move); a bump burns no torch, so fighting costs dodges,
+ * not light, and a run that walks past gains nothing. Pool (A42): `perPlayer` × yesterday's real players, at least `minPlayers`.
+ */
+export const WARDEN = {
+  sight: 5,
+  reach: 4,
+  perRun: 30,
+  perPlayer: 12,
+  minPlayers: 5,
+  tiers: {
+    1: { gap: 3, cross: false, twice: false },
+    2: { gap: 2, cross: false, twice: false },
+    3: { gap: 2, cross: true, twice: false },
+    4: { gap: 2, cross: true, twice: true },
+  },
+  /** The memorial post lists this many top damage dealers. */
+  memorialTop: 5,
+} as const satisfies { tiers: Record<Tier, { gap: number; cross: boolean; twice: boolean }> } & Record<string, unknown>;
 
 // ---- Phase 7a: ghosts and carvings ----
 

@@ -2,7 +2,7 @@
 import * as Phaser from 'phaser';
 import { PALETTE, TILE, type Token } from '../shared/content';
 import { carvingOf, type Ghost } from '../shared/ghosts';
-import { lightRadius, visibility, type Event, type Pos, type State } from '../shared/sim';
+import { blockTiles, lightRadius, visibility, type Event, type Pos, type State } from '../shared/sim';
 import { FONT_3X5, type SpriteName } from './art';
 import {
   ANIMS, PACK, buildAtlas, links, choreograph, enemyLook, frameAt, HURT, loadPack, marks, px, py, rgba, RUN, shine, tileLook,
@@ -312,7 +312,10 @@ export class DescentScene extends Phaser.Scene {
     for (const e of state.enemies) {
       let a = this.enemies.get(e.id);
       if (!a) {
-        a = this.actor(e.x, e.y, 5, enemyLook(e).anim);
+        // The Warden stands on its 2×2 block: centred across both columns, feet on the lower row (its 36 px overhang the top).
+        const big = e.kind === 'warden';
+        a = this.actor(e.x, big ? e.y + 1 : e.y, 5, enemyLook(e).anim);
+        if (big) a.x = a.img.x = a.x + TILE / 2;
         this.enemies.set(e.id, a);
       }
       const look = enemyLook(e);
@@ -320,9 +323,10 @@ export class DescentScene extends Phaser.Scene {
       a.run = RUN[e.kind];
       a.ox = look.dx;
       a.oy = look.dy;
-      a.img.setVisible(vis[e.y * w + e.x] === 2);
+      const big = e.kind === 'warden';
+      a.img.setVisible(blockTiles(e).some((p) => vis[p.y * w + p.x] === 2));
       // A pile is floor (rule 6): it lies under whoever stands on it.
-      a.img.setDepth(depth(e.y, e.mode === 'pile' ? 3 : 5));
+      a.img.setDepth(depth(big ? e.y + 1 : e.y, e.mode === 'pile' ? 3 : 5));
       if (e.mode !== 'pile' && e.x !== state.pos.x) a.img.setFlipX(state.pos.x < e.x);
       this.digits.get(e.id)?.destroy();
       this.digits.delete(e.id);

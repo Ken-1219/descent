@@ -221,6 +221,9 @@ h3 {
 .wick--low .wick__count {
   color: var(--ember);
 }
+.wick--low .wick__left {
+  background: var(--ember);
+}
 
 .dpad {
   display: grid;
@@ -991,4 +994,52 @@ body:has(#end:not([hidden])) .carving {
   height: 100%;
   max-height: 168px;
   min-height: 0;
+}
+
+/* Phase 10: the Warden's chain: a meter with its number on it (shape and text, not colour alone), and the HUD count. */
+.chain-meter {
+  position: relative;
+  height: 24px;
+  background: var(--ink-1);
+  border: var(--line) solid var(--bone);
+  overflow: hidden;
+}
+.chain-meter__fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--left, 0%);
+  background: var(--blood);
+}
+.chain-meter__text {
+  position: relative;
+  display: block;
+  text-align: center;
+  line-height: 20px;
+  color: var(--bone);
+  text-shadow: 1px 1px 0 var(--ink-0);
+}
+.intro__boss {
+  margin: 0;
+  font-family: var(--font-title);
+  font-size: var(--t-head);
+  color: var(--bone);
+}
+.slot:has(.hud__links) {
+  position: relative;
+}
+.hud__links {
+  position: absolute;
+  right: 1px;
+  bottom: -2px;
+  font-size: var(--t-small);
+  line-height: 1;
+  color: var(--bone);
+  text-shadow: 1px 1px 0 var(--ink-0), -1px -1px 0 var(--ink-0);
+}
+.plate__boss {
+  display: grid;
+  gap: 4px;
+}
+.plate__boss p {
+  margin: 0;
 }

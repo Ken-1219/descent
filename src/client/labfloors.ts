@@ -489,6 +489,10 @@ export const screensTab = () => {
     ['Intro: full, cursed, your trap', 'game.html?yesterday=1&curse=frail&mytrap=2,1&ghosts=20'],
     ['Splash', 'splash.html?ghosts=20'],
     ['Splash, cursed', 'splash.html?ghosts=20&curse=deep-dark'],
+    ['Warden: alive', 'game.html?floor=warden&boss=alive'],
+    ['Warden: carried over', 'game.html?floor=warden&boss=carried'],
+    ['Warden: fallen', 'game.html?floor=warden&boss=killed'],
+    ['Splash, boss day', 'splash.html?floor=warden&boss=alive'],
   ];
   const frame = el('iframe', 'ghosts__frame');
   frame.title = 'Screen';

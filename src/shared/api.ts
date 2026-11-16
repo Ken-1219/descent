@@ -15,8 +15,8 @@ export type MyTrap = { kind: Trap['kind']; x: number; y: number; hurt: number; k
 /** GET /api/floor. The depth is the post's own (postData), so an old post shows its floor as closed. */
 export type FloorResponse =
   /** `attempt`: how often the mod reset tool cleared this player's run here (keys the client's saved log). */
-  | { kind: 'play'; depth: number; seed: number; floor: Floor; ghosts: GhostView; attempt: number; tutorial: boolean; myTrap: MyTrap }
-  | { kind: 'played'; depth: number; seed: number; floor: Floor; run: RunResult; ghosts: GhostView; live: boolean; attempt: number; choices: Choices; myTrap: MyTrap; streak: number; nextAt: number }
+  | { kind: 'play'; depth: number; seed: number; floor: Floor; ghosts: GhostView; attempt: number; tutorial: boolean; myTrap: MyTrap; boss?: BossView }
+  | { kind: 'played'; depth: number; seed: number; floor: Floor; run: RunResult; ghosts: GhostView; live: boolean; attempt: number; choices: Choices; myTrap: MyTrap; streak: number; nextAt: number; boss?: BossView }
   /** A "Post Floor 0" post: the tutorial, never stored or submitted. */
   | { kind: 'practice' }
   | { kind: 'closed'; depth: number; today: number; todayUrl: string | null }
@@ -50,7 +50,9 @@ export type BoardRows = { rows: BoardRow[]; me: BoardRow | null; total: number }
 /** GET /api/board?depth=: loaded only when the Board opens. Bots never appear. */
 export type BoardResponse = { depth: number; today: BoardRows; deepest: BoardRows; souls: BoardRows; honour: BoardRows; trapsetter: BoardRow | null; liar: BoardRow | null };
 /** GET /api/pulse?depth=: the already-played screen's 20 s poll. */
-export type PulseResponse = { fell: number; carved: number };
+/** Phase 10, on the Warden's floor: links left (never below 0) of the pool it started with, whether it carried over from its last floor, who killed it, and the links you broke. */
+export type BossView = { hp: number; pool: number; carried: boolean; killer: string | null; you: number };
+export type PulseResponse = { fell: number; carved: number; boss?: BossView };
 /** GET /api/chronicle: one row per floor, newest first. */
 /** `predicted` (bot win %, A39) and `players` (real runs, bots excluded) sit side by side for tuning the target curve. */
 export type ChronicleRow = { depth: number; fell: number; cleared: number; curse: Curse | null; zone: number | null; killer: string | null; predicted?: number | null; players?: { cleared: number; fell: number } };

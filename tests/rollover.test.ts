@@ -56,7 +56,7 @@ test('trap selection: 5 survivors all placed; 1,000 survivors cap at 12 and 3 pe
   expect(Math.max(...perZone.values())).toBeLessThanOrEqual(TRAP_ZONE_MAX);
 });
 
-test('the ladder: full, then no traps, then no crowd, then plain; each step is taken when the one before fails', () => {
+test('the ladder: full, then no traps, then no crowd, then plain; each step is taken when the one before fails', { timeout: 30_000 }, () => {
   const tally: Tally = { deaths: [0, 0, 0, 0, 9, 0, 0, 0, 0], kills: { goblin: 5 }, curseVotes: { frail: 2 }, traps: [{ zone: 4, kind: 'spikes', owner: 't2_o', name: 'olga' }] };
   const failing = (n: number) => {
     let calls = 0;

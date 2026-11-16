@@ -22,6 +22,7 @@ import {
   TORCH_OUT_RADIUS,
   TORCH_RADIUS,
   TRAPS,
+  WARDEN,
   type Curse,
   type Family,
   type Item,
@@ -54,10 +55,25 @@ export type Floor = {
   showcase?: readonly Family[];
 };
 export type PlacedTrap = { x: number; y: number; kind: 'spikes' | 'dart' | 'stairs'; owner: string; name: string | null };
-export type Kind = 'goblin' | 'imp' | 'skeleton';
+export type Kind = 'goblin' | 'imp' | 'skeleton' | 'warden';
 export type Mode = 'idle' | 'alert' | 'chase' | 'windup' | 'pile';
-/** `aim`: the tiles a wind-up will strike next turn. `timer`: a bone pile's countdown. `pack`: lowest id of its pack. */
-export type Enemy = { id: number; kind: Kind; x: number; y: number; hp: number; mode: Mode; aim: readonly Pos[]; timer: number; pack: number };
+/**
+ * `aim`: the tiles a wind-up will strike next turn. `timer`: a bone pile's countdown, or the Warden's quiet turns before its
+ * next slam. `pack`: lowest id of its pack. `volley`: 1 while a twice-slamming Warden owes its second slam.
+ */
+export type Enemy = { id: number; kind: Kind; x: number; y: number; hp: number; mode: Mode; aim: readonly Pos[]; timer: number; pack: number; volley?: number };
+/** The tiles an enemy stands on: one, or the Warden's 2×2 block with (x, y) its top-left. */
+export const occupies = (e: Pos & { kind: Kind }, p: Pos): boolean =>
+  e.kind === 'warden' ? p.x >= e.x && p.x <= e.x + 1 && p.y >= e.y && p.y <= e.y + 1 : same(e, p);
+/** Every tile an enemy stands on. */
+export const blockTiles = (e: Pos & { kind: Kind }): Pos[] =>
+  e.kind === 'warden' ? [{ x: e.x, y: e.y }, { x: e.x + 1, y: e.y }, { x: e.x, y: e.y + 1 }, { x: e.x + 1, y: e.y + 1 }] : [{ x: e.x, y: e.y }];
+/** Steps from a tile to the nearest tile an enemy stands on. */
+const reachOf = (e: Pos & { kind: Kind }, p: Pos): number =>
+  e.kind === 'warden' ? Math.max(0, e.x - p.x, p.x - e.x - 1) + Math.max(0, e.y - p.y, p.y - e.y - 1) : dist(e, p);
+/** The Warden's tier: it arrives at position 7, so it is one tier ahead of the band (§8), capped at 4. */
+export const wardenTier = (f: Floor): Tier => TIER_OF[Math.min(3, Math.max(0, Math.floor((f.depth - 1) / 7)))] ?? 1;
+const TIER_OF: readonly Tier[] = [1, 2, 3, 4];
 /** A timed gate's countdown. */
 export type Clock = { x: number; y: number; left: number };
 export type End = { kind: 'won' | 'dead'; cause: string };
@@ -78,6 +94,8 @@ export type State = {
   nextId: number;
   /** Turns spent with the torch out. */
   darkTurns: number;
+  /** Links of the Warden's chain this run broke (a bump each), capped at WARDEN.perRun: the run's damage to the shared pool. */
+  dealt: number;
   ended: End | null;
 };
 export type Event =
@@ -87,6 +105,7 @@ export type Event =
   | { t: 'door'; at: Pos }
   | { t: 'key'; at: Pos }
   | { t: 'attack'; id: number; at: Pos }
+  | { t: 'link'; at: Pos; dealt: number }
   | { t: 'kill'; id: number; at: Pos }
   | { t: 'alert'; id: number }
   | { t: 'enemyMove'; id: number; from: Pos; to: Pos }
@@ -170,13 +189,13 @@ export function visibility(state: State): number[] {
 export function start(floor: Floor): State {
   let pos: Pos = { x: 0, y: 0 };
   const enemies: Enemy[] = [];
-  const KINDS: Record<string, Kind> = { g: 'goblin', i: 'imp', K: 'skeleton' };
+  const KINDS: Record<string, Kind> = { g: 'goblin', i: 'imp', K: 'skeleton', W: 'warden' };
   floor.rows.forEach((row, y) => {
     for (let x = 0; x < row.length; x++) {
       const c = row[x] ?? '';
       if (c === '@') pos = { x, y };
       const kind = KINDS[c];
-      if (!kind) continue;
+      if (!kind || (kind === 'warden' && enemies.some((e) => occupies(e, { x, y })))) continue; // one Warden per 2×2 block
       const id = enemies.length;
       // Packs: same kind within PACK_RADIUS of an earlier one joins that one's pack.
       const mate = enemies.find((e) => e.kind === kind && dist(e, { x, y }) <= PACK_RADIUS);
@@ -184,10 +203,10 @@ export function start(floor: Floor): State {
     }
   });
   const buried = SPIKES[floor.tiers?.spikes ?? 1].buried;
-  const tiles = floor.rows.map((row) => row.replace(/[@giK]/g, '.').replace(/\^/g, buried ? 'u' : '^'));
+  const tiles = floor.rows.map((row) => row.replace(/[@giKW]/g, '.').replace(/\^/g, buried ? 'u' : '^'));
   return withSeen({
     floor, tiles, pos, hearts: HEARTS + curse(floor, 'heartsDelta'), torch: floor.torch, turn: 0, hasKey: false, item: null, seen: [], enemies,
-    clocks: [], rng: (floor.seed ?? 0) >>> 0, nextId: enemies.length, darkTurns: 0, ended: null,
+    clocks: [], rng: (floor.seed ?? 0) >>> 0, nextId: enemies.length, darkTurns: 0, dealt: 0, ended: null,
   });
 }
 
@@ -204,7 +223,7 @@ export function step(state: State, action: Action): { state: State; events: Even
   const from = state.pos;
   const put = (p: Pos, c: string) => (d.tiles = setTile(d.tiles, p.x, p.y, c));
   // A bone pile is floor for everyone (rule 6): only standing enemies block, take blows or stop darts.
-  const enemyAt = (p: Pos) => d.enemies.find((e) => e.mode !== 'pile' && same(e, p));
+  const enemyAt = (p: Pos) => d.enemies.find((e) => e.mode !== 'pile' && occupies(e, p));
   const free = (p: Pos) => !same(d.pos, p) && !enemyAt(p);
   const kill = (e: Enemy) => {
     d.enemies = d.enemies.filter((o) => o.id !== e.id);
@@ -217,8 +236,8 @@ export function step(state: State, action: Action): { state: State; events: Even
     Object.assign(e, { mode: 'pile', aim: [], timer: mate ? mate.timer : t.rebuild + (acted ? 0 : 1) });
     events.push({ t: 'collapse', id: e.id, at: { x: e.x, y: e.y } });
   };
-  /** Damage to an enemy: skeletons fall into a pile, everything else dies. */
-  const harm = (e: Enemy) => (e.kind === 'skeleton' ? e.mode !== 'pile' && collapse(e) : kill(e));
+  /** Damage to an enemy: skeletons fall into a pile, the chained Warden shrugs it off, everything else dies. */
+  const harm = (e: Enemy) => (e.kind === 'warden' ? undefined : e.kind === 'skeleton' ? e.mode !== 'pile' && collapse(e) : kill(e));
   /** A dart or arrow flies along `line` and hits the first creature in it. */
   const shoot = (origin: Pos, line: readonly Pos[], cause: string) => {
     let end: Pos | null = null;
@@ -258,7 +277,7 @@ export function step(state: State, action: Action): { state: State; events: Even
       const r = ITEMS.bomb.radius;
       const near = (p: Pos) => Math.abs(p.x - d.pos.x) <= r && Math.abs(p.y - d.pos.y) <= r;
       events.push({ t: 'bomb', at: { ...d.pos } });
-      for (const e of d.enemies.filter(near)) kill(e); // skeletons included: a bombed skeleton never rebuilds
+      for (const e of d.enemies.filter((o) => o.kind !== 'warden' && near(o))) kill(e); // skeletons included: a bombed skeleton never rebuilds
       for (const p of find(d.tiles, '^ux')) if (near(p)) put(p, '.');
     }
   } else if (action !== 'W') {
@@ -266,7 +285,12 @@ export function step(state: State, action: Action): { state: State; events: Even
     const to = { x: d.pos.x + (dir?.dx ?? 0), y: d.pos.y + (dir?.dy ?? 0) };
     const c = tileAt(d.tiles, to.x, to.y);
     const target = enemyAt(to);
-    if (target) {
+    if (target?.kind === 'warden') {
+      // Each bump breaks one link of the shared chain (A41). Past the run's share it is a wall: no turn passes.
+      if (d.dealt >= WARDEN.perRun) return { state, events: [{ t: 'blocked', at: to }] };
+      d.dealt += 1;
+      events.push({ t: 'attack', id: target.id, at: to }, { t: 'link', at: to, dealt: d.dealt });
+    } else if (target) {
       events.push({ t: 'attack', id: target.id, at: to });
       if (target.kind === 'skeleton') collapse(target);
       else if (--target.hp <= 0) kill(target);
@@ -415,6 +439,11 @@ export function step(state: State, action: Action): { state: State; events: Even
   };
   const strike = (e: Enemy) => {
     const at = e.aim[0];
+    if (e.kind === 'warden') {
+      if (at) events.push({ t: 'enemyAttack', id: e.id, at });
+      if (e.aim.some((p) => same(p, d.pos))) hits.push({ amount: 1, cause: 'warden', at: { ...d.pos } });
+      return;
+    }
     if (e.kind === 'skeleton' && SKELETONS[tierOf(d, 'skeletons')].range) shoot({ x: e.x, y: e.y }, e.aim, 'arrow');
     else if (e.kind === 'imp' && IMPS[tierOf(d, 'imps')].dive) {
       // The dive flies its line through the aimed tile and lands past it. Only the aimed tile is hurt (the rest is
@@ -431,6 +460,9 @@ export function step(state: State, action: Action): { state: State; events: Even
     }
   };
   const wakes = (e: Enemy): boolean => {
+    if (e.kind === 'warden') {
+      return reachOf(e, d.pos) <= WARDEN.sight + curse(d.floor, 'wakeDelta') && blockTiles(e).some((p) => lineOfSight(d.tiles, p, d.pos));
+    }
     if (e.kind === 'imp') {
       const t = IMPS[tierOf(d, 'imps')];
       return t.wake === 'light' ? litNow[e.y * w + e.x] === 1 || dist(e, d.pos) <= curse(d.floor, 'wakeDelta') : dist(e, d.pos) <= t.wakeDist + curse(d.floor, 'wakeDelta');
@@ -440,7 +472,42 @@ export function step(state: State, action: Action): { state: State; events: Even
   };
   const packWakes = (e: Enemy) => (e.kind === 'goblin' ? GOBLINS[tierOf(d, 'goblins')].packWake : e.kind === 'imp' && IMPS[tierOf(d, 'imps')].packWake);
 
+  /**
+   * The Warden's slam (A41): a 2-wide band out from the block, WARDEN.reach long, stopped by walls. One band (the rows or
+   * the columns you are nearer to lining up with), or both at T3+. A corner of the block is outside every band, so one
+   * step always dodges.
+   */
+  const slam = (e: Enemy): Pos[] => {
+    const out: Pos[] = [];
+    const line = (from: Pos, dx: number, dy: number) => {
+      for (let k = 1; k <= WARDEN.reach; k++) {
+        const p = { x: from.x + dx * k, y: from.y + dy * k };
+        if (blocks(tileAt(d.tiles, p.x, p.y))) break;
+        out.push(p);
+      }
+    };
+    const offX = Math.max(0, e.x - d.pos.x, d.pos.x - e.x - 1), offY = Math.max(0, e.y - d.pos.y, d.pos.y - e.y - 1);
+    const both = WARDEN.tiers[wardenTier(d.floor)].cross;
+    if (both || offY <= offX) {
+      for (const y of [e.y, e.y + 1]) {
+        line({ x: e.x, y }, -1, 0);
+        line({ x: e.x + 1, y }, 1, 0);
+      }
+    }
+    if (both || offY > offX) {
+      for (const x of [e.x, e.x + 1]) {
+        line({ x, y: e.y }, 0, -1);
+        line({ x, y: e.y + 1 }, 0, 1);
+      }
+    }
+    return out;
+  };
   const chase = (e: Enemy) => {
+    if (e.kind === 'warden') {
+      if (e.timer > 0) e.timer -= 1;
+      else if (reachOf(e, d.pos) <= WARDEN.reach) windup(e, slam(e));
+      return;
+    }
     if (e.kind === 'goblin') {
       const t = GOBLINS[tierOf(d, 'goblins')];
       const steps = t.starve && turn % t.starve === 0 ? 2 : 1;
@@ -517,6 +584,13 @@ export function step(state: State, action: Action): { state: State; events: Even
     } else if (e.mode === 'windup') {
       strike(e);
       Object.assign(e, { mode: 'chase', aim: [] });
+      if (e.kind === 'warden') {
+        const t = WARDEN.tiers[wardenTier(d.floor)];
+        if (t.twice && !e.volley) {
+          e.volley = 1;
+          windup(e, slam(e)); // the second slam, aimed where you stand now, marked a turn ahead like the first
+        } else Object.assign(e, { volley: 0, timer: t.gap });
+      }
     } else if (e.mode === 'idle') {
       if (!wakes(e)) continue;
       e.mode = 'alert';
@@ -539,7 +613,8 @@ export function step(state: State, action: Action): { state: State; events: Even
   if (d.torch <= 0) {
     d.darkTurns += 1;
     if (d.darkTurns % TORCH_OUT_DRAIN === 0) hits.push({ amount: 1, cause: 'dark', at: { ...d.pos } });
-  } else {
+  } else if (!events.some((e) => e.t === 'link')) {
+    // A bump at the Warden's chain burns no torch (A41): fighting it costs dodges, not light.
     d.torch = Math.max(0, d.torch - (darkRoom(d, d.pos) ? DARK[tierOf(d, 'dark')].burn : 1));
     if (d.torch === 0) events.push({ t: 'torchOut' });
   }
@@ -574,7 +649,7 @@ function landing(d: State, pit: Pos): Pos {
   d.tiles.forEach((row, y) => {
     for (let x = 0; x < row.length; x++) {
       const p = { x, y };
-      if (dist(p, pit) > PIT_DROP || !safe(row[x] ?? '#') || d.enemies.some((e) => e.mode !== 'pile' && same(e, p)) || score(p) < 0) continue;
+      if (dist(p, pit) > PIT_DROP || !safe(row[x] ?? '#') || d.enemies.some((e) => e.mode !== 'pile' && occupies(e, p)) || score(p) < 0) continue;
       if (!best || score(p) < score(best)) best = p;
     }
   });
@@ -629,7 +704,7 @@ export function replay(floor: Floor, log: readonly Action[]): State {
 }
 
 /** What the server stores for a run, derived by replay (the client sends only the log). `tile`: where it ended. */
-export type RunResult = { outcome: End['kind']; score: number; turns: number; torch: number; cause: string; tile: Pos };
+export type RunResult = { outcome: End['kind']; score: number; turns: number; torch: number; cause: string; tile: Pos; dealt: number };
 
 export const score = (s: State): number => (s.ended?.kind === 'won' ? SCORE.won + SCORE.perHeart * s.hearts + s.torch : s.turn);
 
@@ -649,7 +724,7 @@ export function judge(floor: Floor, log: string): { ok: true; run: RunResult } |
     s = next;
   }
   if (!s.ended) return { ok: false, reason: 'unfinished' };
-  return { ok: true, run: { outcome: s.ended.kind, score: score(s), turns: s.turn, torch: s.torch, cause: s.ended.cause, tile: { ...s.pos } } };
+  return { ok: true, run: { outcome: s.ended.kind, score: score(s), turns: s.turn, torch: s.torch, cause: s.ended.cause, tile: { ...s.pos }, dealt: s.dealt } };
 }
 
 const ACTIONS: readonly Action[] = ['U', 'D', 'L', 'R', 'W', 'I'];

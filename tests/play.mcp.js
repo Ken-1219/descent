@@ -933,6 +933,105 @@ async (page) => {
     }
   }
 
+
+  // 17. Phase 10: the Warden: the intro in each state, the chain counting your bumps, the end line, the plate, the splash
+  {
+    const raw = async (vp, url) => {
+      const ctx = await browser.newContext({ viewport: vp });
+      await ctx.addInitScript(() => localStorage.setItem('descent:f0', '1'));
+      const p = await ctx.newPage();
+      p.on('pageerror', (e) => errs.push(String(e)));
+      p.on('console', (m) => { if (m.type() === 'error') errs.push(m.text()); });
+      await p.goto(url);
+      return { ctx, p };
+    };
+    const ready = async (p) => { await p.waitForFunction(() => window.__descent); await p.evaluate(() => window.__descent.ready); };
+    const text = async (p, sel = '#end') => (await p.locator(sel).innerText()).replace(/\n+/g, ' | ');
+    const W = `${URL}?floor=warden`;
+    for (const [state, want, meter] of [
+      ['alive', /The Warden waits, chained\. \| 84 of 120 links \| Bump it to break a link\. Stairs are open\./, '84'],
+      ['carried', /The Warden returns, still wounded\. \| 40 of 40 links/, '40'],
+      ['killed', /The Warden fell to u\/Warden_Slayer_2026\. \| Its arena is quiet\. The stairs are open\./, null],
+    ]) {
+      const { ctx, p } = await raw({ width: 390, height: 844 }, `${W}&boss=${state}`);
+      await ready(p);
+      const t = await text(p);
+      const now = await p.locator('#end .chain-meter').getAttribute('aria-valuenow').catch(() => null);
+      const enemies = await p.evaluate(() => window.__descent.state().enemies.length);
+      check(`Warden intro, ${state}: shows the boss and its chain (or its killer), one Descend`, want.test(t) && now === meter && (state === 'killed' ? enemies === 0 : enemies === 1), t.slice(0, 180));
+      await ctx.close();
+    }
+    {
+      const { ctx, p } = await raw({ width: 390, height: 844 }, `${W}&boss=alive`);
+      await ready(p);
+      await p.locator('#end .btn--primary').click();
+      await p.evaluate(async () => { window.__descent.skipAnim(true); for (const a of 'DDRRR') await window.__descent.act(a); }); // (4,3): beside the block
+      const before = await p.locator('#hud [aria-label^="Warden chain"]').getAttribute('aria-label');
+      await p.evaluate(async () => { for (const a of 'RRR') await window.__descent.act(a); });
+      const after = await p.locator('#hud [aria-label^="Warden chain"]').getAttribute('aria-label');
+      check('the HUD chain counts down one link per bump (its HP when the run began, less yours)', before === 'Warden chain: 84 links left' && after === 'Warden chain: 81 links left', `${before} → ${after}`);
+      await p.evaluate(async () => { for (const a of 'UURRRRRDDDDD') { if (window.__descent.state().ended) break; await window.__descent.act(a); } });
+      await p.waitForFunction(() => document.querySelector('#end:not([hidden])'));
+      const endT = await text(p);
+      check('the end of a Warden run says how many links you broke', /You broke 3 links\./.test(endT), endT.slice(0, 140));
+      await p.getByRole('button', { name: 'Skip' }).click();
+      if (await p.getByRole('button', { name: 'Skip' }).count()) await p.getByRole('button', { name: 'Skip' }).click();
+      await p.waitForFunction(() => /Score/.test(document.getElementById('end').innerText));
+      const plate = await text(p);
+      check('the plate shows the Warden\'s chain after your run and the links you broke', /81 of 120 links/.test(plate) && /You broke 3 links\./.test(plate), plate.slice(0, 200));
+      await ctx.close();
+    }
+    for (const [state, want] of [['alive', /The Warden: 84 of 120 links\./], ['killed', /The Warden has fallen\./]]) {
+      const { ctx, p } = await raw({ width: 390, height: 844 }, `http://localhost:5190/splash.html?floor=warden&boss=${state}`);
+      await p.waitForFunction(() => !document.getElementById('go').disabled);
+      const t = await text(p, 'body');
+      check(`splash, boss day (${state})`, want.test(t), t);
+      await ctx.close();
+    }
+    {
+      const bad = [];
+      const fits = (p, what, vp) => p.evaluate(() => {
+        const out = [];
+        if (document.documentElement.scrollWidth > innerWidth) out.push('hscroll');
+        const panel = document.querySelector('#end:not([hidden]) .end__panel');
+        if (panel) {
+          const r = panel.getBoundingClientRect();
+          if (r.top < -0.5 || r.bottom > innerHeight + 0.5 || r.right > innerWidth + 0.5) out.push('panel off screen');
+          const prim = panel.querySelector('.btn--primary')?.getBoundingClientRect();
+          if (!prim || prim.bottom > innerHeight + 0.5 || prim.top < 0) out.push('primary off screen');
+          const m = panel.querySelector('.chain-meter');
+          if (m && m.scrollWidth > m.clientWidth + 1) out.push('meter text clipped');
+        }
+        const hud = document.getElementById('hud')?.getBoundingClientRect();
+        if (hud && hud.right > innerWidth + 0.5) out.push('hud overflow');
+        return out;
+      }).then((o) => bad.push(...o.map((x) => `${vp.width}x${vp.height} ${what}: ${x}`)));
+      for (const vp of [{ width: 320, height: 320 }, { width: 360, height: 640 }, { width: 844, height: 390 }, { width: 1280, height: 800 }]) {
+        for (const state of ['alive', 'carried', 'killed']) {
+          const { ctx, p } = await raw(vp, `${W}&boss=${state}`);
+          await ready(p);
+          await fits(p, `intro ${state}`, vp);
+          if (state === 'alive') {
+            await p.locator('#end .btn--primary').click();
+            await p.evaluate(async () => { window.__descent.skipAnim(true); for (const a of 'DDRRR') await window.__descent.act(a); });
+            await fits(p, 'hud chain', vp);
+            await p.evaluate(async () => { for (let i = 0; i < 400 && !window.__descent.state().ended; i++) await window.__descent.act('W'); });
+            await p.waitForSelector('#end select.picker');
+            await p.getByRole('button', { name: 'Skip' }).click();
+            await p.waitForFunction(() => /Score/.test(document.getElementById('end').innerText));
+            await fits(p, 'plate', vp);
+          }
+          await ctx.close();
+        }
+        const sp = await raw(vp, 'http://localhost:5190/splash.html?floor=warden&boss=alive');
+        await sp.p.waitForFunction(() => !document.getElementById('go').disabled);
+        const ok = await sp.p.evaluate(() => document.documentElement.scrollWidth <= innerWidth && document.getElementById('go').getBoundingClientRect().bottom <= innerHeight + 0.5);
+        if (!ok) bad.push(`${vp.width}x${vp.height} splash boss`);
+        await sp.ctx.close();
+      }
+      check('layout 320×320 to 1280×800: Warden intro (alive, carried, fallen), HUD chain, plate and boss splash fit', bad.length === 0, bad.join(' ; '));
+    }
+  }
   } catch (e) {
     // A step that throws (a timeout) is recorded after the last check that ran, so the rest of the report survives.
     check(`suite stopped after "${results.at(-1)?.name}"`, false, String(e).split('\n')[0]);

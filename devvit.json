@@ -81,6 +81,9 @@
       },
       "flair": {
         "endpoint": "/internal/scheduler/flair"
+      },
+      "memorial": {
+        "endpoint": "/internal/scheduler/memorial"
       }
     }
   },

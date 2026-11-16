@@ -38,7 +38,7 @@ export function tiersFor(depth: number): Partial<Record<Family, Tier>> {
   return out;
 }
 
-/** Phase 10 hook: position-7 floors become the Warden's arena. Until then they generate as ordinary floors. */
+/** Position-7 floors are the Warden's arena (A40). */
 export const isWardenFloor = (depth: number) => cycle(depth).pos === WARDEN_POS;
 
 /** The day's new families or tiers. With nothing new (position 7, or every family at T4 from depth 29) the showcase rotates. */
@@ -93,6 +93,7 @@ export function safePath(floor: Floor): SafePath | null {
   }
   const ok = (p: Pos, turn: number) => {
     const c = tileAt(t, p.x, p.y);
+    if (tileAt(floor.rows, p.x, p.y) === 'W') return false; // the Warden never moves off its block
     if (blocks(c) || 'uxO,;oF_Hh'.includes(c) || lines.has(p.y * w + p.x)) return false;
     return c !== '^' || (period > 1 && spikeStage(s0, p.x, p.y, turn) !== 2);
   };
@@ -129,9 +130,9 @@ export function safePath(floor: Floor): SafePath | null {
   return null;
 }
 
-/** The gate-1 route replayed in the real sim, enemies and dens removed: it must take no damage and reach the stairs. */
+/** The gate-1 route replayed in the real sim, enemies and dens removed (the chained Warden's block stays, as wall). */
 function verified(floor: Floor, log: readonly Action[]): boolean {
-  let s = start({ ...floor, rows: floor.rows.map((r) => r.replace(/[giKG]/g, '.')) });
+  let s = start({ ...floor, rows: floor.rows.map((r) => r.replace(/[giKG]/g, '.').replace(/W/g, '#')) });
   for (const a of log) {
     const r = step(s, a);
     if (r.events.some((e) => e.t === 'hurt')) return false;
@@ -160,7 +161,7 @@ function routed(t: readonly string[], entrance: Pos, stairs: Pos, fixedSpikes: b
   const w = width(t);
   const lines = new Set<number>();
   for (const p of find(t, 'SsZz')) for (const q of slitLine(t, p, TRAPS.dart.range)) lines.add(q.y * w + q.x);
-  const pass = (c: string) => !blocks(c) && !'uxO,;oF_Hh'.includes(c) && !(fixedSpikes && c === '^');
+  const pass = (c: string) => !blocks(c) && !'uxO,;oF_HhW'.includes(c) && !(fixedSpikes && c === '^');
   const masked = t.map((row, y) => [...row].map((c, x) => (lines.has(y * w + x) ? '#' : c)).join(''));
   return (bfs(masked, entrance, pass)[stairs.y * w + stairs.x] ?? -1) >= 0;
 }
@@ -263,10 +264,22 @@ function attempt(depth: number, seed: number, mods: Mods, fallback: number): Omi
   const far = bfs(rows, entrance, (c) => !blocks(c));
   const away = (r: Rect) => far[centre(r).y * side + centre(r).x] ?? -1;
   const order = rooms.map((_, k) => k).sort((a, b) => away(rooms[a] ?? room1) - away(rooms[b] ?? room1) || a - b);
-  const stairsRoom = rooms[order[order.length - 1] ?? r1];
-  if (!stairsRoom || stairsRoom === room1) return null;
-  const stairs = cells(stairsRoom)[int(stairsRoom.w * stairsRoom.h)] ?? centre(stairsRoom);
+  // A40: on the Warden's floor the stairs room is its arena: the farthest room at least 4×4, the 2×2 block in its middle,
+  // the stairs on its corner farthest from the entrance (a corner lies outside every slam band). Open from the start.
+  const warden = isWardenFloor(depth);
+  const fits = (k: number) => !warden || ((rooms[k]?.w ?? 0) >= 4 && (rooms[k]?.h ?? 0) >= 4);
+  const stairsK = [...order].reverse().find((k) => k !== r1 && fits(k));
+  const stairsRoom = stairsK === undefined ? undefined : rooms[stairsK];
+  if (!stairsRoom || stairsRoom === room1 || (!warden && stairsK !== order[order.length - 1])) return null;
+  const block = { x: stairsRoom.x + Math.floor((stairsRoom.w - 2) / 2), y: stairsRoom.y + Math.floor((stairsRoom.h - 2) / 2) };
+  const corners = [
+    { x: stairsRoom.x, y: stairsRoom.y }, { x: stairsRoom.x + stairsRoom.w - 1, y: stairsRoom.y },
+    { x: stairsRoom.x, y: stairsRoom.y + stairsRoom.h - 1 }, { x: stairsRoom.x + stairsRoom.w - 1, y: stairsRoom.y + stairsRoom.h - 1 },
+  ];
+  const farCorner = corners.reduce((b, c) => ((far[c.y * side + c.x] ?? -1) > (far[b.y * side + b.x] ?? -1) ? c : b));
+  const stairs = warden ? farCorner : (cells(stairsRoom)[int(stairsRoom.w * stairsRoom.h)] ?? centre(stairsRoom));
   put(stairs, '>');
+  if (warden) for (const p of cells({ ...block, w: 2, h: 2 })) put(p, 'W');
 
   // Room roles: room 1 safe; the next room is the showcase; later rooms add one older family each.
   const fresh = showcaseFamilies(depth).filter((f) => tiers[f]);
@@ -280,7 +293,7 @@ function attempt(depth: number, seed: number, mods: Mods, fallback: number): Omi
   const split = fresh.length > 1 && older.length > 0;
   const shows = split ? fresh.length : 1;
   const allowed = order.map((k, rank): [number, Family[]] => {
-    if (k === r1) return [k, []];
+    if (k === r1 || (warden && k === stairsK)) return [k, []]; // room 1 is safe; the arena holds only the Warden
     if (rank <= shows) return [k, split ? [fresh[rank - 1] ?? fresh[0] ?? 'spikes'] : fresh];
     const old = older[(rank - 1 - shows) % Math.max(1, older.length)];
     const news = split ? [fresh[(rank - 1 - shows) % fresh.length] ?? 'spikes'] : fresh;
@@ -404,6 +417,7 @@ function attempt(depth: number, seed: number, mods: Mods, fallback: number): Omi
     return tier ? COSTS[f][tier].cost : 0;
   };
   const buy = (f: Family, r: Rect, showcase = false) => {
+    if (warden && r === stairsRoom) return false;
     const tier = tiers[f];
     const cost = costOf(f);
     const room = filled.get(r) ?? 0;

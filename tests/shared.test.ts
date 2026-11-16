@@ -418,7 +418,7 @@ test('a bone pile is floor for everyone; at 0 it rises only once its tile is emp
 test('judge: a finished log is replayed into its result; score matches replay', () => {
   const win = 'DRRURRRRDDDDLLLLLL';
   const r = judge(FLOOR_0, win);
-  expect(r).toEqual({ ok: true, run: { outcome: 'won', score: score(replay(FLOOR_0, [...win] as Action[])), turns: 18, torch: FLOOR_0.torch - 18, cause: 'stairs', tile: { x: 1, y: 6 } } });
+  expect(r).toEqual({ ok: true, run: { outcome: 'won', score: score(replay(FLOOR_0, [...win] as Action[])), turns: 18, torch: FLOOR_0.torch - 18, cause: 'stairs', tile: { x: 1, y: 6 }, dealt: 0 } });
   const dead = { ...FLOOR_0, mercy: false, torch: 6 };
   const d = judge(dead, 'WWWWWWWWWWWW');
   expect(d.ok && d.run).toMatchObject({ outcome: 'dead', cause: 'dark', score: 12, tile: { x: 2, y: 2 } });

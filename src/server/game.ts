@@ -3,7 +3,8 @@ import { context, reddit, redis } from '@devvit/web/server';
 import { BOARD, CURSES, GHOSTS, NAMELESS, TRAP_TEXT, type Curse } from '../shared/content';
 import { trapHits, trapSouls, type Tally } from '../shared/crowd';
 import { nextRollover } from './boards';
-import { generate, NO_MODS, type Mods, type Trap } from '../shared/gen';
+import { bossView, fallen, strike, unstrike } from './boss';
+import { generate, isWardenFloor, NO_MODS, type Mods, type Trap } from '../shared/gen';
 import { zoneOf } from '../shared/grid';
 import { CARVING_CHOICES, carvingOf, ghostView, type GhostRecord, type GhostView, type Vote } from '../shared/ghosts';
 import { bot } from '../shared/bot';
@@ -64,7 +65,15 @@ const storedFloor = async (depth: number): Promise<Floor | null> => {
   return s ? JSON.parse(s) : null;
 };
 
-const result = ({ outcome, score, turns, torch, cause, tile }: StoredRun): RunResult => ({ outcome, score, turns, torch, cause, tile });
+const result = ({ outcome, score, turns, torch, cause, tile, dealt }: StoredRun): RunResult => ({ outcome, score, turns, torch, cause, tile, dealt: dealt ?? 0 });
+
+/** Real players (bots excluded) on a floor: the Warden's pool is sized from the floor before it (A42). */
+const playersOn = async (depth: number) => {
+  const r = await realResult(depth);
+  return r.cleared + r.fell;
+};
+/** After the Warden dies, later runs play its floor without it (A46): the same rows, the block gone. */
+const withoutWarden = (f: Floor): Floor => ({ ...f, rows: f.rows.map((r) => r.replace(/W/g, '.')) });
 
 /** GET /api/floor for `user` (undefined when logged out) on the post's depth. */
 export async function floorFor(user: string | undefined, depth: number | null): Promise<FloorResponse> {
@@ -73,8 +82,10 @@ export async function floorFor(user: string | undefined, depth: number | null): 
   const d = depth ?? t.day;
   if (!d) return { kind: 'none' };
   if (!user) return { kind: 'login', depth: d };
-  const floor = await storedFloor(d);
-  if (!floor) return { kind: 'none' };
+  const stored = await storedFloor(d);
+  if (!stored) return { kind: 'none' };
+  const boss = isWardenFloor(d) ? await bossView(d, user, () => playersOn(d - 1)) : undefined;
+  const floor = boss?.killer ? withoutWarden(stored) : stored;
   const [mine, resets, tutorial, trapped] = await Promise.all([
     redis.hGet(key(d, 'runs'), user),
     redis.hGet(key(d, 'resets'), user),
@@ -86,10 +97,10 @@ export async function floorFor(user: string | undefined, depth: number | null): 
     // Your run has ended here, so the carvings' Trust and Liar totals (and your own votes) come with the ghosts.
     const ghosts = await withVotes(d, user, await ghostsOf(d, user));
     const streak = JSON.parse((await redis.hGet('streak', user)) ?? '{"n":0}').n;
-    return { kind: 'played', depth: d, seed: floor.seed ?? 0, floor, run: result(JSON.parse(mine)), ghosts, live: d === t.day, attempt, choices: await choicesOf(d, user), myTrap: trapped, streak, nextAt: nextRollover(Date.now()) };
+    return { kind: 'played', depth: d, seed: floor.seed ?? 0, floor, run: result(JSON.parse(mine)), ghosts, live: d === t.day, attempt, choices: await choicesOf(d, user), myTrap: trapped, streak, nextAt: nextRollover(Date.now()), ...(boss ? { boss } : {}) };
   }
   if (d < t.day) return { kind: 'closed', depth: d, today: t.day, todayUrl: postUrl(t.postId) };
-  return { kind: 'play', depth: d, seed: floor.seed ?? 0, floor, ghosts: await ghostsOf(d, user), attempt, tutorial: !!tutorial, myTrap: trapped };
+  return { kind: 'play', depth: d, seed: floor.seed ?? 0, floor, ghosts: await ghostsOf(d, user), attempt, tutorial: !!tutorial, myTrap: trapped, ...(boss ? { boss } : {}) };
 }
 
 /** Your trap on this floor (set yesterday) and what it has done so far: hurt and killed (A28). */
@@ -113,11 +124,17 @@ export async function submitRun(user: string, depth: number, log: string, who: W
   if (!Number.isInteger(depth) || depth < 1) return { kind: 'rejected', reason: 'no such floor' }; // Floor 0 never reaches the server
   const t = await today();
   if (depth < t.day) return { kind: 'closed', today: t.day, todayUrl: postUrl(t.postId) };
-  const floor = await storedFloor(depth);
-  if (!floor || depth > t.day) return { kind: 'rejected', reason: 'no such floor' };
+  const stored = await storedFloor(depth);
+  if (!stored || depth > t.day) return { kind: 'rejected', reason: 'no such floor' };
   const prior = await redis.hGet(key(depth, 'runs'), user);
   if (prior) return retry(JSON.parse(prior), log);
-  const j = judge(floor, log);
+  // A46: the Warden's floor exists with and without it (after its death). The run is judged on the one being served,
+  // then the other, so a run begun just before the kill still counts; a log that fits neither is rejected.
+  const variants = !isWardenFloor(depth) ? [stored] : (await fallen(depth)) ? [withoutWarden(stored), stored] : [stored, withoutWarden(stored)];
+  const tried = variants.map((f) => ({ floor: f, j: judge(f, log) }));
+  const pick = tried.find((v) => v.j.ok) ?? tried[0];
+  if (!pick) return { kind: 'rejected', reason: 'no such floor' };
+  const { floor, j } = pick;
   if (!j.ok) return { kind: 'rejected', reason: j.reason };
   const at = Date.now();
   // Trap souls (A15, A28) from this replay alone: never from your own trap, never from or to a bot.
@@ -161,6 +178,8 @@ export async function submitRun(user: string, depth: number, log: string, who: W
     await tx.hIncrBy(key(depth, 'kills'), run.cause, 1);
   }
   await tx.exec();
+  // A43: the Warden's damage comes only from this replay, once (a resend returned above), and never from a bot.
+  if (!who.bot && run.dealt > 0 && isWardenFloor(depth)) await strike(depth, user, who.name, run.dealt, () => playersOn(depth - 1));
   return { kind: 'saved', run: j.run };
 }
 
@@ -310,6 +329,7 @@ export async function resetRun(user: string): Promise<{ depth: number; had: bool
   await tx.zRem(key(day, 'scores'), [user]);
   await tx.hIncrBy(key(day, 'resets'), user, 1);
   await tx.exec();
+  if (run?.dealt && isWardenFloor(day)) await unstrike(day, user, run.dealt); // A43: its links go back on the chain
   return { depth: day, had };
 }
 

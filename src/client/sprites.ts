@@ -415,10 +415,11 @@ export function links(s: State): Pos[][] {
   });
 }
 
-const IDLE: Record<Kind, Anim> = { goblin: ANIMS['goblin-idle'], imp: ANIMS['imp-idle'], skeleton: ANIMS['skelet-idle'] };
-export const RUN: Record<Kind, Anim> = { goblin: ANIMS['goblin-run'], imp: ANIMS['imp-run'], skeleton: ANIMS['skelet-run'] };
-export const HURT: Record<Kind, Anim> = { goblin: ANIMS['goblin-hurt'], imp: ANIMS['imp-hurt'], skeleton: ANIMS['skelet-hurt'] };
-const WINDUP: Record<Kind, PackName> = { goblin: 'goblin-run-0', imp: 'imp-run-0', skeleton: 'skelet-run-0' };
+// The Warden is chained: it never runs or dies, so its "run" plays as the strain of a slam and a bump shakes its idle.
+const IDLE: Record<Kind, Anim> = { goblin: ANIMS['goblin-idle'], imp: ANIMS['imp-idle'], skeleton: ANIMS['skelet-idle'], warden: ANIMS['warden-idle'] };
+export const RUN: Record<Kind, Anim> = { goblin: ANIMS['goblin-run'], imp: ANIMS['imp-run'], skeleton: ANIMS['skelet-run'], warden: ANIMS['warden-run'] };
+export const HURT: Record<Kind, Anim> = { goblin: ANIMS['goblin-hurt'], imp: ANIMS['imp-hurt'], skeleton: ANIMS['skelet-hurt'], warden: ANIMS['warden-idle'] };
+const WINDUP: Record<Kind, PackName> = { goblin: 'goblin-run-0', imp: 'imp-run-0', skeleton: 'skelet-run-0', warden: 'warden-run-0' };
 const DIGIT: readonly SpriteName[] = ['digit-1', 'digit-2', 'digit-3', 'digit-4'];
 
 /** An enemy's pose for its mode. The wind-up is the anticipation frame (§15.4): run frame 0 leaning 1 px away from its target. */
@@ -501,7 +502,9 @@ export function choreograph(events: readonly Event[], next: State): { motions: M
     else if (e.t === 'enemyMove') moves.set(e.id, [...(moves.get(e.id) ?? [e.from]), e.to]);
     else if (e.t === 'enemyAttack') {
       const en = next.enemies.find((o) => o.id === e.id);
-      if (en) add(e.id, lunge(en, e.at, LUNGE_PX, LUNGE_MS), LUNGE_MS);
+      // The Warden is drawn across its 2×2 block (centre of both columns, feet on the lower row): it lunges from there.
+      const from = en?.kind === 'warden' ? { x: en.x + 0.5, y: en.y + 1 } : en;
+      if (from) add(e.id, lunge(from, e.at, LUNGE_PX, LUNGE_MS), LUNGE_MS);
     } else if (e.t === 'shot') {
       streaks.push({ from: e.from, to: e.to, at: 0, until: STREAK_MS });
       lock = Math.max(lock, STREAK_MS);

@@ -2,6 +2,9 @@
 // written when a run or vote was accepted (game.ts); nothing is computed in the rollover. Bots never appear.
 import { reddit, redis } from '@devvit/web/server';
 import { BOARD } from '../shared/content';
+import { isWardenFloor } from '../shared/gen';
+import { bossView } from './boss';
+import { realResult } from './game';
 import type { BoardResponse, BoardRows, CardResponse, ChronicleResponse, PulseResponse } from '../shared/api';
 
 const isBot = (user: string) => user.startsWith('bot:');
@@ -67,10 +70,12 @@ export async function cardFor(ghost: string, depth: number): Promise<CardRespons
   };
 }
 
-/** GET /api/pulse: the already-played screen's 20 s poll asks only for these two counts (§15.3). */
-export async function pulse(depth: number): Promise<PulseResponse> {
+/** GET /api/pulse: the already-played screen's 20 s poll asks only for counts (§15.3), and the Warden's HP on its floor. */
+export async function pulse(depth: number, user?: string): Promise<PulseResponse> {
   const [fell, carved] = await Promise.all([redis.hLen(`f:${depth}:ghosts`), redis.hLen(`f:${depth}:carvings`)]);
-  return { fell, carved };
+  // Phase 10: on the Warden's floor the same poll carries its HP (no realtime channel).
+  const boss = isWardenFloor(depth) ? await bossView(depth, user, async () => { const r = await realResult(depth - 1); return r.cleared + r.fell; }) : undefined;
+  return { fell, carved, ...(boss ? { boss } : {}) };
 }
 
 /** GET /api/chronicle: one row per floor, newest first, the last BOARD.chronicle floors. */

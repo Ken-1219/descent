@@ -4,10 +4,11 @@
 // Floor 0's map as the day's floor (no mercy), so tests can win it with a known route; ?floor=trap makes its spikes a
 // player's trap (owner u/trapper); ?curse=frail curses the floor; ?yesterday=1 adds yesterday's line; ?mytrap=2,1 makes
 // this profile the owner of a trap that has hurt 2 and killed 1 here; ?yesterday=few gives a day of 2 deaths;
-// ?board=N fills the board with N players (this profile ranked by its own run).
+// ?board=N fills the board with N players (this profile ranked by its own run); ?floor=warden serves a small Warden arena;
+// ?boss=alive|carried|killed sets its shared pool (killed serves the floor without it, as the server does).
 import { generate } from '../shared/gen';
 import { CURSES, FLOOR_0, TRAP_TEXT, type Curse } from '../shared/content';
-import type { BoardRows, MyTrap } from '../shared/api';
+import type { BoardRows, BossView, MyTrap } from '../shared/api';
 import type { Trap } from '../shared/gen';
 import { carvingOf, fixtureGhosts, ghostView, type GhostRecord, type GhostView, type Vote } from '../shared/ghosts';
 import { hash } from '../shared/rng';
@@ -23,6 +24,7 @@ const floorOf = (d: number): Floor => {
   if (stored) return stored;
   const q = new URLSearchParams(location.search);
   const base: Floor = q.get('floor') === 'f0' ? { ...FLOOR_0, depth: d, mercy: false, seed: d }
+    : q.get('floor') === 'warden' ? { depth: d, mercy: false, seed: d, torch: 90, rows: ARENA }
     : q.get('floor') === 'trap' ? { ...FLOOR_0, depth: d, mercy: false, seed: d, rows: FLOOR_0.rows.map((r) => r.replaceAll('^', 'x')), traps: [2, 3, 4].map((y) => ({ x: 10, y, kind: 'spikes' as const, owner: 't2_trapper', name: 'trapper' })) }
     : generate(d, hash(`descent:local:${d}`)).floor;
   const curse = Object.keys(CURSES).find((c): c is Curse => c === q.get('curse'));
@@ -35,6 +37,20 @@ const floorOf = (d: number): Floor => {
   };
   write(`floor:${d}`, f);
   return f;
+};
+const ARENA = ['###########', '#@........#', '#.........#', '#....WW...#', '#....WW...#', '#.........#', '#........>#', '###########'];
+/** The Warden's pool for ?boss=: what the server's bossView returns, with this profile's own links taken off. */
+const bossOf = (d: number): BossView | undefined => {
+  const k = new URLSearchParams(location.search).get('boss');
+  if (!k) return undefined;
+  const you = runOf(d)?.dealt ?? 0;
+  const pool = k === 'carried' ? 40 : 120;
+  const hp = k === 'killed' ? 0 : Math.max(0, (k === 'carried' ? 40 : 84) - you);
+  return { hp, pool, carried: k === 'carried', killer: k === 'killed' ? 'Warden_Slayer_2026' : null, you };
+};
+const served = (d: number): Floor => {
+  const f = floorOf(d);
+  return bossOf(d)?.killer ? { ...f, rows: f.rows.map((r) => r.replace(/W/g, '.')) } : f;
 };
 const runOf = (d: number) => read<RunResult & { log: string }>(`run:${d}`);
 const params = new URLSearchParams(location.search);
@@ -56,14 +72,15 @@ export const local: Api = {
     net();
     const d = Number(params.get('post') ?? day());
     if (params.get('loggedOut')) return { kind: 'login', depth: d };
-    const floor = floorOf(d);
+    const floor = served(d);
+    const boss = bossOf(d);
     const mine = runOf(d);
     if (mine) {
       const { log: _, ...run } = mine;
-      return { kind: 'played', depth: d, seed: floor.seed ?? 0, floor, run, ghosts: withVotes(d, ghostsOf(d)), live: d === day(), attempt: 0, choices: choicesOf(d), myTrap: myTrap(), streak: read<number>('streak') ?? 1, nextAt: Date.now() + 5 * 3_600_000 + 12 * 60_000 };
+      return { kind: 'played', depth: d, seed: floor.seed ?? 0, floor, run, ghosts: withVotes(d, ghostsOf(d)), live: d === day(), attempt: 0, choices: choicesOf(d), myTrap: myTrap(), streak: read<number>('streak') ?? 1, nextAt: Date.now() + 5 * 3_600_000 + 12 * 60_000, ...(boss ? { boss } : {}) };
     }
     if (d < day()) return { kind: 'closed', depth: d, today: day(), todayUrl: `${location.pathname}?post=${day()}` };
-    return { kind: 'play', depth: d, seed: floor.seed ?? 0, floor, ghosts: ghostsOf(d), attempt: 0, tutorial: !!read('tutorial'), myTrap: myTrap() };
+    return { kind: 'play', depth: d, seed: floor.seed ?? 0, floor, ghosts: ghostsOf(d), attempt: 0, tutorial: !!read('tutorial'), myTrap: myTrap(), ...(boss ? { boss } : {}) };
   },
   run: async ({ depth, log }) => {
     net();
@@ -73,7 +90,7 @@ export const local: Api = {
       const { log: l, ...run } = prior;
       return l === log ? { kind: 'saved', run } : { kind: 'rejected', reason: 'already played' };
     }
-    const j = judge(floorOf(depth), log);
+    const j = judge(served(depth), log);
     if (!j.ok) return { kind: 'rejected', reason: j.reason };
     write(`run:${depth}`, { ...j.run, log });
     const f = floorOf(depth);
@@ -100,7 +117,8 @@ export const local: Api = {
   card: async (ghost) => ({ avatar: null, record: ghost.startsWith('bot:') || ghost.startsWith('floor0:') ? null : { deaths: 7, trust: 12, liar: 3 } }),
   pulse: async (depth) => {
     net();
-    return { fell: ghostsOf(depth).fell, carved: 0 };
+    const boss = bossOf(depth);
+    return { fell: ghostsOf(depth).fell, carved: 0, ...(boss ? { boss } : {}) };
   },
   chronicle: async () => ({ rows: Array.from({ length: day() - 1 }, (_, i) => ({ depth: day() - 1 - i, fell: 10 + i, cleared: 3, curse: i % 2 ? 'frail' : null, zone: i % 9, killer: 'goblin' })) }),
   board: async (depth) => {

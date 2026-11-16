@@ -3,8 +3,9 @@
 import { context, reddit, redis, scheduler } from '@devvit/web/server';
 import { CURSE_TEXT, FLAIR, ZONE_NAMES } from '../shared/content';
 import { EMPTY_TALLY, rolloverFloor, targetPct, type Rolled } from '../shared/crowd';
-import { showcaseFamilies } from '../shared/gen';
+import { isWardenFloor, showcaseFamilies } from '../shared/gen';
 import type { Floor } from '../shared/sim';
+import { bossDay, openBoss } from './boss';
 import { dayStats, drainFlair, floorSeed, openFloor, realResult, tally, today } from './game';
 
 /** Store, post and publish floor `depth`; `game` moves to it only after the post exists. */
@@ -49,11 +50,16 @@ async function advance(day: number, why: string): Promise<{ posted: number | nul
   // The intro reads all of this from the floor itself: yesterday's deaths per zone, the top killer, today's new family.
   const yesterday = { depth: day, fell: stats.fell, cleared: Math.max(0, stats.runs - stats.fell), zone: stats.zone, curse, deaths: [...t.deaths], killer };
   const floor: Floor = { ...rolled.floor, yesterday, showcase: showcaseFamilies(next), predicted: predicted(next, rolled) };
+  // Phase 10: the Warden's day that just ended (killed, or what it carries), and the pool of a Warden posted now. Neither
+  // may fail the rollover: an error is logged and the floor posts anyway.
+  const ended = isWardenFloor(day) ? await bossDay(day, real.cleared + real.fell).catch((e: unknown) => (console.error(`WARDEN day ${day}: ${String(e)}`), null)) : null;
+  const waits = isWardenFloor(next) ? await openBoss(next, real.cleared + real.fell).catch((e: unknown) => (console.error(`WARDEN open ${next}: ${String(e)}`), null)) : null;
   const p = await post(next, { mods: rolled.mods, floor, seed: rolled.seed });
-  console.log(`ROLLOVER ${why}: floor ${day} -> ${next}, ladder step "${rolled.step}"${rolled.tried.length ? ` (after ${rolled.tried.map((x) => `${x.step}: ${x.why}`).join('; ')})` : ''}, win ${rolled.win}% vs plain ${rolled.plainWin}% (plain band check ${rolled.plainBandWin}% after ${rolled.rerolls} rerolls), ${floor.traps?.length ?? 0} player traps, curse ${curse ?? 'none'}; floor ${day} predicted ${before?.predicted ? `${before.predicted.win}%` : 'n/a'}, players ${real.cleared} cleared / ${real.fell} fell${real.cleared + real.fell ? ` (${Math.round((100 * real.cleared) / (real.cleared + real.fell))}%)` : ''}, ${Date.now() - t0} ms`);
-  await reddit.submitComment({ id: p.id, text: summary(yesterday, floor.traps?.length ?? 0) }).catch((e: unknown) => console.error(`summary comment failed: ${String(e)}`));
+  console.log(`ROLLOVER ${why}: floor ${day} -> ${next}, ladder step "${rolled.step}"${rolled.tried.length ? ` (after ${rolled.tried.map((x) => `${x.step}: ${x.why}`).join('; ')})` : ''}, win ${rolled.win}% vs plain ${rolled.plainWin}% (plain band check ${rolled.plainBandWin}% after ${rolled.rerolls} rerolls), ${floor.traps?.length ?? 0} player traps, curse ${curse ?? 'none'}${ended ? `; ${ended.text} Pool ${ended.pool}: ${ended.stats.links} links from ${ended.stats.runs} runs (${ended.stats.fighters} fought), mean ${ended.stats.mean}, median ${ended.stats.median}, max ${ended.stats.max}` : ''}${waits ? `; Warden pool ${waits.pool}${waits.carried ? ' (carried)' : ''}` : ''}; floor ${day} predicted ${before?.predicted ? `${before.predicted.win}%` : 'n/a'}, players ${real.cleared} cleared / ${real.fell} fell${real.cleared + real.fell ? ` (${Math.round((100 * real.cleared) / (real.cleared + real.fell))}%)` : ''}, ${Date.now() - t0} ms`);
+  const boss = [ended?.text, waits ? `The Warden waits in its arena: ${waits.pool} links${waits.carried ? ', still wounded from its last floor' : ''}.` : ''].filter(Boolean).join(' ');
+  await reddit.submitComment({ id: p.id, text: `${summary(yesterday, floor.traps?.length ?? 0)}${boss ? ` ${boss}` : ''}` }).catch((e: unknown) => console.error(`summary comment failed: ${String(e)}`));
   const { deaths: _, ...ledger } = yesterday;
-  await redis.hSet('chronicle', { [String(day)]: JSON.stringify({ ...ledger, predicted: before?.predicted?.win ?? null, players: real }) });
+  await redis.hSet('chronicle', { [String(day)]: JSON.stringify({ ...ledger, predicted: before?.predicted?.win ?? null, players: real, ...(ended ? { warden: { hp: ended.hp, pool: ended.pool, killed: ended.killed, ...ended.stats } } : {}) }) });
   await flair(day);
   return { posted: next };
 }

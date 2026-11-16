@@ -73,8 +73,10 @@ void api.floor().then(
     if (r.kind === 'play' || r.kind === 'played') render(r.floor, r.ghosts.tiles);
     const curse = (r.kind === 'play' || r.kind === 'played') && r.floor.curses?.[0];
     if (curse) floor.dataset.curse = CURSE_TEXT[curse].name;
-    if (r.kind === 'play') set(`Floor ${r.depth}${curse ? ` · ${CURSE_TEXT[curse].name}` : ''}`, r.ghosts.fell ? `${r.ghosts.fell} fell here today.` : "Today's deaths build tomorrow's floor.", 'Descend');
-    else if (r.kind === 'played') set(`Floor ${r.depth}`, `${r.run.outcome === 'won' ? 'Cleared' : 'Fell'} · score ${r.run.score} · ${r.ghosts.fell} fell`, 'See your run');
+    // Boss day (§7 splash states): the Warden and its chain, or that it has fallen.
+    const boss = (r.kind === 'play' || r.kind === 'played') && r.boss ? (r.boss.killer ? 'The Warden has fallen.' : `The Warden: ${r.boss.hp} of ${r.boss.pool} links.`) : '';
+    if (r.kind === 'play') set(`Floor ${r.depth}${curse ? ` · ${CURSE_TEXT[curse].name}` : ''}`, boss || (r.ghosts.fell ? `${r.ghosts.fell} fell here today.` : "Today's deaths build tomorrow's floor."), 'Descend');
+    else if (r.kind === 'played') set(`Floor ${r.depth}`, boss || `${r.run.outcome === 'won' ? 'Cleared' : 'Fell'} · score ${r.run.score} · ${r.ghosts.fell} fell`, 'See your run');
     else if (r.kind === 'closed') set(`Floor ${r.depth}`, `Closed. Today is Floor ${r.today}.`, "Today's floor", () => r.todayUrl && (import.meta.env.DEV ? location.assign(r.todayUrl) : navigateTo(r.todayUrl)));
     else if (r.kind === 'login') set(`Floor ${r.depth}`, 'One run a day, under your name.', 'Log in to descend', () => showLoginPrompt());
     else set('Floor 0', 'No floor yet. Practice first.', 'Practice');

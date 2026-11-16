@@ -3,12 +3,12 @@
 import { BOARD, CURSE_TEXT, FLOOR_0, FLOOR_0_GHOSTS, HEARTS, ITEMS, KILL_FAMILY, NAMELESS, PALETTE, TILE, TORCH_LOW_PCT, TRAPS, TRAP_TEXT, ZONE_NAMES, type Curse } from '../shared/content';
 import { slitLine, zoneOf } from '../shared/grid';
 import { navigateTo, showLoginPrompt } from '@devvit/web/client';
-import type { FloorResponse, GhostView, MyTrap, RunResult } from '../shared/api';
+import type { BossView, FloorResponse, GhostView, MyTrap, RunResult } from '../shared/api';
 import { carvingLabel, type Ghost, type Vote } from '../shared/ghosts';
 import { isAction, replay, start, step, type Action, type End, type Floor, type Pos } from '../shared/sim';
 import { api, submit } from './net';
 import { iconCanvas, loadPack, packIcon } from './sprites';
-import { button, carvingPicker, carvingsList, controls, createHud, cursePicker, el, endPanel, ghostCard, introCompass, saveLine, trapPicker, type PanelAction } from './ui';
+import { button, carvingPicker, carvingsList, chainMeter, controls, createHud, cursePicker, el, endPanel, ghostCard, introCompass, saveLine, trapPicker, type PanelAction } from './ui';
 import { miniMap } from './minimap';
 import { boardPanel, chroniclePanel } from './screens';
 
@@ -77,6 +77,8 @@ const SCRIPTED: GhostView = {
   list: FLOOR_0_GHOSTS.map((g, i) => ({ id: `floor0:${i}`, name: null, x: g.x, y: g.y, cause: g.cause, carving: g.carving })),
 };
 let dayGhosts: GhostView = day !== 'error' && (day.kind === 'play' || day.kind === 'played') ? day.ghosts : NONE;
+/** Phase 10: the Warden's shared pool on its floor (refreshed by the plate's poll); null on other floors. */
+let boss: BossView | null = day !== 'error' && (day.kind === 'play' || day.kind === 'played') ? (day.boss ?? null) : null;
 let shown: GhostView = NONE;
 let pack: HTMLCanvasElement | null = null;
 void loadPack().then((p) => {
@@ -86,7 +88,9 @@ void loadPack().then((p) => {
 const hud = createHud($('hud'), TORCH_LOW_PCT, HEARTS, (item) => (pack ? packIcon(pack, ITEMS[item].frames[0], 2) : undefined));
 const view = () => {
   const curse = state.floor.curses?.[0];
-  hud({ hearts: state.hearts, hasKey: state.hasKey, item: pack ? state.item : null, torch: state.torch, torchMax: state.floor.torch, depth: state.floor.depth, curse: curse ? CURSE_TEXT[curse].name : null });
+  // During a live run on the Warden's floor the chain counts down with your own bumps (its HP when the run began, less yours).
+  const chain = boss && live && !state.ended && state.enemies.some((e) => e.kind === 'warden') ? Math.max(0, boss.hp - state.dealt) : null;
+  hud({ hearts: state.hearts, hasKey: state.hasKey, item: pack ? state.item : null, torch: state.torch, torchMax: state.floor.torch, depth: state.floor.depth, curse: curse ? CURSE_TEXT[curse].name : null, chain });
   nearby();
 };
 controls(pad);
@@ -131,7 +135,9 @@ const settle = () => {
   while (waiters.length) waiters.shift()?.();
 };
 
-const CAUSES: Record<string, string> = { trap: 'trap', pit: 'fall' };
+const CAUSES: Record<string, string> = { trap: 'trap', pit: 'fall', warden: 'Warden' };
+/** Phase 10: the links a run broke, said at its end (none said when it broke none). */
+const linksLine = (n: number) => (n ? ` You broke ${n} link${n === 1 ? '' : 's'}.` : '');
 const endLine = (ended: End, turns: number, by: string | null = null) =>
   ended.kind === 'won' ? `${turns} turns. The stairs go down.` : by ? `${by} took you on turn ${turns}.` : `The ${CAUSES[ended.cause] ?? ended.cause} took you on turn ${turns}.`;
 /** A player's trap that took you: found from the floor alone (its placed traps), so it names its owner (Phase 8). */
@@ -164,8 +170,8 @@ const finish = (ended: End) => {
   }
   const save = saveLine();
   sendRun(live, save);
-  if (ended.kind === 'dead') return pickCarving(title, endLine(ended, state.turn, trapOwner()), save, live.depth);
-  pickCurse(title, endLine(ended, state.turn), save, live.depth);
+  if (ended.kind === 'dead') return pickCarving(title, endLine(ended, state.turn, trapOwner()) + linksLine(state.dealt), save, live.depth);
+  pickCurse(title, endLine(ended, state.turn) + linksLine(state.dealt), save, live.depth);
 };
 
 /**
@@ -287,7 +293,7 @@ async function result(prefetched?: FloorResponse) {
   flushVotes(r.depth);
   const ended: End = { kind: r.run.outcome, cause: r.run.cause };
   const title = r.run.outcome === 'won' ? `Floor ${r.depth} cleared` : `You fell on Floor ${r.depth}`;
-  const line = `Score ${r.run.score}. ${endLine(ended, r.run.turns, r.run.outcome === 'dead' ? (mine?.by ? `A trap set by u/${mine.by}` : null) : null)}`;
+  const line = `Score ${r.run.score}. ${endLine(ended, r.run.turns, r.run.outcome === 'dead' ? (mine?.by ? `A trap set by u/${mine.by}` : null) : null)}${linksLine(r.run.dealt)}`;
   const c = r.choices;
   const body: Node[] = [
     ...(r.myTrap ? [el('p', 'own-ghost', trapNews(r.myTrap))] : []),
@@ -300,6 +306,9 @@ async function result(prefetched?: FloorResponse) {
   const fellNow = el('span', 'plate__fell', fellLine(r.ghosts.fell));
   const clock = el('span', 'plate__clock', '');
   body.push(el('p', 'plate__meta', `Streak ${r.streak} floor${r.streak === 1 ? '' : 's'} · `, fellNow, ' · ', clock));
+  boss = r.boss ?? null;
+  const bossNow = el('div', 'plate__boss');
+  if (boss) body.push(wardenPlate(bossNow, boss));
   const links = el('div', 'plate__links');
   const others = shown.list.filter((g) => g.carving && !g.mine).length;
   const link = (label: string, cls: string, go: () => void) => {
@@ -320,7 +329,7 @@ async function result(prefetched?: FloorResponse) {
     : mine && !mine.carving ? { label: 'Carve', run: () => pickCarving(title, line, saveLine(), r.depth) }
     : null;
   endPanel(end, { title, line, body, primary: next ?? practice, ...(next ? { secondary: practice } : {}) });
-  watch(r.depth, r.nextAt, fellNow, clock); // after the plate is in the page: the clock stops once it leaves
+  watch(r.depth, r.nextAt, fellNow, clock, bossNow); // after the plate is in the page: the clock stops once it leaves
 }
 let plate: (FloorResponse & { kind: 'played' }) | null = null;
 
@@ -329,7 +338,12 @@ let plate: (FloorResponse & { kind: 'played' }) | null = null;
  * only while the plate shows and the tab is visible (§15.3), asking for the counts alone.
  */
 let watching = 0;
-function watch(depth: number, nextAt: number, fell: HTMLElement, clock: HTMLElement) {
+/** The plate's Warden line: its chain and your links, or who killed it; redrawn when the poll brings new numbers. */
+function wardenPlate(root: HTMLElement, b: BossView) {
+  root.replaceChildren(...(b.killer ? [el('p', 'intro__boss', `The Warden fell to u/${b.killer}.`)] : [chainMeter(b.hp, b.pool)]), el('p', 'muted', `You broke ${b.you} link${b.you === 1 ? '' : 's'}.`));
+  return root;
+}
+function watch(depth: number, nextAt: number, fell: HTMLElement, clock: HTMLElement, bossNow: HTMLElement) {
   clearInterval(watching);
   let ticks = 0;
   const tick = () => {
@@ -337,7 +351,11 @@ function watch(depth: number, nextAt: number, fell: HTMLElement, clock: HTMLElem
     const left = Math.max(0, nextAt - Date.now());
     const h = Math.floor(left / 3_600_000), m = Math.floor((left % 3_600_000) / 60_000), sec = Math.floor((left % 60_000) / 1000);
     clock.textContent = left ? `next floor in ${h}h ${String(m).padStart(2, '0')}m ${String(sec).padStart(2, '0')}s` : 'the next floor is opening';
-    if (++ticks % (BOARD.pollMs / 1000) === 0 && !document.hidden) void api.pulse(depth).then((p) => (fell.textContent = fellLine(p.fell)), () => undefined);
+    if (++ticks % (BOARD.pollMs / 1000) === 0 && !document.hidden)
+      void api.pulse(depth).then((p) => {
+        fell.textContent = fellLine(p.fell);
+        if (p.boss) wardenPlate(bossNow, (boss = p.boss)); // A47: live HP rides the same visible-only poll
+      }, () => undefined);
   };
   tick();
   watching = window.setInterval(tick, 1000);
@@ -454,10 +472,19 @@ function intro() {
   if (news) lines.push(news);
   const fresh = f.showcase?.[0];
   const curse = f.curses?.[0];
+  // Phase 10: on the Warden's floor its chain leads the intro: alive (and whether it came back wounded), or fallen.
+  const warden: Node[] = !boss ? [] : boss.killer
+    ? [el('p', 'intro__boss', `The Warden fell to u/${boss.killer}.`), el('p', 'intro__line', 'Its arena is quiet. The stairs are open.')]
+    : [
+        el('p', 'intro__boss', boss.carried ? 'The Warden returns, still wounded.' : 'The Warden waits, chained.'),
+        chainMeter(boss.hp, boss.pool),
+        el('p', 'intro__line', 'Bump it to break a link. Stairs are open.'),
+      ];
   endPanel(end, {
     title: `Floor ${f.depth}`,
     line: curse ? `Cursed: ${CURSE_TEXT[curse].name}, ${CURSE_TEXT[curse].effect}.` : 'No curse today.',
     body: [
+      ...warden,
       introCompass(deaths, danger),
       el('p', 'intro__legend muted', deaths ? '☠ fell yesterday · ▲ danger today' : '▲ danger today'),
       ...lines.map((t) => el('p', 'intro__line', t)),
@@ -468,12 +495,14 @@ function intro() {
   end.classList.add('end--intro');
 }
 
-/** On or next to a carved ghost, its carving shows in a line under the HUD (aria-live): no input needed. */
+/** On or next to a carved ghost, its carving shows in a line under the HUD (aria-live): no input needed. Otherwise a low torch says so there. */
 function nearby() {
   const near = shown.list.filter((g) => g.carving && reach(g) <= 1);
   const g = near[0];
   if (!g?.carving) {
-    carvingLine.hidden = true;
+    const low = !state.ended && state.torch * 100 <= state.floor.torch * TORCH_LOW_PCT;
+    carvingLine.replaceChildren(el('span', '', state.torch > 0 ? `Torch low: ${state.torch} turns of light left.` : 'Torch out: the dark is taking your hearts.'));
+    carvingLine.hidden = !low;
     return;
   }
   const read = button('Read');

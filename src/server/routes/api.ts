@@ -27,7 +27,7 @@ api.post('/run', async (c) => {
   if (!user) r = { kind: 'rejected', reason: 'logged out' };
   else if (typeof depth !== 'number' || typeof log !== 'string') r = { kind: 'rejected', reason: 'shape' };
   else r = await submitRun(user, depth, log, { name: context.username ?? null });
-  c.set('note', `d${depth ?? '-'} ${r.kind}${r.kind === 'rejected' ? ` (${r.reason})` : r.kind === 'saved' ? ` ${r.run.outcome} ${r.run.score}` : ''}`);
+  c.set('note', `d${depth ?? '-'} ${r.kind}${r.kind === 'rejected' ? ` (${r.reason})` : r.kind === 'saved' ? ` ${r.run.outcome} ${r.run.score}${r.run.dealt ? `, ${r.run.dealt} links` : ''}` : ''}`);
   return c.json<RunResponse>(r, r.kind === 'rejected' ? 400 : 200);
 });
 
@@ -69,8 +69,8 @@ api.get('/board', async (c) => {
 
 api.get('/pulse', async (c) => {
   const depth = Number(c.req.query('depth'));
-  const r = Number.isInteger(depth) && depth > 0 ? await pulse(depth) : { fell: 0, carved: 0 };
-  c.set('note', `d${depth} pulse ${r.fell} fell`);
+  const r = Number.isInteger(depth) && depth > 0 ? await pulse(depth, context.userId) : { fell: 0, carved: 0 };
+  c.set('note', `d${depth} pulse ${r.fell} fell${r.boss ? `, Warden ${r.boss.hp}/${r.boss.pool}` : ''}`);
   return c.json<PulseResponse>(r);
 });
 

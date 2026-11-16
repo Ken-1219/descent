@@ -167,6 +167,7 @@ src/server/
   routes/                   template route files: api.ts (/api/*), menu.ts, forms.ts (seed bots), triggers.ts, scheduler.ts (cron)
   game.ts                   Redis reads/writes: floors, runs, ghosts, votes, traps, souls, boards
   rollover.ts               daily job and mod menu actions
+  boss.ts                   Phase 10: the Warden's shared pool per cycle: open (with carry-over), strike/unstrike, the kill, the memorial job
   boards.ts                 Phase 9: read-only views: boards (top 10 + your row), ghost card record, pulse counts, Chronicle, next rollover
 tests/
   shared.test.ts  server.test.ts
@@ -576,6 +577,7 @@ Each phase lists Build, Show me (what to open), Checks, and Gate.
 
 - **Build:** the Warden arena. Stairs are open from the start; each bump removes one link; deaths keep their damage. Shared HP is 12 × yesterday's players, minimum 10 players. Killed: a "Fallen Warden" memorial post with top dealers. Not killed: leftover HP carries to the next boss floor. Final Floor 0. All five curses.
 - **Redis key:** `boss:{cycle}` hash and a damage sorted set.
+- **Built:** `boss:{c}` (c = ⌊(depth − 1) / 7⌋) holds `depth, pool, fresh, dealt, carried`, then `killer, killerName, killedAt, memorial`; `boss:{c}:dmg` user → links. HP is `max(0, pool − dealt)`; `dealt` moves by one atomic increment per accepted run. Runs store `dealt`. Scheduler task `memorial`. Pool minimum lowered to 5 players (60 links) by the owner; links per run are logged on each Warden day. Decisions A40–A48 in the Phase 10 spec.
 - **Gate:** a seeded boss day plays through to a memorial post locally.
 
 ### Phase 11 — Polish and freeze (Dec 4–5)

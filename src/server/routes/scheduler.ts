@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { memorial } from '../boss';
 import { flair, rollover } from '../rollover';
 import type { Env } from '../index';
 
@@ -18,4 +19,13 @@ scheduler.post('/flair', async (c) => {
   const r = Number.isInteger(depth) && depth > 0 ? await flair(depth) : { done: 0, left: 0 };
   c.set('note', `flair floor ${depth}: ${r.done} set, ${r.left} left`);
   return c.json({ status: 'ok', ...r });
+});
+
+// Phase 10: the memorial post, its own job so it never blocks a run or the rollover (A45).
+scheduler.post('/memorial', async (c) => {
+  const body = await c.req.json<{ data?: { cycle?: unknown } }>().catch((): { data?: { cycle?: unknown } } => ({}));
+  const cycle = Number(body.data?.cycle);
+  const id = Number.isInteger(cycle) && cycle >= 0 ? await memorial(cycle) : null;
+  c.set('note', `memorial cycle ${cycle}: ${id ?? 'nothing posted'}`);
+  return c.json({ status: 'ok', id });
 });

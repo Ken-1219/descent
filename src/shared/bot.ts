@@ -3,7 +3,7 @@
 import { BOT_MAX_ACTIONS, IMPS, MECHANISMS, SPIKES, TRAPS } from './content';
 import { DIRS, blocks, dist, find, slitLine, width, type Pos } from './grid';
 import { mulberry32 } from './rng';
-import { lightRadius, spikeStage, start, step, tells, tierOf, visibility, type Action, type Floor, type State } from './sim';
+import { blockTiles, lightRadius, spikeStage, start, step, tells, tierOf, visibility, type Action, type Floor, type State } from './sim';
 
 /** Hazards a careful player never steps on once seen. */
 const AVOID = 'uxO,;oF_';
@@ -77,7 +77,12 @@ export function bot(floor: Floor, skillPct: number, seed: number, sight: 'player
     const onMap = (p: Pos) => p.x >= 0 && p.y >= 0 && p.x < w && p.y < s.tiles.length;
     const look = (p: Pos): string => (onMap(p) ? (seenAs[p.y * w + p.x] ?? '#') : '#');
     const occupant: (State['enemies'][number] | undefined)[] = [];
-    for (const e of s.enemies) if (e.mode !== 'pile') occupant[e.y * w + e.x] = e; // piles are floor (rule 6)
+    for (const e of s.enemies) {
+      if (e.mode === 'pile') continue; // piles are floor (rule 6)
+      for (const p of blockTiles(e)) occupant[p.y * w + p.x] = e;
+    }
+    // The chained Warden never dies inside a run: the bot walks around it to the stairs, as wall (A41).
+    const chained = (p: Pos) => enemyAt(p)?.kind === 'warden';
     const enemyAt = (p: Pos) => (onMap(p) ? occupant[p.y * w + p.x] : undefined);
     const hurtsNext = (p: Pos) => {
       const c = look(p);
@@ -115,7 +120,7 @@ export function bot(floor: Floor, skillPct: number, seed: number, sight: 'player
           const q = { x: p.x + d.dx, y: p.y + d.dy };
           const qc = look(q);
           const pit = (qc === 'O' || qc === 'o') && s.hearts >= 2;
-          if ((qc !== '?' && blocks(qc)) || (AVOID.includes(qc) && !pit)) continue;
+          if ((qc !== '?' && blocks(qc)) || (AVOID.includes(qc) && !pit) || chained(q)) continue;
           const j = q.y * w + q.x;
           if ((qc === '^' && fixed) || shunned.has(j)) continue;
           const nc = c + (qc === '?' ? UNKNOWN_COST : qc === '^' ? SPIKE_COST : pit ? PIT_COST : 1) + (darkness.has(j) ? DARK_COST : 0) + (enemyAt(q) ? FIGHT_COST : 0);
@@ -151,10 +156,10 @@ export function bot(floor: Floor, skillPct: number, seed: number, sight: 'player
       a = best ? toward(s.pos, best) : 'W';
     } else {
       const aimers = s.enemies.filter((e) => e.mode === 'windup' && e.aim.some((t) => t.x === s.pos.x && t.y === s.pos.y));
-      const adjacent = s.enemies.filter((e) => e.mode !== 'pile' && dist(e, s.pos) === 1);
+      const adjacent = s.enemies.filter((e) => e.mode !== 'pile' && e.kind !== 'warden' && dist(e, s.pos) === 1);
       const foe = adjacent.find((e) => !map || e.kind !== 'skeleton');
       const nearby = s.enemies.filter((e) => e.mode !== 'pile' && Math.abs(e.x - s.pos.x) <= 1 && Math.abs(e.y - s.pos.y) <= 1);
-      const lone = aimers.length === 1 && aimers[0] && dist(aimers[0], s.pos) === 1 ? aimers[0] : undefined;
+      const lone = aimers.length === 1 && aimers[0] && aimers[0].kind !== 'warden' && dist(aimers[0], s.pos) === 1 ? aimers[0] : undefined;
       if (s.item === 'potion' && s.hearts <= 1) a = 'I';
       else if (s.item === 'oil' && s.torch * 100 <= 25 * s.floor.torch) a = 'I';
       else if (s.item === 'bomb' && nearby.length >= 2) a = 'I';
