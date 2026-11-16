@@ -302,6 +302,12 @@ export const ZONE_NAMES: readonly string[] = ['North-west', 'North', 'North-east
 
 /** No difficulty spiral: a floor with crowd mods may lose at most `maxDropPct` win-rate points (skill-60 bot, `seeds` runs) against that day's plain floor. */
 export const BAND = { seeds: 16, maxDropPct: 20, skillPct: 60 };
+/**
+ * The plain floor's own difficulty: rerolled until its win rate (skill-60 bot, `runs` runs) sits within `below`/`above`
+ * points of §8's target line (startPct at depth 1 falling to endPct at depth 28), clamped to floorPct–ceilPct. Measured
+ * on 30 floors × 32 runs per depth: plain floors ran 0–100% (bimodal), so one day could be hopeless and the next empty.
+ */
+export const PLAIN_BAND = { runs: 24, startPct: 80, endPct: 35, endDepth: 28, below: 25, above: 15, floorPct: 20, ceilPct: 95, maxTries: 12 };
 /** Death causes as families, for yesterday's top killer (player traps and falls name no family). */
 export const KILL_FAMILY: Readonly<Record<string, Family>> = {
   spikes: 'spikes', goblin: 'goblins', imp: 'imps', dart: 'mechanisms', skeleton: 'skeletons', arrow: 'skeletons', pit: 'pits', dark: 'dark',

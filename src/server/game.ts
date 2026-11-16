@@ -31,8 +31,8 @@ export const postUrl = (postId: string | null) => (postId ? `https://www.reddit.
  * Phase 6 mods are seed only (no curse, uniform zones, no traps); Phases 7–8 fill the same shape from real tallies.
  */
 export const floorSeed = (depth: number) => hash(`descent:${context.subredditName}:${depth}`);
-export async function openFloor(depth: number, made?: { mods: Mods; floor: Floor }): Promise<Floor> {
-  const mods: StoredMods = { ...(made?.mods ?? NO_MODS), seed: floorSeed(depth) };
+export async function openFloor(depth: number, made?: { mods: Mods; floor: Floor; seed: number }): Promise<Floor> {
+  const mods: StoredMods = { ...(made?.mods ?? NO_MODS), seed: made?.seed ?? floorSeed(depth) };
   await redis.set(key(depth, 'mods'), JSON.stringify(mods), { nx: true });
   const stored = await storedFloor(depth);
   if (stored) return stored;

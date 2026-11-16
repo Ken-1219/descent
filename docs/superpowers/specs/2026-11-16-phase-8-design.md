@@ -84,3 +84,16 @@ Source: PLAN.md §8 (crowd modifiers), §11 Phase 8, §15.3 (bounded rollover), 
 - **Deviations:**
   - The HUD marks a cursed floor with a blood floor number and mark; the name is in the label and the yesterday line, because a text chip overflowed the 320 px HUD.
   - A trap whose zone has no valid tile moves to the nearest zone that has one, rather than being dropped.
+
+## Follow-up: the plain floor's own difficulty (Nov 16, before Phase 9)
+- **Measured:** 30 plain floors × 32 bot runs per depth, 1–28.
+  - The distribution is bimodal: 134 of 840 floors at 0% and 168 at 100%.
+  - 507 of 840 sit more than 10 points outside the band below.
+- **A32. Plain band:** for depth d, the target is §8's line (80% at depth 1, 35% at depth 28). A floor passes within [target − 25, target + 15], clamped to 20–95%, measured with 24 runs.
+  - `fairSeed` rerolls seed, seed + 1, … up to 12 times and keeps the closest floor if none lands inside.
+  - It runs at rollover (and for Floor 1), not inside `generate()`, whose 20 ms budget is unchanged. The relative band (A27) still applies on top, against the chosen plain floor.
+- **After:**
+  - 68 of 840 floors are more than 10 points outside the band, checked with 32 fresh bot runs (not the ones used to choose).
+  - Rerolls average 1.6–5.7 per floor, at most 11.
+  - `fairSeed` takes 247 ms on average and 1.3 s at most.
+- **Nothing carries over more than one day:** each floor's mods come only from the floor before it. Lifetime souls and honour never feed generation, and every day starts from a fresh plain floor.

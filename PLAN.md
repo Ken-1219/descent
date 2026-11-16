@@ -555,6 +555,7 @@ Each phase lists Build, Show me (what to open), Checks, and Gate.
 
 - **Build:** `rollover.ts`: tally heat, kills, curse and traps → next floor's mods → new post → summary comment → flair → Chronicle record. Mod-only menu actions in `devvit.json`: advance day, seed N bot runs, post Floor 0.
 - **Rules:** rollover is idempotent (a second call for the same day does nothing). Bot ghosts are named "a nameless delver" and have no snoovatar.
+- **Plain-floor band (built after the gate):** each day's plain floor is rerolled (seed, seed + 1, …, at most 12) until its skill-60 win rate (24 runs) is within −25/+15 points of §8's target line, clamped to 20–95%; crowd mods then apply to that seed under the relative band. Floors more than 10 points outside the band: 507 of 840 before, 68 after.
 - **Redis keys (built):** `rolled` hash (a depth is opened once, cron or dev tool); `f:{d}:trapped` hash (owner hurt/killed); `f:{d}:flair` hash (queued flair); `chronicle` hash; `tutorial` hash (the Floor 0 flag per user). The floor JSON carries its placed traps (owner, name) and `yesterday`.
 - **Tests:** two identical tallies give identical mods; double rollover creates one post.
 - **Show me:** local `advanceDay()` three times with painted deaths; the hazards follow the deaths.

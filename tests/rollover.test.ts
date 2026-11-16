@@ -2,8 +2,8 @@
 import { expect } from 'vitest';
 import { createDevvitTest } from '@devvit/test/server/vitest';
 import { redis } from '@devvit/web/server';
-import { BAND, FLOOR_0, TRAP_MAX, TRAP_ZONE_MAX } from '../src/shared/content';
-import { EMPTY_TALLY, modsFrom, rolloverFloor, topFamily, winPct, type Tally } from '../src/shared/crowd';
+import { BAND, FLOOR_0, PLAIN_BAND, TRAP_MAX, TRAP_ZONE_MAX } from '../src/shared/content';
+import { EMPTY_TALLY, fairSeed, modsFrom, plainBand, rolloverFloor, topFamily, winPct, type Tally } from '../src/shared/crowd';
 import { generate, NO_MODS, safePath, zoneOf, zoneWeights, type Trap } from '../src/shared/gen';
 import { start, step, type Floor } from '../src/shared/sim';
 import { floorFor, floorSeed, logStart, openFloor, placeTrap, resetRun, seedBots, submitRun, voteCurse } from '../src/server/game';
@@ -59,9 +59,10 @@ test('the ladder: full, then no traps, then no crowd, then plain; each step is t
   const tally: Tally = { deaths: [0, 0, 0, 0, 9, 0, 0, 0, 0], kills: { goblin: 5 }, curseVotes: { frail: 2 }, traps: [{ zone: 4, kind: 'spikes', owner: 't2_o', name: 'olga' }] };
   const failing = (n: number) => {
     let calls = 0;
+    // Mod floors are the plain floor itself (so the band always holds); the first n of them report a fallback.
     return (d: number, s: number, m: typeof NO_MODS) => {
-      const g = generate(d, s, m);
-      if (m === NO_MODS) return g; // the plain floor always generates
+      const g = generate(d, s, NO_MODS);
+      if (m === NO_MODS) return g;
       return calls++ < n ? { ...g, fallback: 1 } : g;
     };
   };
@@ -193,10 +194,24 @@ test('no difficulty spiral: 28 bot-only days through the real rollover stay solv
     const f = await stored(day + 1);
     expect(safePath(f), `floor ${day + 1} solvable`).not.toBeNull();
     const win = winPct(f);
-    const plain = winPct(generate(day + 1, floorSeed(day + 1), NO_MODS).floor);
+    const seed = JSON.parse((await redis.get(`f:${day + 1}:mods`)) ?? '{}').seed; // the seed the plain band chose
+    const plain = winPct(generate(day + 1, seed, NO_MODS).floor);
     rows.push(`${day + 1}:${win}/${plain}`);
     // The band (A27): a crowd floor never loses more than BAND.maxDropPct points against the day's plain floor.
     expect(win, `floor ${day + 1}`).toBeGreaterThanOrEqual(plain - BAND.maxDropPct);
   }
   console.log(`28 bot days (stored win % / plain win %): ${rows.join(' ')} in ${((performance.now() - t0) / 1000).toFixed(1)} s`);
+});
+
+test('plain floor band: around the §8 target line, clamped; the reroll lands inside it (or the closest), the same every time', () => {
+  expect(plainBand(1)).toEqual([55, 95]);
+  expect(plainBand(28)).toEqual([20, 50]);
+  expect(plainBand(60)).toEqual([20, 50]);
+  for (const d of [3, 11, 18]) {
+    const a = fairSeed(d, 9001);
+    const [lo, hi] = plainBand(d);
+    expect(a).toEqual(fairSeed(d, 9001));
+    if (a.tries < PLAIN_BAND.maxTries) expect(a.win).toBeGreaterThanOrEqual(lo);
+    if (a.tries < PLAIN_BAND.maxTries) expect(a.win).toBeLessThanOrEqual(hi);
+  }
 });
