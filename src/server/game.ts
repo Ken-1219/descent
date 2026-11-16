@@ -13,7 +13,7 @@ type StoredRun = RunResult & { log: string; at: number; bot?: true };
 /** Who a run belongs to: the name comes from the Devvit context (null for bots, shown as a nameless delver). */
 export type Who = { name: string | null; bot?: true };
 
-const key = (d: number, k: 'mods' | 'floor' | 'runs' | 'scores' | 'starts' | 'ghosts' | 'carvings' | 'heat' | 'kills') => `f:${d}:${k}`;
+const key = (d: number, k: 'mods' | 'floor' | 'runs' | 'scores' | 'starts' | 'ghosts' | 'carvings' | 'heat' | 'kills' | 'resets') => `f:${d}:${k}`;
 const isBot = (user: string) => user.startsWith('bot:');
 
 export const today = async (): Promise<{ day: number; postId: string | null }> => {
@@ -57,9 +57,10 @@ export async function floorFor(user: string | undefined, depth: number | null): 
   const floor = await storedFloor(d);
   if (!floor) return { kind: 'none' };
   const mine = await redis.hGet(key(d, 'runs'), user);
-  if (mine) return { kind: 'played', depth: d, seed: floor.seed ?? 0, floor, run: result(JSON.parse(mine)), ghosts: await ghostsOf(d, user), live: d === t.day };
+  const attempt = Number((await redis.hGet(key(d, 'resets'), user)) ?? 0);
+  if (mine) return { kind: 'played', depth: d, seed: floor.seed ?? 0, floor, run: result(JSON.parse(mine)), ghosts: await ghostsOf(d, user), live: d === t.day, attempt };
   if (d < t.day) return { kind: 'closed', depth: d, today: t.day, todayUrl: postUrl(t.postId) };
-  return { kind: 'play', depth: d, seed: floor.seed ?? 0, floor, ghosts: await ghostsOf(d, user) };
+  return { kind: 'play', depth: d, seed: floor.seed ?? 0, floor, ghosts: await ghostsOf(d, user), attempt };
 }
 
 const ghostRecords = async (d: number): Promise<Record<string, GhostRecord>> =>
@@ -187,3 +188,28 @@ const retry = (prior: StoredRun, log: string): RunResponse => (prior.log === log
 export const logStart = async (user: string, depth: number) => {
   await redis.hSetNX(key(depth, 'starts'), user, String(Date.now()));
 };
+
+/**
+ * Dev tool (mod menu, behind the devTools setting): remove the caller's run on the live floor with everything it wrote
+ * (score, start, ghost, carving, heat, kill), so one account can play a floor again. The reset count goes to the
+ * client, which keys its saved log by it, so the old run's log is never replayed and resubmitted.
+ */
+export async function resetRun(user: string): Promise<{ depth: number; had: boolean }> {
+  const { day } = await today();
+  if (!day) return { depth: 0, had: false };
+  const had = !!(await redis.hGet(key(day, 'runs'), user));
+  const ghost = await redis.hGet(key(day, 'ghosts'), user);
+  const floor = await storedFloor(day);
+  const tx = await redis.watch();
+  await tx.multi();
+  if (ghost && floor) {
+    const g: GhostRecord = JSON.parse(ghost);
+    await tx.hIncrBy(key(day, 'heat'), String(zoneOf(g, floor.rows.length)), -1);
+    await tx.hIncrBy(key(day, 'kills'), g.cause, -1);
+  }
+  for (const k of ['runs', 'ghosts', 'carvings', 'starts'] as const) await tx.hDel(key(day, k), [user]);
+  await tx.zRem(key(day, 'scores'), [user]);
+  await tx.hIncrBy(key(day, 'resets'), user, 1);
+  await tx.exec();
+  return { depth: day, had };
+}

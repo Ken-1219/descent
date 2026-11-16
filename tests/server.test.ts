@@ -4,7 +4,7 @@ import { redis } from '@devvit/web/server';
 import { FLOOR_0 } from '../src/shared/content';
 import { bot } from '../src/shared/bot';
 import { replay, score, start, step, type Action, type Floor } from '../src/shared/sim';
-import { carve, floorFor, ghostsOf, openFloor, purgeBots, seedBots, submitRun } from '../src/server/game';
+import { carve, floorFor, ghostsOf, openFloor, purgeBots, resetRun, seedBots, submitRun } from '../src/server/game';
 import { CARVINGS } from '../src/shared/content';
 import { zoneOf } from '../src/shared/gen';
 import { judge } from '../src/shared/sim';
@@ -242,4 +242,22 @@ test('bot seeding goes through run validation; bot ghosts are flagged, nameless,
   expect(heatSum(await redis.hGetAll('f:1:kills'))).toBe(heatSum(killsBefore));
   expect(Object.keys(await redis.hGetAll('f:1:runs'))).toEqual(['t2_a']);
   expect(await redis.zCard('f:1:scores')).toBe(1);
+});
+
+test('dev reset: clears the caller\'s run, ghost, carving, score, heat and kill on the live floor, and bumps the attempt', async () => {
+  await startFirstFloor();
+  const floor = await openFloor(1);
+  await submitRun('t2_b', 1, dies(floor).log, { name: 'bob' });
+  const heat0 = await redis.hGetAll('f:1:heat');
+  await submitRun('t2_a', 1, dies(floor).log, { name: 'alice' });
+  await carve('t2_a', 1, 'safe-way:L');
+  expect(await resetRun('t2_a')).toEqual({ depth: 1, had: true });
+  expect(await redis.hGet('f:1:runs', 't2_a')).toBeUndefined();
+  expect(await redis.hGet('f:1:ghosts', 't2_a')).toBeUndefined();
+  expect(await redis.hGet('f:1:carvings', 't2_a')).toBeUndefined();
+  expect(await redis.zScore('f:1:scores', 't2_a')).toBeUndefined();
+  expect(await redis.hGetAll('f:1:heat')).toEqual(heat0);
+  expect(await floorFor('t2_a', 1)).toMatchObject({ kind: 'play', attempt: 1 });
+  expect((await submitRun('t2_a', 1, dies(floor).log, { name: 'alice' })).kind).toBe('saved'); // plays again
+  expect(await redis.hGet('f:1:ghosts', 't2_b')).toBeTruthy(); // nobody else is touched
 });

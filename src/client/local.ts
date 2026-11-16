@@ -42,10 +42,10 @@ export const local: Api = {
     const mine = runOf(d);
     if (mine) {
       const { log: _, ...run } = mine;
-      return { kind: 'played', depth: d, seed: floor.seed ?? 0, floor, run, ghosts: ghostsOf(d), live: d === day() };
+      return { kind: 'played', depth: d, seed: floor.seed ?? 0, floor, run, ghosts: ghostsOf(d), live: d === day(), attempt: 0 };
     }
     if (d < day()) return { kind: 'closed', depth: d, today: day(), todayUrl: `${location.pathname}?post=${day()}` };
-    return { kind: 'play', depth: d, seed: floor.seed ?? 0, floor, ghosts: ghostsOf(d) };
+    return { kind: 'play', depth: d, seed: floor.seed ?? 0, floor, ghosts: ghostsOf(d), attempt: 0 };
   },
   run: async ({ depth, log }) => {
     net();

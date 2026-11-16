@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import type { UiResponse } from '@devvit/web/shared';
-import { postUrl, purgeBots } from '../game';
+import { context, settings } from '@devvit/web/server';
+import { postUrl, purgeBots, resetRun } from '../game';
 import { startFirstFloor } from '../rollover';
 import type { Env } from '../index';
 
@@ -30,4 +31,17 @@ menu.post('/purge-bots', async (c) => {
   const r = await purgeBots();
   c.set('note', `purged ${r.removed} bot runs on floor ${r.depth}`);
   return c.json<UiResponse>({ showToast: `Removed ${r.removed} bot runs from Floor ${r.depth}` });
+});
+
+// Dev tool: replay the live floor with one account. Switched off with the devTools setting before submission.
+menu.post('/reset-run', async (c) => {
+  const user = context.userId;
+  if (!(await settings.get<boolean>('devTools'))) {
+    c.set('note', 'reset refused: devTools off');
+    return c.json<UiResponse>({ showToast: 'Dev tools are switched off in the app settings' });
+  }
+  if (!user) return c.json<UiResponse>({ showToast: 'Log in first' });
+  const r = await resetRun(user);
+  c.set('note', `RESET run of ${context.username ?? user} on floor ${r.depth} (${r.had ? 'had a run' : 'no run'})`);
+  return c.json<UiResponse>({ showToast: r.had ? `Your Floor ${r.depth} run is cleared` : `No run on Floor ${r.depth} to clear` });
 });

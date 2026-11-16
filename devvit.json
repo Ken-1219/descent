@@ -39,6 +39,13 @@
         "location": "subreddit",
         "forUserType": "moderator",
         "endpoint": "/internal/menu/purge-bots"
+      },
+      {
+        "label": "Reset my run on the live floor",
+        "description": "Dev tool: clear your run, ghost and carving to play again",
+        "location": "subreddit",
+        "forUserType": "moderator",
+        "endpoint": "/internal/menu/reset-run"
       }
     ]
   },
@@ -62,5 +69,15 @@
   },
   "forms": {
     "seedBots": "/internal/form/seed-bots"
+  },
+  "settings": {
+    "subreddit": {
+      "devTools": {
+        "type": "boolean",
+        "label": "Dev tools (reset my run)",
+        "helpText": "Switch off before submission.",
+        "defaultValue": true
+      }
+    }
   }
 }

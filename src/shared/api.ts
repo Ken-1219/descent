@@ -6,8 +6,9 @@ export type { GhostView, RunResult };
 
 /** GET /api/floor. The depth is the post's own (postData), so an old post shows its floor as closed. */
 export type FloorResponse =
-  | { kind: 'play'; depth: number; seed: number; floor: Floor; ghosts: GhostView }
-  | { kind: 'played'; depth: number; seed: number; floor: Floor; run: RunResult; ghosts: GhostView; live: boolean }
+  /** `attempt`: how often the mod reset tool cleared this player's run here (keys the client's saved log). */
+  | { kind: 'play'; depth: number; seed: number; floor: Floor; ghosts: GhostView; attempt: number }
+  | { kind: 'played'; depth: number; seed: number; floor: Floor; run: RunResult; ghosts: GhostView; live: boolean; attempt: number }
   | { kind: 'closed'; depth: number; today: number; todayUrl: string | null }
   | { kind: 'login'; depth: number }
   | { kind: 'none' };

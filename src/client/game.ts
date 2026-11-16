@@ -43,20 +43,22 @@ const devFloor = sceneFloor(params.get('scene')) ?? depthFloor(Number(params.get
 
 // ---- the day's floor: fetched once, then play never waits on the network (§15.1) ----
 // `live` is the day's real floor while it is being played; Floor 0, scenes and dev floors are never logged or submitted.
-type Live = { depth: number; seed: number; floor: Floor; log: string };
+type Live = { depth: number; seed: number; attempt: number; floor: Floor; log: string };
 // Phaser is most of the game's bytes, so it loads as its own chunk: the floor request runs while it downloads.
 const engine = Promise.all([import('phaser'), import('./scene')]);
 const day: FloorResponse | 'error' = devFloor ? { kind: 'none' } : await api.floor().catch(() => 'error' as const);
 const [Phaser, { DescentScene }] = await engine;
 let live: Live | null = null;
-// Saved logs are keyed by depth and seed, so an old log can never replay onto a different floor.
-const logKey = (l: { depth: number; seed: number }) => `descent:log:${l.depth}:${l.seed}`;
+// Saved logs are keyed by depth and seed, so an old log can never replay onto a different floor; and by the mod reset
+// tool's attempt count, so a cleared run's log is never resubmitted.
+type Day = { depth: number; seed: number; attempt: number; floor: Floor };
+const logKey = (l: Omit<Day, 'floor'>) => `descent:log:${l.depth}:${l.seed}${l.attempt ? `:${l.attempt}` : ''}`;
 const F0_KEY = 'descent:f0';
 const store = {
   get: (k: string) => { try { return localStorage.getItem(k); } catch { return null; } },
   set: (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* private mode: the run still plays, it just won't resume */ } },
 };
-const liveOf = (r: { depth: number; seed: number; floor: Floor }): Live => ({ depth: r.depth, seed: r.seed, floor: r.floor, log: store.get(logKey(r)) ?? '' });
+const liveOf = (r: Day): Live => ({ depth: r.depth, seed: r.seed, attempt: r.attempt, floor: r.floor, log: store.get(logKey(r)) ?? '' });
 const playable = day !== 'error' && day.kind === 'play' ? day : null;
 if (playable && store.get(F0_KEY)) live = liveOf(playable);
 let floor: Floor = devFloor ?? live?.floor ?? FLOOR_0;
@@ -220,7 +222,7 @@ async function result(prefetched?: FloorResponse) {
 const ownGhost = (g: Ghost) => el('p', 'own-ghost', g.carving ? `Your ghost: ${carvingLabel(g.carving)}` : 'Your ghost left no carving.');
 
 /** Start (or restart) a floor. `real` set: the day's floor, logged and resumed from its saved log. */
-function play(f: Floor, real: { depth: number; seed: number; floor: Floor } | null) {
+function play(f: Floor, real: Day | null) {
   floor = f;
   live = real && liveOf(real);
   again();
