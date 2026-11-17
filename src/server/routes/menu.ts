@@ -33,7 +33,7 @@ menu.post('/purge-bots', async (c) => {
   return c.json<UiResponse>({ showToast: `Removed ${r.removed} bot runs from Floor ${r.depth}` });
 });
 
-const devTools = async () => !!(await settings.get<boolean>('devTools'));
+export const devTools = async () => !!(await settings.get<boolean>('devTools'));
 const devOff = () => ({ showToast: 'Dev tools are switched off in the app settings' });
 
 // Dev tool: replay the live floor with one account. Switched off with the devTools setting before submission.
@@ -59,6 +59,17 @@ menu.post('/roll-now', async (c) => {
   c.set('note', r.posted ? `ROLL OVER NOW by ${context.username ?? context.userId}: floor ${r.posted} posted` : 'roll over now: nothing to do');
   const url = r.posted ? postUrl((await today()).postId) : null;
   return c.json<UiResponse>(url ? { navigateTo: url } : { showToast: 'Nothing to roll over' });
+});
+
+// Dev tool: set the live Warden's remaining links, to test the kill and the memorial with a real run. Logged by the form.
+menu.post('/set-links', async (c) => {
+  if (!(await devTools())) {
+    c.set('note', 'set links refused: devTools off');
+    return c.json<UiResponse>(devOff());
+  }
+  return c.json<UiResponse>({
+    showForm: { name: 'setLinks', form: { title: "Set the Warden's links", acceptLabel: 'Set', fields: [{ name: 'left', label: 'Links left (1 to the pool; a real run makes the kill)', type: 'number', defaultValue: 5 }] } },
+  });
 });
 
 menu.post('/post-floor0', async (c) => {

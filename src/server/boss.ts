@@ -9,13 +9,13 @@ export const cycleOf = (depth: number) => Math.floor((depth - 1) / 7);
 const key = (c: number) => `boss:${c}`;
 const dmgKey = (c: number) => `boss:${c}:dmg`;
 
-type Boss = { depth: number; pool: number; fresh: number; dealt: number; carried: boolean; killer: string | null; killerName: string | null; memorial: string | null };
+type Boss = { depth: number; pool: number; fresh: number; dealt: number; forced: number; carried: boolean; killer: string | null; killerName: string | null; memorial: string | null };
 
 async function read(c: number): Promise<Boss | null> {
   const h = await redis.hGetAll(key(c));
   if (!h.pool) return null;
   return {
-    depth: Number(h.depth), pool: Number(h.pool), fresh: Number(h.fresh ?? h.pool), dealt: Number(h.dealt ?? 0), carried: h.carried === '1',
+    depth: Number(h.depth), pool: Number(h.pool), fresh: Number(h.fresh ?? h.pool), dealt: Number(h.dealt ?? 0), forced: Number(h.forced ?? 0), carried: h.carried === '1',
     killer: h.killer ?? null, killerName: h.killerName ?? null, memorial: h.memorial ?? null,
   };
 }
@@ -36,14 +36,14 @@ export async function openBoss(depth: number, players: number): Promise<Boss> {
     await redis.hSet(key(c), { depth: String(depth), fresh: String(fresh), dealt: '0', carried: left > 0 ? '1' : '0' });
     console.log(`WARDEN floor ${depth}: pool ${pool} (fresh ${fresh} from ${players} players${left > 0 ? `, carried ${left} from floor ${prev?.depth}` : ''})`);
   }
-  return (await read(c)) ?? { depth, pool, fresh, dealt: 0, carried: left > 0, killer: null, killerName: null, memorial: null };
+  return (await read(c)) ?? { depth, pool, fresh, dealt: 0, forced: 0, carried: left > 0, killer: null, killerName: null, memorial: null };
 }
 
 /** What a player sees: HP, the pool it started from, whether it carried over, who killed it, and your own links. */
 export async function bossView(depth: number, user: string | undefined, players: () => Promise<number>): Promise<BossView> {
   const b = (await read(cycleOf(depth))) ?? (await openBoss(depth, await players()));
   const you = user ? ((await redis.zScore(dmgKey(cycleOf(depth)), user)) ?? 0) : 0;
-  return { hp: hpOf(b), pool: b.pool, carried: b.carried, killer: b.killer ? (b.killerName ?? 'a delver') : null, you };
+  return { hp: b.killer ? 0 : hpOf(b), pool: b.pool, carried: b.carried, killer: b.killer ? (b.killerName ?? 'a delver') : null, you }; // a kill stands after a reset
 }
 
 /** Is the Warden of this floor dead (so later runs get the fallen floor)? */
@@ -76,6 +76,21 @@ export async function unstrike(depth: number, user: string, dealt: number) {
   await redis.hIncrBy(key(c), 'dealt', -dealt);
   // Reset to nothing, the player leaves the damage set, so its size stays the number of runs that broke a link.
   if ((await redis.zIncrBy(dmgKey(c), user, -dealt)) <= 0) await redis.zRem(dmgKey(c), [user]);
+}
+
+/**
+ * Dev tool: set a living Warden's remaining links, clamped to 1..pool so only a real run can make the kill. Moves `dealt`
+ * by one atomic increment and credits nobody, so the damage set and the memorial's dealers stay real runs only; `forced`
+ * keeps the tool's share out of the links-per-run stats.
+ */
+export async function setLinks(depth: number, left: number): Promise<{ hp: number; pool: number } | null> {
+  const c = cycleOf(depth);
+  const b = await read(c);
+  if (!b || b.depth !== depth || b.killer) return null;
+  const hp = Math.min(b.pool, Math.max(1, Math.floor(left)));
+  await redis.hIncrBy(key(c), 'dealt', hpOf(b) - hp);
+  await redis.hIncrBy(key(c), 'forced', hpOf(b) - hp);
+  return { hp, pool: b.pool };
 }
 
 /** The memorial runs as its own job, so it can never block a run or the rollover; a failure only logs. */
@@ -128,7 +143,7 @@ export async function bossDay(depth: number, runs: number): Promise<{ text: stri
   const c = cycleOf(depth);
   const b = await read(c);
   if (!b || b.depth !== depth) return null;
-  const stats = await linkStats(c, Math.max(0, b.dealt), runs);
+  const stats = await linkStats(c, Math.max(0, b.dealt - b.forced), runs);
   if (b.killer) {
     if (!b.memorial) await scheduleMemorial(c); // a memorial that failed earlier gets another try, off the rollover's path
     return { text: `The Warden fell to u/${b.killerName ?? 'a delver'}.`, killed: true, hp: 0, pool: b.pool, stats };

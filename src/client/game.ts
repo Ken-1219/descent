@@ -80,6 +80,9 @@ let dayGhosts: GhostView = day !== 'error' && (day.kind === 'play' || day.kind =
 /** Phase 10: the Warden's shared pool on its floor (refreshed by the plate's poll); null on other floors. */
 let boss: BossView | null = day !== 'error' && (day.kind === 'play' || day.kind === 'played') ? (day.boss ?? null) : null;
 let shown: GhostView = NONE;
+const lowTorch = (t: number) => t * 100 <= state.floor.torch * TORCH_LOW_PCT;
+let lastTorch = Infinity;
+let torchTurn = -1;
 let pack: HTMLCanvasElement | null = null;
 void loadPack().then((p) => {
   pack = p;
@@ -91,6 +94,9 @@ const view = () => {
   // During a live run on the Warden's floor the chain counts down with your own bumps (its HP when the run began, less yours).
   const chain = boss && live && !state.ended && state.enemies.some((e) => e.kind === 'warden') ? Math.max(0, boss.hp - state.dealt) : null;
   hud({ hearts: state.hearts, hasKey: state.hasKey, item: pack ? state.item : null, torch: state.torch, torchMax: state.floor.torch, depth: state.floor.depth, curse: curse ? CURSE_TEXT[curse].name : null, chain });
+  // A torch event (crossing low, reaching zero) owns the line under the HUD on the turn it happens.
+  if ((!lowTorch(lastTorch) && lowTorch(state.torch)) || (lastTorch > 0 && state.torch <= 0)) torchTurn = state.turn;
+  lastTorch = state.torch;
   nearby();
 };
 controls(pad);
@@ -293,7 +299,7 @@ async function result(prefetched?: FloorResponse) {
   flushVotes(r.depth);
   const ended: End = { kind: r.run.outcome, cause: r.run.cause };
   const title = r.run.outcome === 'won' ? `Floor ${r.depth} cleared` : `You fell on Floor ${r.depth}`;
-  const line = `Score ${r.run.score}. ${endLine(ended, r.run.turns, r.run.outcome === 'dead' ? (mine?.by ? `A trap set by u/${mine.by}` : null) : null)}${linksLine(r.run.dealt)}`;
+  const line = `Score ${r.run.score}. ${endLine(ended, r.run.turns, r.run.outcome === 'dead' ? (mine?.by ? `A trap set by u/${mine.by}` : null) : null)}${boss ? '' : linksLine(r.run.dealt)}`;
   const c = r.choices;
   const body: Node[] = [
     ...(r.myTrap ? [el('p', 'own-ghost', trapNews(r.myTrap))] : []),
@@ -340,7 +346,7 @@ let plate: (FloorResponse & { kind: 'played' }) | null = null;
 let watching = 0;
 /** The plate's Warden line: its chain and your links, or who killed it; redrawn when the poll brings new numbers. */
 function wardenPlate(root: HTMLElement, b: BossView) {
-  root.replaceChildren(...(b.killer ? [el('p', 'intro__boss', `The Warden fell to u/${b.killer}.`)] : [chainMeter(b.hp, b.pool)]), el('p', 'muted', `You broke ${b.you} link${b.you === 1 ? '' : 's'}.`));
+  root.replaceChildren(...(b.killer ? [el('p', 'intro__boss', `The Warden fell to u/${b.killer}.`)] : [chainMeter(b.hp, b.pool)]), ...(b.you ? [el('p', 'muted', linksLine(b.you).trim())] : []));
   return root;
 }
 function watch(depth: number, nextAt: number, fell: HTMLElement, clock: HTMLElement, bossNow: HTMLElement) {
@@ -495,14 +501,16 @@ function intro() {
   end.classList.add('end--intro');
 }
 
-/** On or next to a carved ghost, its carving shows in a line under the HUD (aria-live): no input needed. Otherwise a low torch says so there. */
+/**
+ * The line under the HUD (aria-live): a nearby carving (no input needed), else a low torch. A torch event takes the line
+ * on the turn it happens; on every other turn a nearby carving wins.
+ */
 function nearby() {
   const near = shown.list.filter((g) => g.carving && reach(g) <= 1);
   const g = near[0];
-  if (!g?.carving) {
-    const low = !state.ended && state.torch * 100 <= state.floor.torch * TORCH_LOW_PCT;
+  if (!g?.carving || (torchTurn === state.turn && lowTorch(state.torch))) {
     carvingLine.replaceChildren(el('span', '', state.torch > 0 ? `Torch low: ${state.torch} turns of light left.` : 'Torch out: the dark is taking your hearts.'));
-    carvingLine.hidden = !low;
+    carvingLine.hidden = !!state.ended || !lowTorch(state.torch);
     return;
   }
   const read = button('Read');

@@ -8,7 +8,7 @@ import { generate, isWardenFloor, safePath } from '../src/shared/gen';
 import { DIRS, bfs, blocks, find, hazard, width } from '../src/shared/grid';
 import { judge, occupies, start, step, wardenTier, type Action, type Floor, type State } from '../src/shared/sim';
 import { floorFor, resetRun, seedBots, submitRun } from '../src/server/game';
-import { bossDay, memorial, openBoss } from '../src/server/boss';
+import { bossDay, memorial, openBoss, setLinks } from '../src/server/boss';
 import { chronicle } from '../src/server/boards';
 import { rollNow, startFirstFloor } from '../src/server/rollover';
 
@@ -242,4 +242,21 @@ test('a memorial post that fails frees its claim, so the rollover\'s next ask po
   expect((await boss()).memorial).toBeUndefined();
   expect(await memorial(0)).toMatch(/^t3_/);
   spy.mockRestore();
+});
+
+test('dev tool: set the Warden\'s remaining links (at least 1, so a real run makes the kill); refused once it has fallen', { timeout: 60_000 }, async () => {
+  const f = await toWarden();
+  const { log, dealt } = damaging(f);
+  expect(await setLinks(7, dealt)).toMatchObject({ hp: dealt, pool: 60 });
+  expect(await setLinks(7, 0)).toMatchObject({ hp: 1 }); // never kills it by itself
+  expect(await setLinks(7, 999)).toMatchObject({ hp: 60 }); // never more than the pool
+  await setLinks(7, dealt);
+  expect(await submitRun('t2_a', 7, log, { name: 'alice' })).toMatchObject({ kind: 'saved' });
+  expect((await boss()).killer).toBe('t2_a');
+  await resetRun('t2_a'); // the reset takes the links back, but a kill stands: a fallen Warden always shows 0
+  const after = await floorFor('t2_b', 7);
+  expect(after.kind === 'play' && after.boss).toMatchObject({ hp: 0, killer: 'alice' });
+  expect(await setLinks(7, 10)).toBeNull();
+  expect(await setLinks(8, 10)).toBeNull(); // no Warden on that floor
+  expect((await bossDay(7, 1))?.stats.links).toBe(0); // the tool's links never count as players' (the run was reset)
 });

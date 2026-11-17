@@ -55,6 +55,13 @@
         "endpoint": "/internal/menu/roll-now"
       },
       {
+        "label": "Set the Warden's links",
+        "description": "Dev tool: lower the live Warden's links to test its kill",
+        "location": "subreddit",
+        "forUserType": "moderator",
+        "endpoint": "/internal/menu/set-links"
+      },
+      {
         "label": "Post Floor 0",
         "description": "A practice post that plays the tutorial",
         "location": "subreddit",
@@ -88,13 +95,14 @@
     }
   },
   "forms": {
-    "seedBots": "/internal/form/seed-bots"
+    "seedBots": "/internal/form/seed-bots",
+    "setLinks": "/internal/form/set-links"
   },
   "settings": {
     "subreddit": {
       "devTools": {
         "type": "boolean",
-        "label": "Dev tools (reset my run, roll over now)",
+        "label": "Dev tools (reset my run, roll over now, set the Warden's links)",
         "helpText": "Switch off before submission.",
         "defaultValue": false
       }
