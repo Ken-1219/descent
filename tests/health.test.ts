@@ -39,3 +39,12 @@ test('beacons: validated, bucketed load times by client class, errors rate-limit
   expect(h.load.desktop?.n).toBe(1);
   expect(healthLine(h)).toMatch(/load ios p50 1\.3s p90 3\.3s \(3\)/);
 });
+
+test('load stages (Phase 11b): the intro is bucketed apart from first move; malformed stages are refused', async () => {
+  expect(await beacon('t2_a', { kind: 'load', depth: 5, ms: 2100, client: 'android', stages: { script: 300, floor: 700, engine: 2000, intro: 800 } })).toBe(true);
+  expect(await beacon('t2_b', JSON.parse('{"kind":"load","depth":5,"ms":900,"client":"android","stages":{"script":1,"floor":"x","engine":2,"intro":3}}'))).toBe(false);
+  const h = await health(5);
+  expect(h.load.android).toMatchObject({ n: 1, p50: 2250 });
+  expect(h.intro.android).toMatchObject({ n: 1, p50: 1000 });
+  expect(healthLine(h)).toMatch(/load android p50 2\.3s p90 2\.3s \(1\), intro p50 1\.0s/);
+});

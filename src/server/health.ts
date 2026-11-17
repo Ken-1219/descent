@@ -18,6 +18,8 @@ export async function count(depth: number, user: string | undefined, step: Funne
 
 const text = (v: unknown, n: number) => (typeof v === 'string' ? v.slice(0, n) : '');
 const isClient = (v: unknown): v is ClientClass => CLIENTS.some((c) => c === v);
+const isMs = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0;
+const bucket = (ms: number) => Math.floor(Math.min(ms, LOAD.maxMs) / LOAD.bucketMs);
 /** Error and save beacons share one budget: per player per floor, or one logged-out budget per floor. */
 async function withinBudget(depth: number, user: string | undefined) {
   if (user) return (await redis.hIncrBy(key(depth, 'errs'), user, 1)) <= BEACON.errorsPerUser;
@@ -30,8 +32,11 @@ export async function beacon(user: string | undefined, b: Beacon): Promise<boole
   if (!Number.isInteger(depth) || depth < 0) return false;
   const h = key(depth, 'health');
   if (b.kind === 'load') {
-    if (typeof b.ms !== 'number' || !Number.isFinite(b.ms) || b.ms < 0 || !isClient(b.client)) return false;
-    await redis.hIncrBy(h, `load:${b.client}:${Math.floor(Math.min(b.ms, LOAD.maxMs) / LOAD.bucketMs)}`, 1);
+    if (!isMs(b.ms) || !isClient(b.client)) return false;
+    const st = b.stages;
+    if (st !== undefined && !(isMs(st?.script) && isMs(st.floor) && isMs(st.engine) && isMs(st.intro))) return false;
+    await redis.hIncrBy(h, `load:${b.client}:${bucket(b.ms)}`, 1);
+    if (st) await redis.hIncrBy(h, `intro:${b.client}:${bucket(st.intro)}`, 1); // Phase 11b: intro readable, apart from first move
     return true;
   }
   if (b.kind === 'step') return b.step === 'splash' || b.step === 'descend' ? count(depth, user, b.step) : false;
@@ -42,10 +47,10 @@ export async function beacon(user: string | undefined, b: Beacon): Promise<boole
 }
 /** What a beacon logs: one line, no identity beyond the request's own log prefix. */
 export const beaconNote = (b: Beacon) =>
-  b.kind === 'load' ? `load ${b.client} ${Math.round(b.ms)}ms` : b.kind === 'error' ? `error on ${text(b.screen, 24)}: ${text(b.msg, BEACON.msgChars)}` : b.kind === 'save' ? `save failed on ${text(b.screen, 24)}` : `step ${b.step}`;
+  b.kind === 'load' ? `load ${b.client} ${Math.round(b.ms)}ms${b.stages ? ` (script ${Math.round(b.stages.script)}, floor ${Math.round(b.stages.floor)}, engine ${Math.round(b.stages.engine)}, intro ${Math.round(b.stages.intro)})` : ''}` : b.kind === 'error' ? `error on ${text(b.screen, 24)}: ${text(b.msg, BEACON.msgChars)}` : b.kind === 'save' ? `save failed on ${text(b.screen, 24)}` : `step ${b.step}`;
 
 export type LoadStats = { n: number; p50: number; p90: number };
-export type Health = { funnel: Record<string, number>; load: Partial<Record<ClientClass, LoadStats>>; errors: number; saves: number };
+export type Health = { funnel: Record<string, number>; load: Partial<Record<ClientClass, LoadStats>>; intro: Partial<Record<ClientClass, LoadStats>>; errors: number; saves: number };
 
 /** p50/p90 from the histogram: the upper edge of the bucket where the running count passes the share. */
 function percentiles(buckets: [number, number][]): LoadStats {
@@ -62,19 +67,22 @@ function percentiles(buckets: [number, number][]): LoadStats {
 export async function health(depth: number): Promise<Health> {
   const [funnelRaw, h] = await Promise.all([redis.hGetAll(key(depth, 'funnel')), redis.hGetAll(key(depth, 'health'))]);
   const funnel = Object.fromEntries(Object.entries(funnelRaw).map(([k, v]) => [k, Number(v)]));
-  const load: Health['load'] = {};
-  for (const c of CLIENTS) {
-    const buckets = Object.entries(h).flatMap(([f, v]): [number, number][] => (f.startsWith(`load:${c}:`) ? [[Number(f.split(':')[2]), Number(v)]] : [])).sort((a, b) => a[0] - b[0]);
-    if (buckets.length) load[c] = percentiles(buckets);
-  }
-  return { funnel, load, errors: Number(h.errors ?? 0), saves: Number(h.saves ?? 0) };
+  const stats = (kind: 'load' | 'intro') => {
+    const out: Health['load'] = {};
+    for (const c of CLIENTS) {
+      const buckets = Object.entries(h).flatMap(([f, v]): [number, number][] => (f.startsWith(`${kind}:${c}:`) ? [[Number(f.split(':')[2]), Number(v)]] : [])).sort((a, b) => a[0] - b[0]);
+      if (buckets.length) out[c] = percentiles(buckets);
+    }
+    return out;
+  };
+  return { funnel, load: stats('load'), intro: stats('intro'), errors: Number(h.errors ?? 0), saves: Number(h.saves ?? 0) };
 }
 
-const secs = (ms: number) => `${(ms / 1000).toFixed(1)}s`;
+export const secs = (ms: number) => `${(ms / 1000).toFixed(1)}s`;
 /** One line: the funnel in order, load by class, errors and failed saves. */
 export const healthLine = (h: Health) =>
   [
     `funnel ${FUNNEL.map((s) => `${s} ${h.funnel[s] ?? 0}`).join(' > ')} (splash logged out ${h.funnel.splash_anon ?? 0})`,
-    ...CLIENTS.flatMap((c) => { const l = h.load[c]; return l ? [`load ${c} p50 ${secs(l.p50)} p90 ${secs(l.p90)} (${l.n})`] : []; }),
+    ...CLIENTS.flatMap((c) => { const l = h.load[c]; const i = h.intro[c]; return l ? [`load ${c} p50 ${secs(l.p50)} p90 ${secs(l.p90)} (${l.n})${i ? `, intro p50 ${secs(i.p50)} p90 ${secs(i.p90)}` : ''}`] : []; }),
     `errors ${h.errors}, failed saves ${h.saves}`,
   ].join('; ');

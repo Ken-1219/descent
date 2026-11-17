@@ -74,10 +74,13 @@ export type TrapResponse =
 
 // Phase 10b: measurements and the funnel (A57, A59), "Delete my data" (A56), flair opt-in (A55).
 export type Beacon =
-  | { kind: 'load'; depth: number; ms: number; client: ClientClass }
+  // Phase 11b: `ms` is first move possible; `stages` say where the time went (each ms from page start).
+  | { kind: 'load'; depth: number; ms: number; client: ClientClass; stages?: LoadStages }
   | { kind: 'error'; depth: number; msg: string; screen: string }
   | { kind: 'save'; depth: number; screen: string }
   | { kind: 'step'; depth: number; step: 'splash' | 'descend' };
+/** A load's stages, ms from page start: the game script running, the floor response, Phaser and the scene, the intro readable. */
+export type LoadStages = { script: number; floor: number; engine: number; intro: number };
 export type FlairRequest = { on: boolean };
 export type FlairResponse = { on: boolean };
 export type ForgetResponse = { floors: number };

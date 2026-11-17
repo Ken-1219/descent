@@ -1077,7 +1077,8 @@ async (page) => {
       check('flair is opt-in: Off until you turn it on, and it stays on', off && kept);
       const beacons = await p.evaluate(() => JSON.parse(localStorage.getItem('descent:local:beacons') ?? '[]'));
       const load = beacons.find((b) => b.kind === 'load');
-      check('a load beacon carries the floor, a time and one of four client classes, nothing else', load && load.depth === 3 && Number.isInteger(load.ms) && ['ios', 'android', 'mweb', 'desktop'].includes(load.client) && Object.keys(load).length === 4, JSON.stringify(load));
+      const stageKeys = load?.stages ? Object.keys(load.stages).sort().join() : '';
+      check('a load beacon carries the floor, a time, one of four client classes and the load stages, nothing else', load && load.depth === 3 && Number.isInteger(load.ms) && ['ios', 'android', 'mweb', 'desktop'].includes(load.client) && Object.keys(load).sort().join() === 'client,depth,kind,ms,stages' && stageKeys === 'engine,floor,intro,script', JSON.stringify(load));
       let asked = '';
       await p.route('https://www.reddit.com/**', (r) => { asked = r.request().url(); return r.abort(); });
       await p.locator('#end .report__open').click();
@@ -1350,6 +1351,30 @@ async (page) => {
       }
       check('layout 320×320 to 1280×800: the splash line and the HUD mute fit', bad.length === 0, bad.join(' ; '));
     }
+  }
+
+  // 20. Phase 11b: the intro is a panel: readable and Descend tappable on the floor response, with Phaser held back
+  {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    await ctx.addInitScript(() => localStorage.setItem('descent:f0', '1'));
+    await ctx.route(/phaser/, async (r) => { await new Promise((ok) => setTimeout(ok, 2500)); await r.continue(); });
+    const p = await ctx.newPage();
+    p.on('pageerror', (e) => errs.push(String(e)));
+    const t0 = Date.now();
+    await p.goto(URL);
+    await p.waitForSelector('#end:not([hidden]) .btn--primary', { timeout: 8000 });
+    const introAt = Date.now() - t0;
+    const early = await p.evaluate(() => ({ text: document.getElementById('end').innerText, hook: !!window.__descent, boot: document.getElementById('boot').hidden }));
+    await p.locator('#end .btn--primary').click();
+    const waiting = await p.locator('#end .btn--primary').innerText().catch(() => '');
+    await p.waitForFunction(() => window.__descent);
+    await p.evaluate(() => window.__descent.ready);
+    await p.waitForFunction(() => document.getElementById('end').hidden);
+    await p.keyboard.press('ArrowDown');
+    await p.waitForFunction(() => window.__descent.state().turn >= 1, null, { timeout: 3000 }).catch(() => {});
+    const turn = await p.evaluate(() => window.__descent.state().turn);
+    check('the intro shows on the floor response while Phaser still loads; Descend waits for the scene, then the first move plays', /Floor \d+/.test(early.text) && /Descend/.test(early.text) && !early.hook && early.boot && waiting === 'Lighting the torch…' && turn >= 1, `intro at ${introAt} ms, ${JSON.stringify({ hook: early.hook, boot: early.boot, waiting, turn })}`);
+    await ctx.close();
   }
   } catch (e) {
     // A step that throws (a timeout) is recorded after the last check that ran, so the rest of the report survives.

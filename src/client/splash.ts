@@ -22,6 +22,22 @@ const depth = context?.postData?.depth;
 if (typeof depth === 'number') floor.textContent = `Floor ${depth}`;
 
 const expand = (e: MouseEvent) => (import.meta.env.DEV ? location.assign(`game.html${location.search}`) : requestExpandedMode(e, 'game'));
+// Phase 11b: on a sign of intent to descend (a hover, focus or press on the button, never a mere feed impression), warm the
+// game's largest files into the HTTP cache the game shares with this card, so its load starts ahead. Names match the build
+// (vite.config.ts names phaser-core.js and scene.js too).
+const WARM = ['game.html', 'game.js', 'phaser-core.js', 'scene.js', 'sprites.js', 'atlas.png'];
+let warmed = false;
+const warm = () => {
+  if (warmed || import.meta.env.DEV) return;
+  warmed = true;
+  for (const href of WARM) {
+    const l = document.createElement('link');
+    l.rel = 'prefetch';
+    l.href = href;
+    document.head.append(l);
+  }
+};
+for (const ev of ['pointerenter', 'pointerdown', 'focus'] as const) go.addEventListener(ev, warm, { passive: true });
 // Phase 10b (A59): the funnel's first two steps. The server counts each once per player per floor.
 const step = (s: 'splash' | 'descend', d: number) => report({ kind: 'step', depth: d, step: s });
 // The privacy text opens in the card itself (A56): nobody is sent away from the feed to read it.

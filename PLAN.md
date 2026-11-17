@@ -598,6 +598,10 @@ Each phase lists Build, Show me (what to open), Checks, and Gate.
 - **Budgets:** splash JS under 60 KB gzipped; atlas under 100 KB; interactive in under 3 s with 4× CPU throttle.
 - **Gate:** third human phone check on both apps. Feature freeze at end of Dec 5.
 
+### Phase 11b — Load time on Reddit (Nov 17, inserted by the owner)
+
+- **Built:** load stages in the beacon (A67), the intro before Phaser (A68), warming the game's files on intent from the splash (A69). Medians on Reddit, cold desktop: intro 3.7 → 2.0 s, first move 3.7 → 2.3 s. RELEASE.md (installing a fixed version on the players' subreddit), README.md, and submission drafts in `docs/superpowers/submission/`.
+
 ### Phase 12 — Seed and submit (Dec 6–8)
 
 - Bug fixes only.

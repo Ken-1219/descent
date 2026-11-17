@@ -3,7 +3,7 @@ import type { UiResponse } from '@devvit/web/shared';
 import { context, settings } from '@devvit/web/server';
 import { postUrl, purgeBots, resetRun, today } from '../game';
 import { postFloor0, rollNow, startFirstFloor } from '../rollover';
-import { health } from '../health';
+import { health, secs } from '../health';
 import { writePrivacyPage } from '../privacy';
 import { CLIENTS, FUNNEL } from '../../shared/content';
 import type { Env } from '../index';
@@ -89,7 +89,11 @@ menu.post('/health', async (c) => {
   const fields = [
     row('funnel', 'Funnel (once per player)', FUNNEL.map((s) => `${s} ${h.funnel[s] ?? 0}`).join(' > ')),
     row('anon', 'Splash loads, logged out', String(h.funnel.splash_anon ?? 0)),
-    ...CLIENTS.map((k) => { const l = h.load[k]; return row(k, `Load ${k}`, l ? `p50 ${(l.p50 / 1000).toFixed(1)}s, p90 ${(l.p90 / 1000).toFixed(1)}s (${l.n} loads)` : 'no loads'); }),
+    ...CLIENTS.map((k) => {
+      const l = h.load[k];
+      const i = h.intro[k];
+      return row(k, `Load ${k}: first move (intro)`, l ? `p50 ${secs(l.p50)}, p90 ${secs(l.p90)} (${l.n} loads)${i ? `; intro p50 ${secs(i.p50)}, p90 ${secs(i.p90)}` : ''}` : 'no loads');
+    }),
     row('errors', 'Client errors / failed saves', `${h.errors} / ${h.saves}`),
   ];
   c.set('note', `health floor ${day}`);

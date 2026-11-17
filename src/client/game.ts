@@ -13,6 +13,22 @@ import { button, carvingPicker, carvingsList, chainMeter, controls, createHud, c
 import { miniMap } from './minimap';
 import { boardPanel, chroniclePanel } from './screens';
 
+// Phase 11b: where a load's time goes, ms from page start (sent with the load beacon; nothing else).
+const stages = { script: performance.now(), floor: 0, engine: 0, intro: 0 };
+/** The intro can show before the scene exists: Descend then waits for it (set once the scene is ready). */
+const boot = { up: false, descend: false };
+function descend() {
+  if (boot.up) {
+    end.hidden = true;
+    return;
+  }
+  boot.descend = true;
+  const b = end.querySelector<HTMLButtonElement>('.btn--primary');
+  if (b) {
+    b.textContent = 'Lighting the torch…';
+    b.disabled = true;
+  }
+}
 const $ = (id: string) => {
   const node = document.getElementById(id);
   if (!node) throw new Error(`game.html is missing #${id}`);
@@ -51,7 +67,7 @@ type Live = { depth: number; seed: number; attempt: number; floor: Floor; log: s
 // Phaser is most of the game's bytes, so it loads as its own chunk: the floor request runs while it downloads.
 const engine = Promise.all([import('phaser'), import('./scene')]);
 const day: FloorResponse | 'error' = devFloor ? { kind: 'none' } : await api.floor().catch(() => 'error' as const);
-const [Phaser, { DescentScene }] = await engine;
+stages.floor = performance.now();
 // Phase 10b (A57, A58): beacons and reports say which floor and which screen; nothing about the device beyond its class.
 where.depth = day !== 'error' && 'depth' in day && typeof day.depth === 'number' ? day.depth : 0;
 where.screen = () => (end.hidden ? 'run' : end.classList.contains('end--intro') ? 'intro' : 'plate');
@@ -135,6 +151,14 @@ const fit = () => {
   return { width: cols * TILE, height: rows * TILE, zoom };
 };
 
+// Phase 11b: a fresh run's intro is a panel: it shows as soon as the floor is here, with Phaser and the atlas loading
+// behind it. Descend tapped before the scene is up says so and goes through the moment it is.
+if (!devFloor && playable && live && state.turn === 0 && !state.ended) {
+  intro();
+  document.getElementById('boot')?.setAttribute('hidden', '');
+}
+const [Phaser, { DescentScene }] = await engine;
+stages.engine = performance.now();
 const scene = new DescentScene(state);
 const game = new Phaser.Game({
   type: Phaser.AUTO,
@@ -485,15 +509,20 @@ function setGhosts(g: GhostView) {
 /** Steps from the hero, diagonals counting one: 1 is on or next to. */
 const reach = (p: Pos) => Math.max(Math.abs(p.x - state.pos.x), Math.abs(p.y - state.pos.y));
 
+// Function declarations, not consts: the intro can run before Phaser arrives (Phase 11b), above where these are written.
 /** Today's danger per compass zone, counted from the stored floor itself (hazards and enemies), for the intro. */
-const DANGER = '^Oo,_giKGYxFSuZs';
-const dangerOf = (f: Floor) => {
+function dangerOf(f: Floor) {
+  const danger = '^Oo,_giKGYxFSuZs';
   const z = Array<number>(9).fill(0);
-  f.rows.forEach((row, y) => [...row].forEach((c, x) => DANGER.includes(c) && (z[zoneOf({ x, y }, f.rows.length)] = (z[zoneOf({ x, y }, f.rows.length)] ?? 0) + 1)));
+  f.rows.forEach((row, y) => [...row].forEach((c, x) => danger.includes(c) && (z[zoneOf({ x, y }, f.rows.length)] = (z[zoneOf({ x, y }, f.rows.length)] ?? 0) + 1)));
   return z;
-};
-const killerName = (k: string) => KILL_FAMILY[k] ?? (k === 'trap' ? 'player traps' : `the ${k}`);
-const zoneName = (z: number) => ZONE_NAMES[z]?.toLowerCase() ?? '';
+}
+function killerName(k: string) {
+  return KILL_FAMILY[k] ?? (k === 'trap' ? 'player traps' : `the ${k}`);
+}
+function zoneName(z: number) {
+  return ZONE_NAMES[z]?.toLowerCase() ?? '';
+}
 
 /**
  * The intro (replaces Phase 8's yesterday line): before your first move on the day's floor. It reads today's stored
@@ -540,9 +569,10 @@ function intro() {
       ...lines.map((t) => el('p', 'intro__line', t)),
       ...(fresh ? [el('p', 'intro__new', `New today: ${fresh}.`)] : []),
     ],
-    primary: { label: 'Descend', run: () => (end.hidden = true) },
+    primary: { label: 'Descend', run: descend },
   });
   end.classList.add('end--intro');
+  stages.intro ||= performance.now();
 }
 
 /**
@@ -731,12 +761,16 @@ else if (day.kind === 'played') void result(day);
 else if (day.kind === 'none' && !devFloor) endPanel(end, { title: 'No floor yet', line: 'The first floor opens soon.', primary: practice });
 // day.kind === 'practice': a "Post Floor 0" post simply plays Floor 0, which is already loaded.
 else if (state.ended) finish(state.ended); // resumed onto a finished run: show it and (re)submit, which is a safe retry
-else if (live && state.turn === 0) intro(); // a fresh run on the day's floor starts at the intro
+else if (live && state.turn === 0 && !stages.intro) intro(); // a fresh run on the day's floor starts at the intro (unless already up)
 
 void scene.ready.then(() => {
   document.getElementById('boot')?.setAttribute('hidden', ''); // A64: the flame gives way to the floor
+  boot.up = true;
+  if (boot.descend) end.hidden = true; // Descend was tapped while the scene loaded
   performance.mark('descent:interactive');
-  if (!devFloor) report({ kind: 'load', depth: where.depth, ms: Math.round(performance.now()), client: clientClass() }); // A57
+  const ms = Math.round(performance.now());
+  stages.intro ||= ms; // no intro on this visit (a plate, Floor 0): the first panel is the game itself
+  if (!devFloor) report({ kind: 'load', depth: where.depth, ms, client: clientClass(), stages }); // A57, stages: Phase 11b
 });
 
 // ---- dev hook for Playwright (§10). Dev builds only; never in the Devvit bundle. ----
