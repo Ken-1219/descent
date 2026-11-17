@@ -12,6 +12,8 @@ import {
 // Look (§15.4). Visual only; game tuning lives in content.ts.
 const SHAKE_MS = 120;
 const SHAKE_PX = 2;
+/** Hit-stop (A62): on damage the world holds for this long, then shakes. Inside the turn's 120 ms lock: input never waits. */
+const HITSTOP_MS = 60;
 const KILL_MS = 84;
 const REMEMBERED_ALPHA = 0.7;
 const GLOW_DARK = 0.5;
@@ -88,6 +90,8 @@ export class DescentScene extends Phaser.Scene {
   private reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
   /** Screen shakes played so far (read by the dev hook to check reduced motion). */
   shakes = 0;
+  /** Hit-stops played so far (dev hook: none under reduced motion). */
+  hitStops = 0;
 
   constructor(state: State) {
     super('descent');
@@ -349,10 +353,12 @@ export class DescentScene extends Phaser.Scene {
     const hero = this.hero;
     if (!hero) return Promise.resolve();
     const turn = choreograph(events, next);
+    const stop = events.some((e) => e.t === 'hurt') && !this.reduced && !instant ? HITSTOP_MS : 0;
+    if (stop) this.hitStops++;
     for (const m of turn.motions) {
       const actor = m.who === 'hero' ? hero : this.enemies.get(m.who);
       if (!actor) continue;
-      const keys = m.keys.map((k) => ({ ...k, at: now + k.at }));
+      const keys = m.keys.map((k) => ({ ...k, at: now + stop + k.at }));
       this.motions.push({ actor, keys });
       const first = m.keys[0], last = m.keys.at(-1);
       if (first && last) {
@@ -385,7 +391,7 @@ export class DescentScene extends Phaser.Scene {
         hero.after = ANIMS['hero-idle'];
         hero.t0 = now;
         if (!this.reduced && !instant) {
-          this.cameras.main.shake(SHAKE_MS, SHAKE_PX / this.cameras.main.width);
+          this.time.delayedCall(stop, () => this.cameras.main.shake(SHAKE_MS, SHAKE_PX / this.cameras.main.width));
           this.shakes++;
         }
       } else if (e.t === 'dead') died = true;

@@ -1231,6 +1231,126 @@ async (page) => {
       check('layout 320×320 to 1280×800: plate links, Board data row, delete confirmation, practice line, splash privacy link', bad.length === 0, bad.join(' ; '));
     }
   }
+
+  // 19. Phase 11: polish never slows play; the flame shows first; sound waits for a tap and stays muted when told; touch never scrolls
+  {
+    const fresh = async (vp, url, init) => {
+      const ctx = await browser.newContext({ viewport: vp, ...(init?.ctx || {}) });
+      await ctx.addInitScript(() => {
+        window.__audio = 0;
+        const A = window.AudioContext;
+        if (A) window.AudioContext = class extends A { constructor(...a) { super(...a); window.__audio++; } };
+      });
+      if (init?.script) await ctx.addInitScript(init.script);
+      const p = await ctx.newPage();
+      p.on('pageerror', (e) => errs.push(String(e)));
+      p.on('console', (m) => { if (m.type() === 'error') errs.push(m.text()); });
+      await p.goto(url);
+      return { ctx, p };
+    };
+    const ready = async (p) => { await p.waitForFunction(() => window.__descent); await p.evaluate(() => window.__descent.ready); };
+    {
+      // Timing: the same 18 moves, pressed as a held key repeats, take no longer than before the polish (1.62–1.69 s measured on 3dd998e).
+      const { ctx, p } = await fresh({ width: 1280, height: 800 }, URL);
+      await ready(p);
+      const route = 'DRRURRRRDDDDLLLLLL';
+      const t0 = Date.now();
+      let i = 0;
+      while (i < route.length) {
+        if ((await p.evaluate(() => window.__descent.state().turn)) >= i) { await p.keyboard.press(KEY[route[i]]); i++; }
+        await p.waitForTimeout(30);
+      }
+      await p.waitForFunction((n) => window.__descent.state().turn >= n, route.length);
+      const ms = Date.now() - t0;
+      check('a fixed run of 18 moves takes no longer than before the polish (≤ 1850 ms; baseline 1618–1689 ms)', ms <= 1850, `${ms} ms`);
+      await ctx.close();
+    }
+    {
+      // The flame: painted with the first paint, hidden once the floor is up.
+      const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
+      const p = await ctx.newPage();
+      await p.goto(URL, { waitUntil: 'commit' });
+      await p.waitForSelector('#boot', { state: 'visible', timeout: 2000 });
+      await p.waitForFunction(() => performance.getEntriesByType('paint').length > 0);
+      const paint = await p.evaluate(() => performance.getEntriesByType('paint').map((e) => [e.name, Math.round(e.startTime)]));
+      await p.waitForFunction(() => window.__descent);
+      await p.evaluate(() => window.__descent.ready);
+      const gone = await p.locator('#boot').isHidden();
+      const fp = paint.find(([n]) => n === 'first-paint')?.[1] ?? 0;
+      check('the loading flame is in the first paint (within 100 ms locally) and gives way to the floor', fp > 0 && fp <= 100 && gone, JSON.stringify(paint));
+      await ctx.close();
+    }
+    {
+      // Sound: nothing on the splash; nothing in the game before a tap or key; one context after; muted stays muted.
+      const sp = await fresh({ width: 390, height: 844 }, 'http://localhost:5190/splash.html');
+      await sp.p.waitForFunction(() => !document.getElementById('go').disabled);
+      await sp.p.locator('#go').click();
+      await sp.p.waitForURL(/game\.html/);
+      await ready(sp.p);
+      const before = await sp.p.evaluate(() => window.__audio);
+      await sp.ctx.close();
+      const { ctx, p } = await fresh({ width: 390, height: 844 }, URL);
+      await ready(p);
+      const idle = await p.evaluate(() => window.__audio);
+      await p.keyboard.press('ArrowDown');
+      await p.waitForFunction(() => window.__descent.state().turn >= 1);
+      const after = await p.evaluate(() => ({ n: window.__audio, sound: window.__descent.metrics().sound }));
+      const mute = p.locator('#hud .hud__mute');
+      const label0 = await mute.innerText();
+      await mute.click();
+      await p.reload();
+      await ready(p);
+      const kept = await p.evaluate(() => ({ muted: window.__descent.metrics().muted, label: document.querySelector('#hud .hud__mute').innerText }));
+      await p.keyboard.press('ArrowDown');
+      const silent = await p.evaluate(() => window.__audio);
+      check('sound: never on the splash, none before the first key, one context after it, a step makes the step sound', before === 0 && idle === 0 && after.n === 1 && after.sound === 'step', `${before} ${idle} ${JSON.stringify(after)}`);
+      check('the mute sits in the HUD and is remembered: muted after a reload, and no audio starts while muted', label0 === 'Sound' && kept.muted && kept.label === 'Muted' && silent === 0, `${label0} ${JSON.stringify(kept)} ${silent}`);
+      await ctx.close();
+    }
+    {
+      // Reduced motion: damage plays no hit-stop and no shake (it still hurts, still sounds, still shows the hurt frame).
+      const { ctx, p } = await fresh({ width: 390, height: 844 }, URL, { ctx: { reducedMotion: 'reduce' } });
+      await ready(p);
+      await p.evaluate(() => window.__descent.load(0, { mercy: false, torch: 3 }));
+      await p.evaluate(async () => { for (let i = 0; i < 12 && !window.__descent.state().ended; i++) await window.__descent.act('W'); });
+      const m = await p.evaluate(() => window.__descent.metrics());
+      const { ctx: c2, p: p2 } = await fresh({ width: 390, height: 844 }, URL);
+      await ready(p2);
+      await p2.evaluate(() => window.__descent.load(0, { mercy: false, torch: 3 }));
+      await p2.evaluate(async () => { for (let i = 0; i < 12 && !window.__descent.state().ended; i++) await window.__descent.act('W'); });
+      const m2 = await p2.evaluate(() => window.__descent.metrics());
+      check('reduced motion removes hit-stop and shake; with motion, damage plays both', m.hitStops === 0 && m.shakes === 0 && m2.hitStops > 0 && m2.shakes > 0, `${JSON.stringify(m)} / ${JSON.stringify(m2)}`);
+      await ctx.close();
+      await c2.close();
+    }
+    {
+      // Touch: swipes on the stage never scroll the page or pull to refresh.
+      const { ctx, p } = await fresh({ width: 390, height: 844 }, URL, { ctx: { isMobile: true, hasTouch: true } });
+      await ready(p);
+      const css = await p.evaluate(() => ({ body: getComputedStyle(document.body).overscrollBehaviorY, html: getComputedStyle(document.documentElement).overscrollBehaviorY, stage: getComputedStyle(document.getElementById('stage')).touchAction }));
+      await p.mouse.wheel(0, 600);
+      const y = await p.evaluate(() => scrollY + document.documentElement.scrollTop);
+      check('touch: the page cannot scroll or pull to refresh while playing; the stage takes every swipe', css.body === 'none' && css.html === 'none' && css.stage === 'none' && y === 0, `${JSON.stringify(css)} y=${y}`);
+      await ctx.close();
+    }
+    {
+      // Layout: the splash's "what is this" line and the HUD's mute fit from 320×320 up.
+      const bad = [];
+      for (const vp of [{ width: 320, height: 320 }, { width: 375, height: 667 }, { width: 1280, height: 800 }]) {
+        const sp = await fresh(vp, 'http://localhost:5190/splash.html');
+        await sp.p.waitForFunction(() => !document.getElementById('go').disabled);
+        const s = await sp.p.evaluate(() => { const w = document.querySelector('.splash__what').getBoundingClientRect(); const g = document.getElementById('go').getBoundingClientRect(); return document.documentElement.scrollWidth <= innerWidth && w.height > 0 && w.right <= innerWidth + 0.5 && g.bottom <= innerHeight + 0.5; });
+        if (!s) bad.push(`${vp.width}x${vp.height} splash`);
+        await sp.ctx.close();
+        const g = await fresh(vp, URL);
+        await ready(g.p);
+        const h = await g.p.evaluate(() => { const m = document.querySelector('#hud .hud__mute').getBoundingClientRect(); const hud = document.getElementById('hud'); return m.right <= innerWidth + 0.5 && hud.scrollWidth <= hud.clientWidth + 1 && document.documentElement.scrollWidth <= innerWidth; });
+        if (!h) bad.push(`${vp.width}x${vp.height} hud mute`);
+        await g.ctx.close();
+      }
+      check('layout 320×320 to 1280×800: the splash line and the HUD mute fit', bad.length === 0, bad.join(' ; '));
+    }
+  }
   } catch (e) {
     // A step that throws (a timeout) is recorded after the last check that ran, so the rest of the report survives.
     check(`suite stopped after "${results.at(-1)?.name}"`, false, String(e).split('\n')[0]);

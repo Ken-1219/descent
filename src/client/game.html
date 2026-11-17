@@ -12,6 +12,8 @@
     <title>Descent</title>
   </head>
   <body>
+    <!-- Phase 11 (A64): the loading flame, drawn by CSS before any script runs; removed when the scene is ready. -->
+    <div class="boot" id="boot" role="status"><div class="boot__flame" aria-hidden="true"></div><p class="boot__text">Lighting the torch…</p><p class="boot__slow">Still dark? Close the game and open it again.</p></div>
     <div class="play">
       <header class="hud" id="hud"></header>
       <main class="stage" id="stage" aria-label="Dungeon">

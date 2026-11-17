@@ -7,6 +7,7 @@ import type { BossView, FloorResponse, GhostView, MyTrap, RunResult } from '../s
 import { carvingLabel, type Ghost, type Vote } from '../shared/ghosts';
 import { isAction, replay, start, step, type Action, type End, type Floor, type Pos } from '../shared/sim';
 import { api, clientClass, report, submit, watchErrors, where } from './net';
+import { sound } from './sound';
 import { iconCanvas, loadPack, packIcon } from './sprites';
 import { button, carvingPicker, carvingsList, chainMeter, controls, createHud, cursePicker, el, endPanel, ghostCard, introCompass, saveLine, trapPicker, type PanelAction } from './ui';
 import { miniMap } from './minimap';
@@ -96,6 +97,22 @@ void loadPack().then((p) => {
   view();
 });
 const hud = createHud($('hud'), TORCH_LOW_PCT, HEARTS, (item) => (pack ? packIcon(pack, ITEMS[item].frames[0], 2) : undefined));
+// Phase 11 (A63): sound starts on the first tap or key in the game; the mute sits in the HUD, in plain sight, remembered.
+let lastSound: string | null = null;
+addEventListener('pointerdown', () => sound.unlock(), { once: true });
+addEventListener('keydown', () => sound.unlock(), { once: true });
+const mute = button('', 'hud__mute');
+const showMute = () => {
+  mute.textContent = sound.muted ? 'Muted' : 'Sound';
+  mute.setAttribute('aria-pressed', String(!sound.muted));
+  mute.setAttribute('aria-label', sound.muted ? 'Sound is off: turn it on' : 'Sound is on: mute it');
+};
+mute.addEventListener('click', () => {
+  sound.toggle();
+  showMute();
+});
+showMute();
+$('hud').append(mute);
 const view = () => {
   const curse = state.floor.curses?.[0];
   // During a live run on the Warden's floor the chain counts down with your own bumps (its HP when the run began, less yours).
@@ -164,7 +181,8 @@ function trapOwner(): string | null {
 function trapNews(t: MyTrap) {
   if (!t) return '';
   const name = TRAP_TEXT[t.kind].toLowerCase();
-  return t.hurt || t.killed ? `Your ${name} hurt ${t.hurt} and took ${t.killed} here.` : `Your ${name} wait here; nobody has stepped on them yet.`;
+  const one = t.kind === 'dart'; // "spikes" and "false stairs" are plural, a dart slit is one
+  return t.hurt || t.killed ? `Your ${name} hurt ${t.hurt} and took ${t.killed} here.` : `Your ${name} ${one ? 'waits' : 'wait'} here; nobody has stepped on ${one ? 'it' : 'them'} yet.`;
 }
 const practice: PanelAction = { label: 'Practice Floor 0', run: () => play(FLOOR_0, null) };
 const fellLine = (n: number) => (n === 1 ? '1 fell here today.' : `${n} fell here today.`);
@@ -491,6 +509,7 @@ function intro() {
   const hz = danger.indexOf(Math.max(...danger));
   const lines: string[] = [];
   if (!y) lines.push('The first floor. Nobody has fallen yet.');
+  else if (fell === 0) lines.push(`Nobody fell on Floor ${y.depth}, so nothing moved.`);
   else if (fell < 3) lines.push(`Only ${fell} fell on Floor ${y.depth}: too few to move anything.`);
   else {
     lines.push(`${y.fell} fell on Floor ${y.depth}${y.zone === null ? '' : `, most in the ${zoneName(y.zone)}`}; ${y.cleared} cleared it.`);
@@ -614,6 +633,7 @@ const run = async (a: Action) => {
   state = r.state;
   view();
   if (r.events.some((e) => e.t === 'hurt')) stopRepeat();
+  lastSound = sound.play(r.events);
   await scene.play(r.events, state, skipAnim);
   busy = false;
   if (state.ended) {
@@ -714,6 +734,7 @@ else if (state.ended) finish(state.ended); // resumed onto a finished run: show 
 else if (live && state.turn === 0) intro(); // a fresh run on the day's floor starts at the intro
 
 void scene.ready.then(() => {
+  document.getElementById('boot')?.setAttribute('hidden', ''); // A64: the flame gives way to the floor
   performance.mark('descent:interactive');
   if (!devFloor) report({ kind: 'load', depth: where.depth, ms: Math.round(performance.now()), client: clientClass() }); // A57
 });
@@ -728,7 +749,7 @@ type DescentHook = {
   skipAnim: (on: boolean) => void;
   /** Every scene's id and action log, for e2e checks that replay them by keyboard or taps. */
   scenes: () => { id: string; log: Action[] }[];
-  metrics: () => { inputToMotion: number; shakes: number };
+  metrics: () => { inputToMotion: number; shakes: number; hitStops: number; sound: string | null; muted: boolean };
   /** The local rollover (local.ts); reload to see the new day. */
   advanceDay: () => void;
   /** Fake a dropped connection for every request (retry and "Not saved" states). */
@@ -771,7 +792,7 @@ if (import.meta.env.DEV) {
     },
     skipAnim: (on) => (skipAnim = on),
     scenes: () => SCENES.map((s) => ({ id: s.id, log: [...s.log] })),
-    metrics: () => ({ inputToMotion, shakes: scene.shakes }),
+    metrics: () => ({ inputToMotion, shakes: scene.shakes, hitStops: scene.hitStops, sound: lastSound, muted: sound.muted }),
     advanceDay: LOCAL?.advanceDay ?? (() => undefined),
     offline: LOCAL?.setOffline ?? (() => undefined),
     log: () => live?.log ?? '',

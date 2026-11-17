@@ -161,6 +161,7 @@ src/client/
   labfloors.ts              LOCAL ONLY: Lab tabs that draw floors: Bestiary, Depth, Ghosts (fixtures), Rollover (tally → floor), Screens
   screens.ts                Phase 9: the Board (tabs, your row) and the Chronicle, loaded on demand from the plate
   minimap.ts                Phase 9: a floor's rows and wisps on a 2D canvas (splash and already-played; no Phaser, no sim)
+  sound.ts                  Phase 11: every sound synthesized with WebAudio; silent until the first tap in the game; mute remembered
   assets/                   atlas.png, fonts/*.woff2, fonts/OFL.txt, icon
 src/server/
   index.ts                  Hono app, one log line per request
@@ -591,6 +592,7 @@ Each phase lists Build, Show me (what to open), Checks, and Gate.
 ### Phase 11 — Polish and freeze (Dec 4–5)
 
 - **Moved up (owner, Nov 17):** the polish work starts right after Phase 10b instead of waiting for Dec 4; the feature freeze stays at the end of Dec 5.
+- **Built (Nov 17):** `src/client/sound.ts` (WebAudio, synthesized, mute remembered as `descent:muted`), the CSS loading flame in `game.html`, hit-stop, the splash's one-line description, no page overscroll in the game, ligatures off. Golden runs in `tests/golden.ts` / `tests/golden.json` guard the simulation. Decisions A62–A66 in the Phase 11 spec.
 
 - **Build:** juice pass (Lab tab Juice), WebAudio SFX muted until first tap, loading flame, error and offline states, `/ponytail-debt` review.
 - **Budgets:** splash JS under 60 KB gzipped; atlas under 100 KB; interactive in under 3 s with 4× CPU throttle.

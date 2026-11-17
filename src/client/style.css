@@ -47,6 +47,12 @@
 html {
   overscroll-behavior: contain;
 }
+/* The game page never scrolls, bounces or pulls to refresh: a swipe is a move, never the feed (Phase 11). */
+html:has(.play),
+html:has(.play) body {
+  overscroll-behavior: none;
+  overflow: hidden;
+}
 
 body {
   margin: 0;
@@ -54,6 +60,12 @@ body {
   color: var(--bone);
   font: var(--t-body) / 1.5 var(--font-ui);
   -webkit-font-smoothing: none;
+  font-variant-ligatures: none; /* the pixel font draws "fl"/"fi" as a wrong glyph ("floor" read "Aoor" on Reddit) */
+}
+button,
+input,
+select {
+  font-variant-ligatures: none;
 }
 
 canvas {
@@ -167,6 +179,19 @@ h3 {
   border-bottom: var(--line) solid var(--ink-2);
 }
 
+/* Phase 11 (A63): the mute, last in the HUD, in plain sight; "Muted" is struck through so the state is not colour alone. */
+.hud .hud__mute {
+  flex: none;
+  width: auto;
+  min-width: var(--tap);
+  min-height: var(--tap);
+  padding: 0 6px;
+  font-size: var(--t-small);
+}
+.hud .hud__mute[aria-pressed='false'] {
+  text-decoration: line-through;
+  color: var(--pale);
+}
 .hud__floor {
   font-family: var(--font-title);
   font-size: var(--t-title);
@@ -704,12 +729,24 @@ body:has(#end:not([hidden])) .carving {
   height: 100%;
   min-height: 0;
   display: grid;
-  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto auto auto minmax(0, 1fr) auto auto;
   justify-items: center;
   align-items: start;
   gap: var(--gap);
   padding: var(--pad);
   text-align: center;
+}
+.splash__what {
+  margin: 0;
+  max-width: 34ch;
+  font-size: var(--t-small);
+}
+/* Short inline cards (320 px tall): tighter rhythm so the line, Descend and Privacy all stay on the card. */
+@media (max-height: 400px) {
+  .splash__card {
+    gap: 4px;
+    padding: var(--gap);
+  }
 }
 .splash__floor {
   margin: 0;
@@ -722,6 +759,55 @@ body:has(#end:not([hidden])) .carving {
 }
 .splash__go {
   width: min(100%, 320px);
+}
+/* Phase 11 (A64): the loading flame. Pixels as box-shadows on one 4 px cell; three frames held unevenly (steps, never a
+   loop of even beats, §15.4); still under reduced motion. Painted with the first paint, before any script. */
+.boot {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 24px;
+  background: var(--ink-0);
+}
+.boot[hidden] {
+  display: none;
+}
+.boot__flame {
+  width: 4px;
+  height: 4px;
+  margin-bottom: 24px;
+  box-shadow: 0 -4px var(--bone), -4px 0 var(--ember), 4px 0 var(--ember), 0 4px var(--ember), -4px 4px var(--ember-deep), 4px 4px var(--ember-deep), 0 8px var(--ember-deep), 0 -8px var(--ember);
+  animation: boot-flame 420ms steps(1) infinite;
+  transform: scale(2);
+}
+.boot__text {
+  margin: 0;
+  color: var(--pale);
+  font-size: var(--t-small);
+}
+.boot__slow {
+  margin: 0;
+  max-width: 28ch;
+  text-align: center;
+  font-size: var(--t-small);
+  visibility: hidden;
+  animation: boot-slow 0s steps(1) 8s forwards; /* if the game never starts (a script that failed to load), say what to do */
+}
+@keyframes boot-slow {
+  to { visibility: visible; }
+}
+@keyframes boot-flame {
+  0% { box-shadow: 0 -4px var(--bone), -4px 0 var(--ember), 4px 0 var(--ember), 0 4px var(--ember), -4px 4px var(--ember-deep), 4px 4px var(--ember-deep), 0 8px var(--ember-deep), 0 -8px var(--ember); }
+  30% { box-shadow: 0 -4px var(--bone), -4px 0 var(--ember), 4px 0 var(--ember), 0 4px var(--ember), -4px 4px var(--ember-deep), 4px 4px var(--ember-deep), 0 8px var(--ember-deep), -4px -8px var(--ember); }
+  48% { box-shadow: 0 -4px var(--bone), -4px 0 var(--ember), 4px 0 var(--ember), 0 4px var(--ember), -4px 4px var(--ember-deep), 4px 4px var(--ember-deep), 0 8px var(--ember-deep), 4px -8px var(--ember), 0 -12px var(--ember); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .boot__flame {
+    animation: none;
+  }
 }
 /* The privacy text in the card itself: it fills the card and scrolls inside it, never the feed. */
 .splash__text {

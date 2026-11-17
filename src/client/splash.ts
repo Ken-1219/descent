@@ -97,7 +97,7 @@ void api.floor().then(
     // Boss day (§7 splash states): the Warden and its chain, or that it has fallen.
     const boss = (r.kind === 'play' || r.kind === 'played') && r.boss ? (r.boss.killer ? 'The Warden has fallen.' : `The Warden: ${r.boss.hp} of ${r.boss.pool} links.`) : '';
     if ('depth' in r && typeof r.depth === 'number') step('splash', r.depth);
-    if (r.kind === 'play') set(`Floor ${r.depth}${curse ? ` · ${CURSE_TEXT[curse].name}` : ''}`, boss || (r.ghosts.fell ? `${r.ghosts.fell} fell here today.` : "Today's deaths build tomorrow's floor."), 'Descend', (e) => {
+    if (r.kind === 'play') set(`Floor ${r.depth}${curse ? ` · ${CURSE_TEXT[curse].name}` : ''}`, boss || (r.ghosts.fell ? `${r.ghosts.fell} fell here today.` : 'Nobody has fallen here yet. Be the first ghost.'), 'Descend', (e) => {
       step('descend', r.depth);
       expand(e);
     });
