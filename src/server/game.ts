@@ -25,9 +25,9 @@ const nextStreak = (prev: string | null, depth: number) => {
 /** Who a run belongs to: the name comes from the Devvit context (null for bots, shown as a nameless delver). */
 export type Who = { name: string | null; bot?: true };
 
-type Key = 'mods' | 'floor' | 'runs' | 'scores' | 'starts' | 'ghosts' | 'carvings' | 'heat' | 'kills' | 'resets' | 'traps' | 'curse' | 'cv' | 'votes' | 'trapped' | 'flair' | 'seq' | 'real';
-const key = (d: number, k: Key) => `f:${d}:${k}`;
-const isBot = (user: string) => user.startsWith('bot:');
+type Key = 'mods' | 'floor' | 'runs' | 'scores' | 'starts' | 'ghosts' | 'carvings' | 'heat' | 'kills' | 'resets' | 'traps' | 'curse' | 'cv' | 'votes' | 'trapped' | 'flair' | 'seq' | 'real' | 'seen' | 'funnel' | 'errs' | 'health';
+export const key = (d: number, k: Key) => `f:${d}:${k}`;
+export const isBot = (user: string) => user.startsWith('bot:');
 
 export const today = async (): Promise<{ day: number; postId: string | null }> => {
   const g = await redis.hGetAll('game');
@@ -96,8 +96,9 @@ export async function floorFor(user: string | undefined, depth: number | null): 
   if (mine) {
     // Your run has ended here, so the carvings' Trust and Liar totals (and your own votes) come with the ghosts.
     const ghosts = await withVotes(d, user, await ghostsOf(d, user));
-    const streak = JSON.parse((await redis.hGet('streak', user)) ?? '{"n":0}').n;
-    return { kind: 'played', depth: d, seed: floor.seed ?? 0, floor, run: result(JSON.parse(mine)), ghosts, live: d === t.day, attempt, choices: await choicesOf(d, user), myTrap: trapped, streak, nextAt: nextRollover(Date.now()), ...(boss ? { boss } : {}) };
+    const [streakRaw, flairOn] = await Promise.all([redis.hGet('streak', user), redis.hGet('flairOn', user)]);
+    const streak = JSON.parse(streakRaw ?? '{"n":0}').n;
+    return { kind: 'played', depth: d, seed: floor.seed ?? 0, floor, run: result(JSON.parse(mine)), ghosts, live: d === t.day, attempt, choices: await choicesOf(d, user), myTrap: trapped, streak, nextAt: nextRollover(Date.now()), flair: !!flairOn, ...(d === t.day ? {} : { today: t.day, todayUrl: postUrl(t.postId) }), ...(boss ? { boss } : {}) };
   }
   if (d < t.day) return { kind: 'closed', depth: d, today: t.day, todayUrl: postUrl(t.postId) };
   return { kind: 'play', depth: d, seed: floor.seed ?? 0, floor, ghosts: await ghostsOf(d, user), attempt, tutorial: !!tutorial, myTrap: trapped, ...(boss ? { boss } : {}) };
@@ -469,13 +470,35 @@ export async function realResult(depth: number): Promise<{ cleared: number; fell
 }
 
 /** Flair for up to `limit` players of a floor (A29), in Reddit's batches; returns how many are still waiting. */
+/**
+ * The flair job (A55, opt-in): opted-in players get their depth; a player who never opted in has any flair Descent set
+ * before removed, once (`flairCleared`).
+ */
 export async function drainFlair(depth: number, limit: number, batch: number): Promise<{ done: number; left: number }> {
   const all = Object.entries(await redis.hGetAll(key(depth, 'flair'))).sort(([a], [b]) => (a < b ? -1 : 1));
   const take = all.slice(0, limit);
-  for (let i = 0; i < take.length; i += batch) {
-    const chunk = take.slice(i, i + batch).map(([, v]): { username: string; text: string } => JSON.parse(v));
-    await reddit.setUserFlairBatch(context.subredditName, chunk).catch((e: unknown) => console.error(`flair batch failed: ${String(e)}`));
+  const on = take.length ? await redis.hMGet('flairOn', take.map(([u]) => u)) : [];
+  const set: { username: string; text: string }[] = [];
+  for (const [i, [u, v]] of take.entries()) {
+    const f: { name: string; text: string } = JSON.parse(v);
+    if (on[i]) set.push({ username: f.name, text: f.text });
+    else if (await redis.hSetNX('flairCleared', u, '1')) await reddit.removeUserFlair(context.subredditName, f.name).catch((e: unknown) => console.error(`flair removal failed: ${String(e)}`));
+  }
+  for (let i = 0; i < set.length; i += batch) {
+    await reddit.setUserFlairBatch(context.subredditName, set.slice(i, i + batch)).catch((e: unknown) => console.error(`flair batch failed: ${String(e)}`));
   }
   if (take.length) await redis.hDel(key(depth, 'flair'), take.map(([u]) => u));
   return { done: take.length, left: all.length - take.length };
+}
+
+/** Depth as flair (A55): on is applied by the next flair job; off removes your flair now. */
+export async function setFlair(user: string, name: string | null, on: boolean): Promise<boolean> {
+  if (on) {
+    await redis.hSet('flairOn', { [user]: '1' });
+    await redis.hDel('flairCleared', [user]);
+    return true;
+  }
+  await redis.hDel('flairOn', [user]);
+  if (name) await reddit.removeUserFlair(context.subredditName, name).catch((e: unknown) => console.error(`flair removal failed: ${String(e)}`));
+  return false;
 }

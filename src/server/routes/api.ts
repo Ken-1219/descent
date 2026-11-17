@@ -1,7 +1,9 @@
 import { Hono } from 'hono';
 import { context } from '@devvit/web/server';
-import type { BoardResponse, CardResponse, CarvingRequest, ChronicleResponse, PulseResponse, CarvingResponse, FloorResponse, RunRequest, RunResponse, StartRequest, TrapRequest, TrapResponse, VoteResponse } from '../../shared/api';
-import { carve, floorFor, logStart, placeTrap, submitRun, voteCarving, voteCurse } from '../game';
+import type { Beacon, FlairResponse, ForgetResponse, BoardResponse, CardResponse, CarvingRequest, ChronicleResponse, PulseResponse, CarvingResponse, FloorResponse, RunRequest, RunResponse, StartRequest, TrapRequest, TrapResponse, VoteResponse } from '../../shared/api';
+import { carve, floorFor, logStart, placeTrap, setFlair, submitRun, today, voteCarving, voteCurse } from '../game';
+import { beacon, beaconNote, count } from '../health';
+import { purge } from '../privacy';
 import { boardsFor, cardFor, chronicle, pulse } from '../boards';
 import type { Env } from '../index';
 
@@ -27,13 +29,17 @@ api.post('/run', async (c) => {
   if (!user) r = { kind: 'rejected', reason: 'logged out' };
   else if (typeof depth !== 'number' || typeof log !== 'string') r = { kind: 'rejected', reason: 'shape' };
   else r = await submitRun(user, depth, log, { name: context.username ?? null });
+  if (r.kind === 'saved' && typeof depth === 'number') await count(depth, user, 'finish');
   c.set('note', `d${depth ?? '-'} ${r.kind}${r.kind === 'rejected' ? ` (${r.reason})` : r.kind === 'saved' ? ` ${r.run.outcome} ${r.run.score}${r.run.dealt ? `, ${r.run.dealt} links` : ''}` : ''}`);
   return c.json<RunResponse>(r, r.kind === 'rejected' ? 400 : 200);
 });
 
 api.post('/start', async (c) => {
   const { depth } = await c.req.json<Partial<StartRequest>>().catch((): Partial<StartRequest> => ({}));
-  if (context.userId && typeof depth === 'number' && Number.isInteger(depth) && depth >= 0) await logStart(context.userId, depth); // 0: Floor 0 done
+  if (context.userId && typeof depth === 'number' && Number.isInteger(depth) && depth >= 0) {
+    await logStart(context.userId, depth); // 0: Floor 0 done
+    await count(depth || (await today()).day, context.userId, depth ? 'start' : 'floor0'); // Floor 0 counts on today's floor
+  }
   c.set('note', `d${depth ?? '-'} start`);
   return c.json({ ok: true });
 });
@@ -45,6 +51,7 @@ api.post('/carving', async (c) => {
   if (!user) r = { kind: 'rejected', reason: 'logged out' };
   else if (typeof depth !== 'number' || typeof carving !== 'string') r = { kind: 'rejected', reason: 'shape' };
   else r = await carve(user, depth, carving);
+  if (r.kind === 'carved' && typeof depth === 'number') await count(depth, user, 'carved');
   c.set('note', `d${depth ?? '-'} ${r.kind}${r.kind === 'rejected' ? ` (${r.reason})` : r.kind === 'carved' ? ` ${r.carving}` : ''}`);
   return c.json<CarvingResponse>(r, r.kind === 'rejected' ? 400 : 200);
 });
@@ -91,6 +98,7 @@ api.post('/vote', async (c) => {
   else if (typeof b.curse === 'string') r = await voteCurse(user, b.depth, b.curse);
   else if (typeof b.ghost === 'string' && (b.vote === 'trust' || b.vote === 'liar')) r = await voteCarving(user, b.depth, b.ghost, b.vote);
   else r = { kind: 'rejected', reason: 'shape' };
+  if (r.kind === 'voted' && typeof b.depth === 'number') await count(b.depth, user, 'voted');
   const what = typeof b.curse === 'string' ? `curse ${b.curse}` : `${String(b.vote)} on ${String(b.ghost)}`;
   c.set('note', `d${String(b.depth ?? '-')} ${what}: ${r.kind}${r.kind === 'rejected' ? ` (${r.reason})` : ''}`);
   return c.json<VoteResponse>(r, r.kind === 'rejected' ? 400 : 200);
@@ -103,6 +111,33 @@ api.post('/trap', async (c) => {
   if (!user) r = { kind: 'rejected', reason: 'logged out' };
   else if (typeof depth !== 'number' || typeof zone !== 'number' || typeof kind !== 'string') r = { kind: 'rejected', reason: 'shape' };
   else r = await placeTrap(user, depth, zone, kind, context.username ?? null);
+  if (r.kind === 'placed' && typeof depth === 'number') await count(depth, user, 'trap');
   c.set('note', `d${depth ?? '-'} trap ${kind ?? '-'} zone ${zone ?? '-'}: ${r.kind}${r.kind === 'rejected' ? ` (${r.reason})` : ''}`);
   return c.json<TrapResponse>(r, r.kind === 'rejected' ? 400 : 200);
+});
+
+// Phase 10b: measurements and funnel steps from the client (A57, A59): validated, rate-limited, one log line each.
+api.post('/beacon', async (c) => {
+  const b = await c.req.json<Beacon>().catch(() => null);
+  const ok = b ? await beacon(context.userId, b) : false;
+  c.set('note', b?.kind === 'step' ? `d${b.depth} ${beaconNote(b)}${ok ? '' : ' (already counted)'}` : b && ok ? `d${b.depth} ${beaconNote(b)}` : 'beacon dropped (malformed or over budget)');
+  return c.json({ ok });
+});
+
+// Depth as flair, opt-in (A55): off removes your flair now; on is applied by the next flair job.
+api.post('/flair', async (c) => {
+  const { on } = await c.req.json<{ on?: unknown }>().catch((): { on?: unknown } => ({}));
+  const user = context.userId;
+  const r: FlairResponse = { on: user && typeof on === 'boolean' ? await setFlair(user, context.username ?? null, on) : false };
+  c.set('note', `flair ${r.on ? 'on' : 'off'}`);
+  return c.json<FlairResponse>(r);
+});
+
+// "Delete my data" (A56): everything Descent stores about the caller, now.
+api.post('/forget', async (c) => {
+  const user = context.userId;
+  if (!user) return c.json({ kind: 'rejected', reason: 'logged out' }, 400);
+  const r = await purge(user);
+  c.set('note', `FORGET ${context.username ?? user}: ${r.floors} floors`);
+  return c.json<ForgetResponse>(r);
 });

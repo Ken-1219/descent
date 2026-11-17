@@ -77,7 +77,7 @@ export const local: Api = {
     const mine = runOf(d);
     if (mine) {
       const { log: _, ...run } = mine;
-      return { kind: 'played', depth: d, seed: floor.seed ?? 0, floor, run, ghosts: withVotes(d, ghostsOf(d)), live: d === day(), attempt: 0, choices: choicesOf(d), myTrap: myTrap(), streak: read<number>('streak') ?? 1, nextAt: Date.now() + 5 * 3_600_000 + 12 * 60_000, ...(boss ? { boss } : {}) };
+      return { kind: 'played', depth: d, seed: floor.seed ?? 0, floor, run, ghosts: withVotes(d, ghostsOf(d)), live: d === day(), attempt: 0, choices: choicesOf(d), myTrap: myTrap(), streak: read<number>('streak') ?? 1, nextAt: Date.now() + 5 * 3_600_000 + 12 * 60_000, flair: read<boolean>('flair') ?? false, ...(d === day() ? {} : { today: day(), todayUrl: `${location.pathname}?post=${day()}` }), ...(boss ? { boss } : {}) };
     }
     if (d < day()) return { kind: 'closed', depth: d, today: day(), todayUrl: `${location.pathname}?post=${day()}` };
     return { kind: 'play', depth: d, seed: floor.seed ?? 0, floor, ghosts: ghostsOf(d), attempt: 0, tutorial: !!read('tutorial'), myTrap: myTrap(), ...(boss ? { boss } : {}) };
@@ -164,6 +164,13 @@ export const local: Api = {
     if (prior && (prior.zone !== zone || prior.kind !== kind)) return { kind: 'rejected', reason: 'already placed' };
     write(`trap:${depth}`, { zone, kind });
     return { kind: 'placed', trap: { zone, kind } };
+  },
+  // Phase 10b: beacons are kept for the e2e checks; flair and "Delete my data" act on this profile.
+  beacon: async (b) => write('beacons', [...(read<unknown[]>('beacons') ?? []), b]),
+  flair: async (on) => (write('flair', on), { on }),
+  forget: async () => {
+    for (let d = 1; d <= day(); d++) for (const k of ['run', 'ghost', 'carving', 'votes', 'curse', 'trap']) localStorage.removeItem(`${K}${k}:${d}`);
+    return { floors: day() };
   },
 };
 

@@ -67,6 +67,20 @@
         "location": "subreddit",
         "forUserType": "moderator",
         "endpoint": "/internal/menu/post-floor0"
+      },
+      {
+        "label": "Health",
+        "description": "Today's funnel, load times, errors and failed saves",
+        "location": "subreddit",
+        "forUserType": "moderator",
+        "endpoint": "/internal/menu/health"
+      },
+      {
+        "label": "Write the privacy page",
+        "description": "Write Descent's privacy page to the subreddit wiki",
+        "location": "subreddit",
+        "forUserType": "moderator",
+        "endpoint": "/internal/menu/privacy-page"
       }
     ]
   },
@@ -91,12 +105,17 @@
       },
       "memorial": {
         "endpoint": "/internal/scheduler/memorial"
+      },
+      "sweep": {
+        "endpoint": "/internal/scheduler/sweep",
+        "cron": "30 15 * * *"
       }
     }
   },
   "forms": {
     "seedBots": "/internal/form/seed-bots",
-    "setLinks": "/internal/form/set-links"
+    "setLinks": "/internal/form/set-links",
+    "health": "/internal/form/health"
   },
   "settings": {
     "subreddit": {

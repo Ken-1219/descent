@@ -1,5 +1,5 @@
 // Wire types for /api/*, imported by client and server so a mismatch is a compile error (§15.2).
-import type { Curse } from './content';
+import type { ClientClass, Curse } from './content';
 import type { Trap } from './gen';
 import type { GhostView, Vote } from './ghosts';
 import type { Floor, RunResult } from './sim';
@@ -16,7 +16,7 @@ export type MyTrap = { kind: Trap['kind']; x: number; y: number; hurt: number; k
 export type FloorResponse =
   /** `attempt`: how often the mod reset tool cleared this player's run here (keys the client's saved log). */
   | { kind: 'play'; depth: number; seed: number; floor: Floor; ghosts: GhostView; attempt: number; tutorial: boolean; myTrap: MyTrap; boss?: BossView }
-  | { kind: 'played'; depth: number; seed: number; floor: Floor; run: RunResult; ghosts: GhostView; live: boolean; attempt: number; choices: Choices; myTrap: MyTrap; streak: number; nextAt: number; boss?: BossView }
+  | { kind: 'played'; depth: number; seed: number; floor: Floor; run: RunResult; ghosts: GhostView; live: boolean; attempt: number; choices: Choices; myTrap: MyTrap; streak: number; nextAt: number; flair?: boolean; today?: number; todayUrl?: string | null; boss?: BossView }
   /** A "Post Floor 0" post: the tutorial, never stored or submitted. */
   | { kind: 'practice' }
   | { kind: 'closed'; depth: number; today: number; todayUrl: string | null }
@@ -71,3 +71,13 @@ export type TrapResponse =
   | { kind: 'placed'; trap: Trap }
   | { kind: 'closed'; today: number; todayUrl: string | null }
   | { kind: 'rejected'; reason: string };
+
+// Phase 10b: measurements and the funnel (A57, A59), "Delete my data" (A56), flair opt-in (A55).
+export type Beacon =
+  | { kind: 'load'; depth: number; ms: number; client: ClientClass }
+  | { kind: 'error'; depth: number; msg: string; screen: string }
+  | { kind: 'save'; depth: number; screen: string }
+  | { kind: 'step'; depth: number; step: 'splash' | 'descend' };
+export type FlairRequest = { on: boolean };
+export type FlairResponse = { on: boolean };
+export type ForgetResponse = { floors: number };

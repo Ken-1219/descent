@@ -723,6 +723,16 @@ body:has(#end:not([hidden])) .carving {
 .splash__go {
   width: min(100%, 320px);
 }
+/* Phase 10b: the privacy page, a quiet text link under Descend (A56). */
+.splash__privacy {
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--t-small);
+  text-decoration: underline;
+  cursor: pointer;
+  min-height: 32px;
+}
 
 /* Lab Ghosts tab: the game at phone size. */
 .ghosts__frame {
@@ -926,14 +936,25 @@ body:has(#end:not([hidden])) .carving {
 }
 .end__panel .plate__links .btn {
   width: auto;
-  flex: 1;
+  flex: 1 0 auto; /* wrap rather than clip a label */
+}
+.board__data {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--gap);
+}
+.end__panel .board__data .btn {
+  width: auto;
+  flex: 1 0 auto;
 }
 .board__tabs {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  display: flex;
+  flex-wrap: wrap;
   gap: 4px;
 }
 .end__panel .board__tabs .btn {
+  width: auto;
+  flex: 1 0 auto; /* "Deepest" clipped at 320 px in a four-column grid */
   padding: 0 4px;
 }
 .board,

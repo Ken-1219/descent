@@ -1,12 +1,12 @@
 /// <reference types="vite/client" />
 // Boot, input router, HUD wiring and the dev hook. Rules live in src/shared/sim.ts; this file only sends actions.
-import { BOARD, CURSE_TEXT, FLOOR_0, FLOOR_0_GHOSTS, HEARTS, ITEMS, KILL_FAMILY, NAMELESS, PALETTE, TILE, TORCH_LOW_PCT, TRAPS, TRAP_TEXT, ZONE_NAMES, type Curse } from '../shared/content';
+import { BOARD, CURSE_TEXT, FLOOR_0, FLOOR_0_GHOSTS, HEARTS, ITEMS, KILL_FAMILY, NAMELESS, PALETTE, TILE, TORCH_LOW_PCT, TRAPS, PRIVACY, TRAP_TEXT, ZONE_NAMES, type Curse } from '../shared/content';
 import { slitLine, zoneOf } from '../shared/grid';
-import { navigateTo, showLoginPrompt } from '@devvit/web/client';
+import { context, navigateTo, showLoginPrompt } from '@devvit/web/client';
 import type { BossView, FloorResponse, GhostView, MyTrap, RunResult } from '../shared/api';
 import { carvingLabel, type Ghost, type Vote } from '../shared/ghosts';
 import { isAction, replay, start, step, type Action, type End, type Floor, type Pos } from '../shared/sim';
-import { api, submit } from './net';
+import { api, clientClass, report, submit, watchErrors, where } from './net';
 import { iconCanvas, loadPack, packIcon } from './sprites';
 import { button, carvingPicker, carvingsList, chainMeter, controls, createHud, cursePicker, el, endPanel, ghostCard, introCompass, saveLine, trapPicker, type PanelAction } from './ui';
 import { miniMap } from './minimap';
@@ -51,6 +51,14 @@ type Live = { depth: number; seed: number; attempt: number; floor: Floor; log: s
 const engine = Promise.all([import('phaser'), import('./scene')]);
 const day: FloorResponse | 'error' = devFloor ? { kind: 'none' } : await api.floor().catch(() => 'error' as const);
 const [Phaser, { DescentScene }] = await engine;
+// Phase 10b (A57, A58): beacons and reports say which floor and which screen; nothing about the device beyond its class.
+where.depth = day !== 'error' && 'depth' in day && typeof day.depth === 'number' ? day.depth : 0;
+where.screen = () => (end.hidden ? 'run' : end.classList.contains('end--intro') ? 'intro' : 'plate');
+watchErrors();
+const privacyUrl = PRIVACY.url(context?.subredditName ?? 'descent_game_dev');
+/** Reddit's modmail compose, pre-filled: floor, screen and client class. One tap opens it, one sends it. */
+const reportUrl = (screen: string) =>
+  `https://www.reddit.com/message/compose?to=${encodeURIComponent(`/r/${context?.subredditName ?? 'descent_game_dev'}`)}&subject=${encodeURIComponent(`Descent: something broke (Floor ${where.depth})`)}&message=${encodeURIComponent(`Floor ${where.depth}, ${screen}, ${clientClass()}.\n\nWhat happened:\n`)}`;
 let live: Live | null = null;
 // Saved logs are keyed by depth and seed, so an old log can never replay onto a different floor; and by the mod reset
 // tool's attempt count, so a cleared run's log is never resubmitted.
@@ -324,8 +332,23 @@ async function result(prefetched?: FloorResponse) {
   };
   if (others) link(`Carvings (${others})`, 'carvings__open', () => carvingsPanel(r.depth));
   const back = { label: 'Back', run: () => void result(plate ?? undefined) };
-  link('Board', 'board__open', () => void boardPanel(end, r.depth, back));
+  link('Board', 'board__open', () => void boardPanel(end, r.depth, back, () => go(privacyUrl)));
   link('Chronicle', 'chronicle__open', () => void chroniclePanel(end, back, killerName));
+  // Phase 10b: depth as flair is opt-in (A55); a broken thing is two taps from modmail (A58).
+  let flairOn = !!r.flair;
+  const flairLabel = () => `Depth as flair: ${flairOn ? 'On' : 'Off'}`;
+  link(flairLabel(), 'flair__toggle', () => {
+    const b = links.querySelector('.flair__toggle');
+    void api.flair(!flairOn).then((f) => {
+      flairOn = f.on;
+      if (b) {
+        b.textContent = flairLabel();
+        b.setAttribute('aria-pressed', String(flairOn));
+      }
+    }, () => undefined);
+  });
+  links.querySelector('.flair__toggle')?.setAttribute('aria-pressed', String(flairOn));
+  link('Something broke?', 'report__open', () => go(reportUrl('result plate')));
   body.push(links);
   // While the floor is live, the next unfinished choice is the plate's one primary action.
   const won = r.run.outcome === 'won';
@@ -334,7 +357,10 @@ async function result(prefetched?: FloorResponse) {
     : won && !c.trap ? { label: 'Set a trap', run: () => pickTrap(saveLine(), r.depth) }
     : mine && !mine.carving ? { label: 'Carve', run: () => pickCarving(title, line, saveLine(), r.depth) }
     : null;
-  endPanel(end, { title, line, body, primary: next ?? practice, ...(next ? { secondary: practice } : {}) });
+  // An old floor's plate points on to today's (A61); a live one offers its next choice, then practice.
+  const onward: PanelAction | null = r.todayUrl ? { label: `Go to Floor ${r.today}`, run: () => go(r.todayUrl ?? null) } : null;
+  const first = next ?? onward ?? practice;
+  endPanel(end, { title, line, body, primary: first, ...(first !== practice ? { secondary: practice } : {}) });
   watch(r.depth, r.nextAt, fellNow, clock, bossNow); // after the plate is in the page: the clock stops once it leaves
 }
 let plate: (FloorResponse & { kind: 'played' }) | null = null;
@@ -509,8 +535,10 @@ function nearby() {
   const near = shown.list.filter((g) => g.carving && reach(g) <= 1);
   const g = near[0];
   if (!g?.carving || (torchTurn === state.turn && lowTorch(state.torch))) {
-    carvingLine.replaceChildren(el('span', '', state.torch > 0 ? `Torch low: ${state.torch} turns of light left.` : 'Torch out: the dark is taking your hearts.'));
-    carvingLine.hidden = !!state.ended || !lowTorch(state.torch);
+    // Phase 10b (A61): a newcomer's Floor 0 says it is practice, and what it opens, so the day's post doesn't look skipped.
+    const practiceFirst = !lowTorch(state.torch) && state.floor.depth === 0 && playable;
+    carvingLine.replaceChildren(el('span', '', practiceFirst ? `Practice first: reach the stairs to open Floor ${playable.depth}.` : state.torch > 0 ? `Torch low: ${state.torch} turns of light left.` : 'Torch out: the dark is taking your hearts.'));
+    carvingLine.hidden = !!state.ended || (!practiceFirst && !lowTorch(state.torch));
     return;
   }
   const read = button('Read');
@@ -677,7 +705,7 @@ function closed(depth: number, today: number, url: string | null) {
 
 // Every state the day can be in is designed, none fails silently (§15.1). The full already-played screen is Phase 9.
 setGhosts(dayGhosts);
-if (day === 'error') endPanel(end, { title: 'The way down is dark', line: "Can't reach the dungeon. Try again.", primary: { label: 'Retry', run: () => location.reload() } });
+if (day === 'error') endPanel(end, { title: 'The way down is dark', line: "Can't reach the dungeon. Try again.", primary: { label: 'Retry', run: () => location.reload() }, secondary: { label: 'Something broke?', run: () => go(reportUrl('cannot reach')) } });
 else if (day.kind === 'login') endPanel(end, { title: 'Log in to descend', line: `Floor ${day.depth}: one run a day, kept under your name.`, primary: { label: 'Log in', run: () => showLoginPrompt() } });
 else if (day.kind === 'closed') closed(day.depth, day.today, day.todayUrl);
 else if (day.kind === 'played') void result(day);
@@ -686,7 +714,10 @@ else if (day.kind === 'none' && !devFloor) endPanel(end, { title: 'No floor yet'
 else if (state.ended) finish(state.ended); // resumed onto a finished run: show it and (re)submit, which is a safe retry
 else if (live && state.turn === 0) intro(); // a fresh run on the day's floor starts at the intro
 
-void scene.ready.then(() => performance.mark('descent:interactive'));
+void scene.ready.then(() => {
+  performance.mark('descent:interactive');
+  if (!devFloor) report({ kind: 'load', depth: where.depth, ms: Math.round(performance.now()), client: clientClass() }); // A57
+});
 
 // ---- dev hook for Playwright (§10). Dev builds only; never in the Devvit bundle. ----
 type DescentHook = {

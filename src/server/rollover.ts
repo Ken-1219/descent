@@ -6,6 +6,7 @@ import { EMPTY_TALLY, rolloverFloor, targetPct, type Rolled } from '../shared/cr
 import { isWardenFloor, showcaseFamilies } from '../shared/gen';
 import type { Floor } from '../shared/sim';
 import { bossDay, openBoss } from './boss';
+import { health, healthLine } from './health';
 import { dayStats, drainFlair, floorSeed, openFloor, realResult, tally, today } from './game';
 
 /** Store, post and publish floor `depth`; `game` moves to it only after the post exists. */
@@ -42,7 +43,7 @@ async function advance(day: number, why: string): Promise<{ posted: number | nul
   const next = day + 1;
   if (!(await redis.hSetNX('rolled', String(next), '1'))) return { posted: null };
   const t0 = Date.now();
-  const [t, stats, real, was] = await Promise.all([tally(day), dayStats(day), realResult(day), redis.get(`f:${day}:floor`)]);
+  const [t, stats, real, was, h] = await Promise.all([tally(day), dayStats(day), realResult(day), redis.get(`f:${day}:floor`), health(day)]);
   const before: Floor | null = was ? JSON.parse(was) : null;
   const rolled = rolloverFloor(next, floorSeed(next), t);
   const curse = rolled.mods.curses[0] ?? null;
@@ -55,7 +56,7 @@ async function advance(day: number, why: string): Promise<{ posted: number | nul
   const ended = isWardenFloor(day) ? await bossDay(day, real.cleared + real.fell).catch((e: unknown) => (console.error(`WARDEN day ${day}: ${String(e)}`), null)) : null;
   const waits = isWardenFloor(next) ? await openBoss(next, real.cleared + real.fell).catch((e: unknown) => (console.error(`WARDEN open ${next}: ${String(e)}`), null)) : null;
   const p = await post(next, { mods: rolled.mods, floor, seed: rolled.seed });
-  console.log(`ROLLOVER ${why}: floor ${day} -> ${next}, ladder step "${rolled.step}"${rolled.tried.length ? ` (after ${rolled.tried.map((x) => `${x.step}: ${x.why}`).join('; ')})` : ''}, win ${rolled.win}% vs plain ${rolled.plainWin}% (plain band check ${rolled.plainBandWin}% after ${rolled.rerolls} rerolls), ${floor.traps?.length ?? 0} player traps, curse ${curse ?? 'none'}${ended ? `; ${ended.text} Pool ${ended.pool}: ${ended.stats.links} links from ${ended.stats.runs} runs (${ended.stats.fighters} fought), mean ${ended.stats.mean}, median ${ended.stats.median}, max ${ended.stats.max}` : ''}${waits ? `; Warden pool ${waits.pool}${waits.carried ? ' (carried)' : ''}` : ''}; floor ${day} predicted ${before?.predicted ? `${before.predicted.win}%` : 'n/a'}, players ${real.cleared} cleared / ${real.fell} fell${real.cleared + real.fell ? ` (${Math.round((100 * real.cleared) / (real.cleared + real.fell))}%)` : ''}, ${Date.now() - t0} ms`);
+  console.log(`ROLLOVER ${why}: floor ${day} -> ${next}, ladder step "${rolled.step}"${rolled.tried.length ? ` (after ${rolled.tried.map((x) => `${x.step}: ${x.why}`).join('; ')})` : ''}, win ${rolled.win}% vs plain ${rolled.plainWin}% (plain band check ${rolled.plainBandWin}% after ${rolled.rerolls} rerolls), ${floor.traps?.length ?? 0} player traps, curse ${curse ?? 'none'}${ended ? `; ${ended.text} Pool ${ended.pool}: ${ended.stats.links} links from ${ended.stats.runs} runs (${ended.stats.fighters} fought), mean ${ended.stats.mean}, median ${ended.stats.median}, max ${ended.stats.max}` : ''}${waits ? `; Warden pool ${waits.pool}${waits.carried ? ' (carried)' : ''}` : ''}; floor ${day} predicted ${before?.predicted ? `${before.predicted.win}%` : 'n/a'}, players ${real.cleared} cleared / ${real.fell} fell${real.cleared + real.fell ? ` (${Math.round((100 * real.cleared) / (real.cleared + real.fell))}%)` : ''}; health ${healthLine(h)}, ${Date.now() - t0} ms`);
   const boss = [ended?.text, waits ? `The Warden waits in its arena: ${waits.pool} links${waits.carried ? ', still wounded from its last floor' : ''}.` : ''].filter(Boolean).join(' ');
   await reddit.submitComment({ id: p.id, text: `${summary(yesterday, floor.traps?.length ?? 0)}${boss ? ` ${boss}` : ''}` }).catch((e: unknown) => console.error(`summary comment failed: ${String(e)}`));
   const { deaths: _, ...ledger } = yesterday;

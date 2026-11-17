@@ -457,7 +457,8 @@ async (page) => {
       const { ctx, p } = await ctxAt({ width: 390, height: 844 }, '', false);
       await p.evaluate(() => window.__descent.skipAnim(true));
       check('Floor 0 draws its scripted ghosts with the same renderer', (await p.evaluate(() => window.__descent.ghosts().list.length)) === 2, '');
-      const hiddenFar = await p.locator('#carving').isHidden();
+      // Far from any ghost the line is not a carving (a newcomer's Floor 0 shows the practice line there, Phase 10b).
+      const hiddenFar = !/Trap ahead/.test((await p.locator('#carving').isVisible()) ? await p.locator('#carving').innerText() : '');
       await acts(p, [...TO_DOOR, 'R', 'R', 'R']);
       const line = (await p.locator('#carving').isVisible()) ? await p.locator('#carving').innerText() : '';
       check('a carving shows on approach, with no input (aria-live line under the HUD)', hiddenFar && /a nameless delver: Trap ahead/.test(line) && (await p.locator('#carving').getAttribute('aria-live')) === 'polite', flat(line));
@@ -1030,6 +1031,183 @@ async (page) => {
         await sp.ctx.close();
       }
       check('layout 320×320 to 1280×800: Warden intro (alive, carried, fallen), HUD chain, plate and boss splash fit', bad.length === 0, bad.join(' ; '));
+    }
+  }
+
+  // 18. Phase 10b: the feedback path, flair opt-in, Delete my data, beacons, the four stranger arrivals, and layouts
+  {
+    const raw = async (vp, url, { f0 = true, day = 3 } = {}) => {
+      const ctx = await browser.newContext({ viewport: vp });
+      await ctx.addInitScript(([f0, day]) => {
+        if (location.protocol === 'http:' && !sessionStorage.getItem('seeded')) {
+          sessionStorage.setItem('seeded', '1');
+          localStorage.setItem('descent:local:day', String(day));
+          if (f0) localStorage.setItem('descent:f0', '1');
+        }
+      }, [f0, day]);
+      const p = await ctx.newPage();
+      p.on('pageerror', (e) => errs.push(String(e)));
+      p.on('console', (m) => { if (m.type() === 'error') errs.push(m.text()); });
+      await p.goto(url);
+      return { ctx, p };
+    };
+    const ready = async (p) => { await p.waitForFunction(() => window.__descent); await p.evaluate(() => window.__descent.ready); };
+    const text = async (p, sel = '#end') => (await p.locator(sel).innerText()).replace(/\n+/g, ' | ');
+    const W = `${URL}?floor=warden&boss=alive`;
+    /** Play the arena to a death (torch out), skip the carving: the played plate. */
+    const toPlate = async (p) => {
+      await ready(p);
+      await p.locator('#end .btn--primary').click();
+      await p.evaluate(async () => { window.__descent.skipAnim(true); for (let i = 0; i < 400 && !window.__descent.state().ended; i++) await window.__descent.act('W'); });
+      await p.waitForSelector('#end select.picker');
+      await p.getByRole('button', { name: 'Skip' }).click();
+      await p.waitForFunction(() => /Score/.test(document.getElementById('end').innerText));
+    };
+    {
+      const { ctx, p } = await raw({ width: 390, height: 844 }, W);
+      await toPlate(p);
+      const flair = p.locator('#end .flair__toggle');
+      const off = (await flair.innerText()) === 'Depth as flair: Off' && (await flair.getAttribute('aria-pressed')) === 'false';
+      await flair.click();
+      await p.waitForFunction(() => document.querySelector('#end .flair__toggle')?.getAttribute('aria-pressed') === 'true');
+      await p.reload();
+      await ready(p);
+      await p.waitForFunction(() => /Score/.test(document.getElementById('end').innerText));
+      const kept = (await p.locator('#end .flair__toggle').innerText()) === 'Depth as flair: On';
+      check('flair is opt-in: Off until you turn it on, and it stays on', off && kept);
+      const beacons = await p.evaluate(() => JSON.parse(localStorage.getItem('descent:local:beacons') ?? '[]'));
+      const load = beacons.find((b) => b.kind === 'load');
+      check('a load beacon carries the floor, a time and one of four client classes, nothing else', load && load.depth === 3 && Number.isInteger(load.ms) && ['ios', 'android', 'mweb', 'desktop'].includes(load.client) && Object.keys(load).length === 4, JSON.stringify(load));
+      let asked = '';
+      await p.route('https://www.reddit.com/**', (r) => { asked = r.request().url(); return r.abort(); });
+      await p.locator('#end .report__open').click();
+      await p.waitForTimeout(500);
+      check('"Something broke?" opens modmail compose to the subreddit, pre-filled with floor, screen and client class', /\/message\/compose\?to=%2Fr%2F/.test(asked) && /Floor%203/.test(asked) && /result%20plate/.test(asked), asked.slice(0, 160));
+      await ctx.close();
+    }
+    {
+      const { ctx, p } = await raw({ width: 390, height: 844 }, W);
+      await toPlate(p);
+      await p.locator('#end .board__open').click();
+      await p.waitForSelector('#end .forget__open');
+      const hasPrivacy = await p.locator('#end .privacy__open').count();
+      await p.locator('#end .forget__open').click();
+      const ask = await text(p);
+      await p.getByRole('button', { name: 'Keep my data' }).click();
+      await p.waitForSelector('#end .forget__open');
+      await p.locator('#end .forget__open').click();
+      await p.getByRole('button', { name: 'Delete everything' }).click();
+      await p.waitForFunction(() => /Descent no longer stores anything about you/.test(document.getElementById('end').innerText));
+      await p.getByRole('button', { name: 'Close' }).click();
+      await ready(p);
+      const after = await p.evaluate(() => ({ f0: localStorage.getItem('descent:f0'), run: localStorage.getItem('descent:local:run:3'), depth: Number(document.getElementById('hud').innerText.trim().split(/\s+/)[0]) }));
+      check('Delete my data: the Board links the privacy page; one confirmation, then nothing is kept and you arrive as a newcomer', hasPrivacy === 1 && /Delete my data\?/.test(ask) && after.run === null && after.f0 === null && after.depth === 0, `${ask.slice(0, 80)} ${JSON.stringify(after)}`);
+      await ctx.close();
+    }
+    {
+      const sp = await raw({ width: 390, height: 844 }, 'http://localhost:5190/splash.html?floor=warden&boss=alive');
+      await sp.p.waitForFunction(() => !document.getElementById('go').disabled);
+      const steps0 = await sp.p.evaluate(() => JSON.parse(localStorage.getItem('descent:local:beacons') ?? '[]').filter((b) => b.kind === 'step').map((b) => b.step));
+      await sp.p.locator('#go').click();
+      await sp.p.waitForURL(/game\.html/);
+      const steps1 = await sp.p.evaluate(() => JSON.parse(localStorage.getItem('descent:local:beacons') ?? '[]').filter((b) => b.kind === 'step').map((b) => b.step));
+      check('the splash sends the funnel\'s first two steps: splash on load, descend on the tap', steps0.join() === 'splash' && steps1.join() === 'splash,descend', `${steps0} → ${steps1}`);
+      await sp.ctx.close();
+    }
+    // The stranger's four arrivals.
+    {
+      const old = await raw({ width: 390, height: 844 }, `${URL}?post=1`);
+      await ready(old.p);
+      const t = await text(old.p);
+      const s = await raw({ width: 390, height: 844 }, 'http://localhost:5190/splash.html?post=1');
+      await s.p.waitForFunction(() => !document.getElementById('go').disabled);
+      const st = await text(s.p, 'body');
+      check('stranger on an old floor\'s post: told it closed, one button to today\'s floor (game and splash)', /Floor 1 has closed \| Today is Floor 3\./.test(t) && /Closed\. Today is Floor 3\. \| Today's floor/.test(st), `${t.slice(0, 80)} / ${st.slice(0, 80)}`);
+      await old.ctx.close();
+      await s.ctx.close();
+    }
+    {
+      // A floor you played, after it closed: it names today's floor and goes there (splash and plate), not a dead end.
+      const { ctx, p } = await raw({ width: 390, height: 844 }, W, { day: 3 });
+      await toPlate(p);
+      await p.evaluate(() => localStorage.setItem('descent:local:day', '4'));
+      await p.goto(`${URL}?floor=warden&boss=alive&post=3`);
+      await ready(p);
+      await p.waitForFunction(() => /Score/.test(document.getElementById('end').innerText));
+      const prim = await p.locator('#end .btn--primary').innerText();
+      const sp = await ctx.newPage();
+      await sp.goto('http://localhost:5190/splash.html?floor=warden&boss=alive&post=3');
+      await sp.waitForFunction(() => !document.getElementById('go').disabled);
+      const st = (await sp.locator('body').innerText()).replace(/\n+/g, ' | ');
+      check('stranger on an old floor they played: the plate and the splash point to today\'s floor', prim === 'Go to Floor 4' && /Today is Floor 4\. \| Today's floor/.test(st), `${prim} / ${st.slice(0, 90)}`);
+      await ctx.close();
+    }
+    {
+      const g = await raw({ width: 390, height: 844 }, `${URL}?loggedOut=1`);
+      await ready(g.p);
+      const t = await text(g.p);
+      const s = await raw({ width: 390, height: 844 }, 'http://localhost:5190/splash.html?loggedOut=1');
+      await s.p.waitForFunction(() => !document.getElementById('go').disabled);
+      const st = await text(s.p, 'body');
+      check('stranger logged out: Log in to descend (game and splash), and the privacy link is on the splash', /Log in to descend/.test(t) && /Log in to descend \| Privacy/.test(st), `${t.slice(0, 80)} / ${st.slice(0, 80)}`);
+      await g.ctx.close();
+      await s.ctx.close();
+    }
+    {
+      const { ctx, p } = await raw({ width: 390, height: 844 }, W, { f0: false });
+      await ready(p);
+      const line = await text(p, '#carving').catch(() => '');
+      check('stranger mid-day on a Warden floor: Floor 0 first, and it says it is practice that opens the day\'s floor', /Practice first: reach the stairs to open Floor 3\./.test(line), line);
+      await ctx.close();
+    }
+    {
+      const { ctx, p } = await raw({ width: 390, height: 844 }, W);
+      await ready(p);
+      await p.locator('#end .btn--primary').click();
+      await p.evaluate(async () => { window.__descent.skipAnim(true); for (const a of 'DD') await window.__descent.act(a); });
+      // An app update serves the game from a new origin: the device's storage is empty, the server's is not.
+      await p.evaluate(() => { for (const k of Object.keys(localStorage)) if (!k.startsWith('descent:local:')) localStorage.removeItem(k); });
+      await p.reload();
+      await ready(p);
+      const st = await p.evaluate(() => ({ depth: Number(document.getElementById('hud').innerText.trim().split(/\s+/)[0]), turn: window.__descent.state().turn }));
+      const t = await text(p);
+      check('stranger on the first day after an update: no Floor 0 again (the server remembers), the day\'s intro, a fresh run', st.depth === 3 && st.turn === 0 && /Floor 3/.test(t) && /Descend/.test(t), `${JSON.stringify(st)} ${t.slice(0, 60)}`);
+      await ctx.close();
+    }
+    // Layouts for everything new: plate links, the Board's data row, the delete confirmation, the practice line, the splash link.
+    {
+      const bad = [];
+      for (const vp of [{ width: 320, height: 320 }, { width: 375, height: 667 }, { width: 1280, height: 800 }]) {
+        const fit = (p, what) => p.evaluate(() => {
+          const out = [];
+          if (document.documentElement.scrollWidth > innerWidth) out.push('hscroll');
+          const panel = document.querySelector('#end:not([hidden]) .end__panel');
+          const prim = panel?.querySelector('.btn--primary')?.getBoundingClientRect();
+          if (panel && (!prim || prim.bottom > innerHeight + 0.5)) out.push('primary off screen');
+          for (const b of document.querySelectorAll('#end:not([hidden]) .btn')) if (b.scrollWidth > b.clientWidth + 1) out.push(`clipped "${b.textContent}"`);
+          return out;
+        }).then((o) => o.forEach((x) => bad.push(`${vp.width}x${vp.height} ${what}: ${x}`)));
+        const { ctx, p } = await raw(vp, W);
+        await toPlate(p);
+        await fit(p, 'plate');
+        await p.locator('#end .board__open').click();
+        await p.waitForSelector('#end .forget__open');
+        await fit(p, 'board');
+        await p.locator('#end .forget__open').click();
+        await fit(p, 'delete confirm');
+        await ctx.close();
+        const n = await raw(vp, W, { f0: false });
+        await ready(n.p);
+        const line = await n.p.evaluate(() => { const c = document.getElementById('carving'); const r = c.getBoundingClientRect(); return !c.hidden && r.right <= innerWidth + 0.5 && document.documentElement.scrollWidth <= innerWidth; });
+        if (!line) bad.push(`${vp.width}x${vp.height} practice line`);
+        await n.ctx.close();
+        const sp = await raw(vp, 'http://localhost:5190/splash.html');
+        await sp.p.waitForFunction(() => !document.getElementById('go').disabled);
+        const ok = await sp.p.evaluate(() => document.documentElement.scrollWidth <= innerWidth && document.getElementById('go').getBoundingClientRect().bottom <= innerHeight + 0.5 && document.getElementById('privacy').getBoundingClientRect().bottom <= innerHeight + 0.5);
+        if (!ok) bad.push(`${vp.width}x${vp.height} splash privacy`);
+        await sp.ctx.close();
+      }
+      check('layout 320×320 to 1280×800: plate links, Board data row, delete confirmation, practice line, splash privacy link', bad.length === 0, bad.join(' ; '));
     }
   }
   } catch (e) {

@@ -19,6 +19,7 @@ async function read(c: number): Promise<Boss | null> {
     killer: h.killer ?? null, killerName: h.killerName ?? null, memorial: h.memorial ?? null,
   };
 }
+const isPost = (id: string): id is `t3_${string}` => id.startsWith('t3_');
 export const hpOf = (b: Pick<Boss, 'pool' | 'dealt'>) => Math.max(0, b.pool - b.dealt);
 
 /**
@@ -106,15 +107,7 @@ export async function memorial(c: number): Promise<string | null> {
   const b = await read(c);
   if (!b?.killer || b.memorial || !(await redis.hSetNX(key(c), 'memorial', 'pending'))) return null;
   try {
-    const top = await redis.zRange(dmgKey(c), 0, WARDEN.memorialTop * 2, { by: 'rank', reverse: true });
-    const real = top.filter((t) => t.score > 0).slice(0, WARDEN.memorialTop);
-    const names = real.length ? await redis.hMGet('names', real.map((t) => t.member)) : [];
-    const lines = real.map((t, i) => `${i + 1}. u/${names[i] ?? 'a delver'}: ${t.score} links`);
-    const p = await reddit.submitPost({
-      subredditName: context.subredditName,
-      title: `The Warden has fallen (Floor ${b.depth})`,
-      text: [`u/${b.killerName ?? 'a delver'} broke the last link of ${b.pool}.`, '', 'Those who broke the most:', '', ...lines].join('\n'),
-    });
+    const p = await reddit.submitPost({ subredditName: context.subredditName, title: `The Warden has fallen (Floor ${b.depth})`, text: await memorialText(c, b) });
     await redis.hSet(key(c), { memorial: p.id });
     console.log(`WARDEN memorial for floor ${b.depth}: ${p.id}`);
     return p.id;
@@ -122,6 +115,38 @@ export async function memorial(c: number): Promise<string | null> {
     await redis.hDel(key(c), ['memorial']);
     console.error(`WARDEN memorial for floor ${b.depth} failed: ${String(e)}`);
     return null;
+  }
+}
+
+/** The memorial's body: the killing blow and the top WARDEN.memorialTop dealers, by their stored names. */
+async function memorialText(c: number, b: Boss): Promise<string> {
+  const top = await redis.zRange(dmgKey(c), 0, WARDEN.memorialTop * 2, { by: 'rank', reverse: true });
+  const real = top.filter((t) => t.score > 0).slice(0, WARDEN.memorialTop);
+  const names = real.length ? await redis.hMGet('names', real.map((t) => t.member)) : [];
+  const lines = real.map((t, i) => `${i + 1}. u/${names[i] ?? 'a delver'}: ${t.score} links`);
+  const killer = b.killerName ? `u/${b.killerName}` : 'A delver';
+  return [`${killer} broke the last link of ${b.pool}.`, '', 'Those who broke the most:', '', ...lines].join('\n');
+}
+
+/**
+ * A deleted account (A53): out of every Warden's damage set; a kill it made stands, nameless, and its memorial post is
+ * rewritten without it. Call before its name leaves `names`, so the other dealers keep theirs.
+ */
+export async function forget(user: string, upTo: number) {
+  for (let c = 0; c <= upTo; c++) {
+    const b = await read(c);
+    if (!b) continue;
+    const listed = (await redis.zScore(dmgKey(c), user)) !== undefined;
+    await redis.zRem(dmgKey(c), [user]);
+    if (b.killer === user) {
+      await redis.hSet(key(c), { killer: 'deleted' });
+      await redis.hDel(key(c), ['killerName']);
+    }
+    if ((listed || b.killer === user) && b.memorial && isPost(b.memorial)) {
+      const fresh = await read(c);
+      const post = fresh ? await reddit.getPostById(b.memorial).catch(() => undefined) : undefined;
+      if (fresh && post) await post.edit({ text: await memorialText(c, fresh) }).catch((e: unknown) => console.error(`memorial edit failed: ${String(e)}`));
+    }
   }
 }
 
@@ -146,7 +171,7 @@ export async function bossDay(depth: number, runs: number): Promise<{ text: stri
   const stats = await linkStats(c, Math.max(0, b.dealt - b.forced), runs);
   if (b.killer) {
     if (!b.memorial) await scheduleMemorial(c); // a memorial that failed earlier gets another try, off the rollover's path
-    return { text: `The Warden fell to u/${b.killerName ?? 'a delver'}.`, killed: true, hp: 0, pool: b.pool, stats };
+    return { text: 'The Warden fell; its memorial names who broke the chain.', killed: true, hp: 0, pool: b.pool, stats }; // no username: a comment never needs editing (A53)
   }
   const hp = hpOf(b);
   return { text: `The Warden survived with ${hp} of ${b.pool} links; it returns on Floor ${depth + 7} with them.`, killed: false, hp, pool: b.pool, stats };

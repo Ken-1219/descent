@@ -26,3 +26,6 @@ forms.post('/set-links', async (c) => {
   c.set('note', r ? `SET LINKS by ${context.username ?? context.userId} on floor ${day}: ${r.hp}/${r.pool}` : `set links: no living Warden on floor ${day}`);
   return c.json<UiResponse>({ showToast: r ? `The Warden: ${r.hp} of ${r.pool} links` : `No living Warden on Floor ${day}` });
 });
+
+// The Health form is read-only: closing it does nothing.
+forms.post('/health', (c) => c.json<UiResponse>({}));

@@ -1,10 +1,10 @@
 /// <reference types="vite/client" />
 // The feed card: floor number, Descend, played state. No Phaser and no sim: one request, a few DOM writes (§15.3).
 import { context, navigateTo, requestExpandedMode, showLoginPrompt } from '@devvit/web/client';
-import { CURSE_TEXT, PALETTE } from '../shared/content';
+import { CURSE_TEXT, PALETTE, PRIVACY } from '../shared/content';
 import type { Floor } from '../shared/sim';
 import { miniMap } from './minimap';
-import { api } from './net';
+import { api, report } from './net';
 
 const $ = (id: string) => {
   const node = document.getElementById(id);
@@ -22,6 +22,14 @@ const depth = context?.postData?.depth;
 if (typeof depth === 'number') floor.textContent = `Floor ${depth}`;
 
 const expand = (e: MouseEvent) => (import.meta.env.DEV ? location.assign(`game.html${location.search}`) : requestExpandedMode(e, 'game'));
+// Phase 10b (A59): the funnel's first two steps. The server counts each once per player per floor.
+const step = (s: 'splash' | 'descend', d: number) => report({ kind: 'step', depth: d, step: s });
+const privacy = $('privacy');
+privacy.addEventListener('click', () => {
+  const url = PRIVACY.url(context?.subredditName ?? 'descent_game_dev');
+  if (import.meta.env.DEV) location.assign(url);
+  else navigateTo(url);
+});
 let onGo: (e: MouseEvent) => void = expand;
 go.addEventListener('click', (e) => onGo(e));
 
@@ -75,7 +83,12 @@ void api.floor().then(
     if (curse) floor.dataset.curse = CURSE_TEXT[curse].name;
     // Boss day (§7 splash states): the Warden and its chain, or that it has fallen.
     const boss = (r.kind === 'play' || r.kind === 'played') && r.boss ? (r.boss.killer ? 'The Warden has fallen.' : `The Warden: ${r.boss.hp} of ${r.boss.pool} links.`) : '';
-    if (r.kind === 'play') set(`Floor ${r.depth}${curse ? ` · ${CURSE_TEXT[curse].name}` : ''}`, boss || (r.ghosts.fell ? `${r.ghosts.fell} fell here today.` : "Today's deaths build tomorrow's floor."), 'Descend');
+    if ('depth' in r && typeof r.depth === 'number') step('splash', r.depth);
+    if (r.kind === 'play') set(`Floor ${r.depth}${curse ? ` · ${CURSE_TEXT[curse].name}` : ''}`, boss || (r.ghosts.fell ? `${r.ghosts.fell} fell here today.` : "Today's deaths build tomorrow's floor."), 'Descend', (e) => {
+      step('descend', r.depth);
+      expand(e);
+    });
+    else if (r.kind === 'played' && r.today) set(`Floor ${r.depth}`, `${r.run.outcome === 'won' ? 'Cleared' : 'Fell'} · score ${r.run.score}. Today is Floor ${r.today}.`, "Today's floor", () => r.todayUrl && (import.meta.env.DEV ? location.assign(r.todayUrl) : navigateTo(r.todayUrl))); // an old floor points on (A61)
     else if (r.kind === 'played') set(`Floor ${r.depth}`, boss || `${r.run.outcome === 'won' ? 'Cleared' : 'Fell'} · score ${r.run.score} · ${r.ghosts.fell} fell`, 'See your run');
     else if (r.kind === 'closed') set(`Floor ${r.depth}`, `Closed. Today is Floor ${r.today}.`, "Today's floor", () => r.todayUrl && (import.meta.env.DEV ? location.assign(r.todayUrl) : navigateTo(r.todayUrl)));
     else if (r.kind === 'login') set(`Floor ${r.depth}`, 'One run a day, under your name.', 'Log in to descend', () => showLoginPrompt());

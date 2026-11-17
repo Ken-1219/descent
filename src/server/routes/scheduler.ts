@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { memorial } from '../boss';
 import { flair, rollover } from '../rollover';
+import { sweep } from '../privacy';
 import type { Env } from '../index';
 
 export const scheduler = new Hono<Env>();
@@ -28,4 +29,11 @@ scheduler.post('/memorial', async (c) => {
   const id = Number.isInteger(cycle) && cycle >= 0 ? await memorial(cycle) : null;
   c.set('note', `memorial cycle ${cycle}: ${id ?? 'nothing posted'}`);
   return c.json({ status: 'ok', id });
+});
+
+// Phase 10b: the daily deleted-account sweep (A53). Existing players keep everything; only accounts Reddit no longer has go.
+scheduler.post('/sweep', async (c) => {
+  const r = await sweep();
+  c.set('note', `SWEEP checked ${r.checked}, purged ${r.purged}`);
+  return c.json({ status: 'ok', ...r });
 });

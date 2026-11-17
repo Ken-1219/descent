@@ -168,6 +168,8 @@ src/server/
   game.ts                   Redis reads/writes: floors, runs, ghosts, votes, traps, souls, boards
   rollover.ts               daily job and mod menu actions
   boss.ts                   Phase 10: the Warden's shared pool per cycle: open (with carry-over), strike/unstrike, the kill, the memorial job
+  privacy.ts                Phase 10b: purge a player everywhere, the daily deleted-account sweep, the privacy wiki page
+  health.ts                 Phase 10b: beacons (load, errors, failed saves), the per-floor funnel, the Health view and rollover line
   boards.ts                 Phase 9: read-only views: boards (top 10 + your row), ghost card record, pulse counts, Chronicle, next rollover
 tests/
   shared.test.ts  server.test.ts
@@ -580,7 +582,15 @@ Each phase lists Build, Show me (what to open), Checks, and Gate.
 - **Built:** `boss:{c}` (c = ⌊(depth − 1) / 7⌋) holds `depth, pool, fresh, dealt, carried`, then `killer, killerName, killedAt, memorial`; `boss:{c}:dmg` user → links. HP is `max(0, pool − dealt)`; `dealt` moves by one atomic increment per accepted run. Runs store `dealt`. Scheduler task `memorial`. Pool minimum lowered to 5 players (60 links) by the owner; links per run are logged on each Warden day. Decisions A40–A48 in the Phase 10 spec.
 - **Gate:** a seeded boss day plays through to a memorial post locally.
 
+### Phase 10b — Ready for real players (Nov 17, inserted by the owner)
+
+- **Build:** a Devvit Rules and Developer Terms check before any code (flair, daily post, summary comment, memorial, names and snoovatars on ghosts, dev tools, measurements). Real-device measurements to our own server only: time to interactive by coarse client type, rate-limited client errors, save failures, one log line each, nothing that identifies a device. A per-floor funnel (splash loaded, Descend, Floor 0 finished, real run started, run finished, carved, voted, trap set). A mod-only "Health" menu item with today's funnel, p50/p90 load by client type and error counts, and the same numbers in the ROLLOVER line. A broke-something report in at most two taps from the result plate. A stranger's walk-through (old floor, logged out, mid-day Warden floor, first day after an update) with fixes.
+- **Gate:** server tests for the counters (resends add nothing, bots never count) and the rate limit; e2e for the feedback path and each stranger case; layouts 320×320 to 1280×800; one full Reddit visit showing every funnel step in Health, with log lines.
+- **Built:** keys `f:{d}:seen` (user:step markers), `f:{d}:funnel`, `f:{d}:health` (load buckets per client class, errors, saves), `f:{d}:errs` (per-user error budget); hashes `flairOn`, `flairCleared`, `sweep` (cursor). Routes `/api/beacon`, `/api/flair`, `/api/forget`; menu items Health and Write the privacy page; scheduler task `sweep` (15:30 UTC). Flair is opt-in; deleted accounts are purged by the sweep, never by a TTL. Decisions A53–A61 in the Phase 10b spec.
+
 ### Phase 11 — Polish and freeze (Dec 4–5)
+
+- **Moved up (owner, Nov 17):** the polish work starts right after Phase 10b instead of waiting for Dec 4; the feature freeze stays at the end of Dec 5.
 
 - **Build:** juice pass (Lab tab Juice), WebAudio SFX muted until first tap, loading flame, error and offline states, `/ponytail-debt` review.
 - **Budgets:** splash JS under 60 KB gzipped; atlas under 100 KB; interactive in under 3 s with 4× CPU throttle.
@@ -607,8 +617,9 @@ Each phase lists Build, Show me (what to open), Checks, and Gate.
 | 7a Ghosts, 7b Votes | Wed Nov 25 – Fri Nov 27 | 3 |
 | 8 Rollover | Sat Nov 28 – Sun Nov 29 | 2 |
 | 9 Screens | Mon Nov 30 – Tue Dec 1 | 2 |
-| 10 Boss | Wed Dec 2 – Thu Dec 3 | 2 |
-| 11 Polish | Fri Dec 4 – Sat Dec 5 | 2 |
+| 10 Boss | Wed Dec 2 – Thu Dec 3 (built Nov 16) | 2 |
+| 10b Ready for real players | from Tue Nov 17 | — |
+| 11 Polish | right after 10b – Sat Dec 5 (freeze end of Dec 5) | — |
 | 12 Submit | Sun Dec 6 – Tue Dec 8 | 3 |
 
 ## 13. Risks and open questions

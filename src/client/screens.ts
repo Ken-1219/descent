@@ -29,8 +29,39 @@ const chronicleList = (rows: readonly ChronicleRow[], killerName: (k: string) =>
   return list;
 };
 
+/**
+ * Phase 10b (A56): the privacy page, and "Delete my data" behind one confirmation. After a purge the device's saved run
+ * logs go too, so nothing is resubmitted, and the page reloads as a newcomer's.
+ */
+function dataLinks(end: HTMLElement, again: () => void, privacy: () => void) {
+  const page = button('Privacy', 'privacy__open');
+  page.addEventListener('click', privacy);
+  const del = button('Delete my data', 'forget__open');
+  del.addEventListener('click', () =>
+    endPanel(end, {
+      title: 'Delete my data?',
+      line: 'This deletes everything Descent stores about you: your runs, ghosts, carvings, votes, traps, records and streak. It cannot be undone.',
+      primary: {
+        label: 'Delete everything',
+        run: () =>
+          void api.forget().then(
+            () => {
+              try {
+                for (const k of Object.keys(localStorage)) if (k.startsWith('descent:')) localStorage.removeItem(k);
+              } catch { /* private mode: nothing was saved */ }
+              endPanel(end, { title: 'Deleted', line: 'Descent no longer stores anything about you.', primary: { label: 'Close', run: () => location.reload() } });
+            },
+            () => endPanel(end, { title: 'Not deleted', line: "Can't reach the dungeon. Nothing was deleted; try again.", primary: { label: 'Back', run: again } }),
+          ),
+      },
+      secondary: { label: 'Keep my data', run: again },
+    }),
+  );
+  return el('div', 'board__data', page, del);
+}
+
 /** The board: loaded only now (never with the floor). Today, deepest floor, souls, honour; the two plates. */
-export async function boardPanel(end: HTMLElement, depth: number, back: PanelAction) {
+export async function boardPanel(end: HTMLElement, depth: number, back: PanelAction, privacy: () => void) {
   endPanel(end, { title: 'Board', line: 'Reading the ledger…', primary: back });
   const b = await api.board(depth).catch(() => null);
   if (!b) return endPanel(end, { title: 'Board', line: "Can't reach the board. Try again.", primary: back });
@@ -54,7 +85,7 @@ export async function boardPanel(end: HTMLElement, depth: number, back: PanelAct
   }
   show('today');
   const plates = [b.trapsetter && `Top Trapsetter: ${b.trapsetter.name} (${b.trapsetter.value} souls)`, b.liar && `Most Notorious Liar: ${b.liar.name} (${b.liar.value} liar votes)`].filter(Boolean).join(' · ');
-  endPanel(end, { title: 'Board', line: plates || `Floor ${depth}: ${b.today.total} on the board today.`, body: [bar, view], primary: back });
+  endPanel(end, { title: 'Board', line: plates || `Floor ${depth}: ${b.today.total} on the board today.`, body: [bar, view, dataLinks(end, () => void boardPanel(end, depth, back, privacy), privacy)], primary: back });
 }
 
 export async function chroniclePanel(end: HTMLElement, back: PanelAction, killerName: (k: string) => string) {

@@ -344,3 +344,42 @@ export const FLAIR = { perRun: 200, batch: 100 };
 /** Board rows per board (plus the caller's own row), Chronicle rows, and the already-played poll (§15.3: every 20 s). */
 /** `order`: today's board stores score × order + (order − 1 − acceptance number), so equal scores rank the earlier run first (A38). */
 export const BOARD = { top: 10, chronicle: 30, pollMs: 20_000, order: 1_000_000 };
+
+// Phase 10b: deleted accounts, measurements, the funnel, the privacy page.
+/** The daily sweep asks Reddit about this many stored players a day; a deleted account is purged (A53). */
+export const SWEEP = { perDay: 500 };
+/** Funnel steps, counted once per player per floor (A59). */
+export const FUNNEL = ['splash', 'descend', 'floor0', 'start', 'finish', 'carved', 'voted', 'trap'] as const;
+export type FunnelStep = (typeof FUNNEL)[number];
+/** Coarse client classes for load times: nothing finer is ever sent (A57). */
+export const CLIENTS = ['ios', 'android', 'mweb', 'desktop'] as const;
+export type ClientClass = (typeof CLIENTS)[number];
+/** Load-time histogram buckets; p50/p90 come from the buckets. */
+export const LOAD = { bucketMs: 250, maxMs: 15_000 };
+/** Error beacons: per player per floor, per page load, the shared logged-out budget per floor, message length. */
+export const BEACON = { errorsPerUser: 5, errorsPerLoad: 3, anonErrors: 50, msgChars: 120 };
+/** The privacy page on the subreddit wiki (A56), written by the mod tool "Write the privacy page". */
+export const PRIVACY = {
+  page: 'descent-privacy',
+  /** Old Reddit renders app-written wiki pages; the new UI showed "does not exist" for it (Nov 17). */
+  url: (subreddit: string) => `https://old.reddit.com/r/${subreddit}/wiki/descent-privacy`,
+  text: [
+    '# Descent: what it stores and why',
+    '',
+    'Descent is a daily game. To run it, it stores, on Reddit\'s own servers for this app only:',
+    '',
+    '- **Your Reddit user ID and username**, so the game knows which run is yours and can show your name on boards, ghosts and the Warden memorial.',
+    '- **Your runs**: the moves of each run, its score, how and where it ended, your carving, your votes and the trap you set.',
+    '- **Lifetime records**: deepest floor, deaths, souls, honour and your streak.',
+    '- **Whether you chose to show your depth as user flair** (off unless you turn it on).',
+    '- **Anonymous measurements**: how long the game took to load and on which kind of client (iOS app, Android app, mobile web, desktop), error messages, failed saves, and counts of steps such as "tapped Descend". These carry no device identifiers.',
+    '',
+    'Your snoovatar is fetched from Reddit when a ghost card is opened and is not stored.',
+    '',
+    'Nothing is sent outside Reddit, sold or shared.',
+    '',
+    '**Deleting your data:** open the Board and tap "Delete my data". If you delete your Reddit account, Descent removes your ID, name and records within a few weeks.',
+    '',
+    'Questions: message the moderators of this subreddit.',
+  ].join('\n'),
+};

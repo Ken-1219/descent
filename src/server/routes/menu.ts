@@ -3,6 +3,9 @@ import type { UiResponse } from '@devvit/web/shared';
 import { context, settings } from '@devvit/web/server';
 import { postUrl, purgeBots, resetRun, today } from '../game';
 import { postFloor0, rollNow, startFirstFloor } from '../rollover';
+import { health } from '../health';
+import { writePrivacyPage } from '../privacy';
+import { CLIENTS, FUNNEL } from '../../shared/content';
 import type { Env } from '../index';
 
 export const menu = new Hono<Env>();
@@ -76,4 +79,25 @@ menu.post('/post-floor0', async (c) => {
   const p = await postFloor0();
   c.set('note', `posted Floor 0 practice ${p.id}`);
   return c.json<UiResponse>({ navigateTo: postUrl(p.id) ?? '' });
+});
+
+// Phase 10b: Health (A60), mod-only and always on: today's funnel, load by client class, errors and failed saves.
+menu.post('/health', async (c) => {
+  const { day } = await today();
+  const h = await health(day);
+  const row = (name: string, label: string, value: string) => ({ name, label, type: 'string' as const, defaultValue: value, disabled: true });
+  const fields = [
+    row('funnel', 'Funnel (once per player)', FUNNEL.map((s) => `${s} ${h.funnel[s] ?? 0}`).join(' > ')),
+    row('anon', 'Splash loads, logged out', String(h.funnel.splash_anon ?? 0)),
+    ...CLIENTS.map((k) => { const l = h.load[k]; return row(k, `Load ${k}`, l ? `p50 ${(l.p50 / 1000).toFixed(1)}s, p90 ${(l.p90 / 1000).toFixed(1)}s (${l.n} loads)` : 'no loads'); }),
+    row('errors', 'Client errors / failed saves', `${h.errors} / ${h.saves}`),
+  ];
+  c.set('note', `health floor ${day}`);
+  return c.json<UiResponse>({ showForm: { name: 'health', form: { title: `Health: Floor ${day}`, acceptLabel: 'Close', fields } } });
+});
+
+menu.post('/privacy-page', async (c) => {
+  const url = await writePrivacyPage();
+  c.set('note', `privacy page written: ${url}`);
+  return c.json<UiResponse>({ showToast: 'Privacy page written to the wiki' });
 });

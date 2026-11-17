@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 // The client's only network code. Dev builds route to local.ts (localStorage); production fetches /api/*.
-import type { BoardResponse, CardResponse, ChronicleResponse, PulseResponse, CarvingRequest, CarvingResponse, FloorResponse, RunRequest, RunResponse, StartRequest, TrapRequest, TrapResponse, VoteRequest, VoteResponse } from '../shared/api';
+import { BEACON, type ClientClass } from '../shared/content';
+import type { Beacon, FlairResponse, ForgetResponse, BoardResponse, CardResponse, ChronicleResponse, PulseResponse, CarvingRequest, CarvingResponse, FloorResponse, RunRequest, RunResponse, StartRequest, TrapRequest, TrapResponse, VoteRequest, VoteResponse } from '../shared/api';
 
 export type Api = {
   floor: () => Promise<FloorResponse>;
@@ -13,6 +14,9 @@ export type Api = {
   chronicle: () => Promise<ChronicleResponse>;
   vote: (r: VoteRequest) => Promise<VoteResponse>;
   trap: (r: TrapRequest) => Promise<TrapResponse>;
+  beacon: (b: Beacon) => Promise<unknown>;
+  flair: (on: boolean) => Promise<FlairResponse>;
+  forget: () => Promise<ForgetResponse>;
 };
 
 const send = async <T>(path: string, body?: unknown): Promise<T> => {
@@ -32,6 +36,9 @@ const remote: Api = {
   chronicle: () => send('/api/chronicle'),
   vote: (r) => send('/api/vote', r),
   trap: (r) => send('/api/trap', r),
+  beacon: (b) => send('/api/beacon', b),
+  flair: (on) => send('/api/flair', { on }),
+  forget: () => send('/api/forget', {}),
 };
 
 export const api: Api = import.meta.env.DEV ? (await import('./local')).local : remote;
@@ -57,5 +64,21 @@ export async function submit<T extends { kind: string }>(call: () => Promise<T>,
     }
   }
   onState('failed');
+  report({ kind: 'save', depth: where.depth, screen: where.screen() });
   return null;
+}
+
+// ---- Phase 10b: measurements (A57). Fire and forget; a beacon that fails is simply lost. ----
+/** The page's floor and screen, set by the page, for beacons sent from here (save failures, errors). */
+export const where = { depth: 0, screen: (): string => 'game' };
+export const report = (b: Beacon) => void api.beacon(b).catch(() => undefined);
+/** One of four coarse classes from the user agent; nothing finer ever leaves the device. */
+export const clientClass = (ua = navigator.userAgent): ClientClass =>
+  /Reddit/i.test(ua) && /iPhone|iPad|iOS/i.test(ua) ? 'ios' : /Reddit/i.test(ua) && /Android/i.test(ua) ? 'android' : /Mobi|Android|iPhone|iPad/i.test(ua) ? 'mweb' : 'desktop';
+/** Uncaught errors and rejections, at most BEACON.errorsPerLoad per page load (the server has its own budget). */
+export function watchErrors() {
+  let sent = 0;
+  const send = (msg: string) => sent++ < BEACON.errorsPerLoad && report({ kind: 'error', depth: where.depth, msg: msg.slice(0, BEACON.msgChars), screen: where.screen() });
+  addEventListener('error', (e) => send(e.message || 'error'));
+  addEventListener('unhandledrejection', (e) => send(String(e.reason)));
 }
