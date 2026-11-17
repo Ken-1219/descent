@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 // Boot, input router, HUD wiring and the dev hook. Rules live in src/shared/sim.ts; this file only sends actions.
-import { BOARD, CURSE_TEXT, FLOOR_0, FLOOR_0_GHOSTS, HEARTS, ITEMS, KILL_FAMILY, NAMELESS, PALETTE, TILE, TORCH_LOW_PCT, TRAPS, PRIVACY, TRAP_TEXT, ZONE_NAMES, type Curse } from '../shared/content';
+import { BOARD, CURSE_TEXT, FLOOR_0, FLOOR_0_GHOSTS, HEARTS, ITEMS, KILL_FAMILY, NAMELESS, PALETTE, TILE, TORCH_LOW_PCT, TRAPS, TRAP_TEXT, ZONE_NAMES, type Curse } from '../shared/content';
 import { slitLine, zoneOf } from '../shared/grid';
 import { context, navigateTo, showLoginPrompt } from '@devvit/web/client';
 import type { BossView, FloorResponse, GhostView, MyTrap, RunResult } from '../shared/api';
@@ -55,7 +55,6 @@ const [Phaser, { DescentScene }] = await engine;
 where.depth = day !== 'error' && 'depth' in day && typeof day.depth === 'number' ? day.depth : 0;
 where.screen = () => (end.hidden ? 'run' : end.classList.contains('end--intro') ? 'intro' : 'plate');
 watchErrors();
-const privacyUrl = PRIVACY.url(context?.subredditName ?? 'descent_game_dev');
 /** Reddit's modmail compose, pre-filled: floor, screen and client class. One tap opens it, one sends it. */
 const reportUrl = (screen: string) =>
   `https://www.reddit.com/message/compose?to=${encodeURIComponent(`/r/${context?.subredditName ?? 'descent_game_dev'}`)}&subject=${encodeURIComponent(`Descent: something broke (Floor ${where.depth})`)}&message=${encodeURIComponent(`Floor ${where.depth}, ${screen}, ${clientClass()}.\n\nWhat happened:\n`)}`;
@@ -332,7 +331,7 @@ async function result(prefetched?: FloorResponse) {
   };
   if (others) link(`Carvings (${others})`, 'carvings__open', () => carvingsPanel(r.depth));
   const back = { label: 'Back', run: () => void result(plate ?? undefined) };
-  link('Board', 'board__open', () => void boardPanel(end, r.depth, back, () => go(privacyUrl)));
+  link('Board', 'board__open', () => void boardPanel(end, r.depth, back));
   link('Chronicle', 'chronicle__open', () => void chroniclePanel(end, back, killerName));
   // Phase 10b: depth as flair is opt-in (A55); a broken thing is two taps from modmail (A58).
   let flairOn = !!r.flair;

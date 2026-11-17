@@ -80,6 +80,10 @@ export async function sweep(exists: (id: string) => Promise<boolean> = present):
 export async function writePrivacyPage(): Promise<string> {
   const subredditName = context.subredditName;
   const page = { subredditName, page: PRIVACY.page, content: PRIVACY.text, reason: 'Descent privacy page' };
-  await reddit.updateWikiPage(page).catch(() => reddit.createWikiPage(page));
+  const written = await reddit.updateWikiPage(page).catch(() => reddit.createWikiPage(page));
+  // Reddit's answer, not ours: the revision it stored and whether its content is ours (a write that "succeeds" can still differ).
+  const ok = written.content.trim() === PRIVACY.text.trim();
+  console.log(`privacy page revision ${written.revisionId}: ${ok ? 'content confirmed' : 'CONTENT DIFFERS'}`);
+  if (!ok) throw new Error('privacy page content differs');
   return PRIVACY.url(subredditName);
 }

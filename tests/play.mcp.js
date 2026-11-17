@@ -1114,6 +1114,28 @@ async (page) => {
       check('the splash sends the funnel\'s first two steps: splash on load, descend on the tap', steps0.join() === 'splash' && steps1.join() === 'splash,descend', `${steps0} → ${steps1}`);
       await sp.ctx.close();
     }
+    {
+      // The privacy text opens inside the game: in the splash card (Back restores it) and as a Board panel. No link out.
+      const vp = { width: 320, height: 320 };
+      const sp = await raw(vp, 'http://localhost:5190/splash.html');
+      await sp.p.waitForFunction(() => !document.getElementById('go').disabled);
+      await sp.p.locator('#privacy').click();
+      const inCard = await sp.p.evaluate(() => { const t = document.querySelector('.splash__text'); const back = t?.querySelector('.btn'); return { text: t?.innerText.slice(0, 60) ?? '', url: location.href, fits: document.documentElement.scrollWidth <= innerWidth, back: !!back && back.getBoundingClientRect().bottom <= innerHeight + 0.5 }; });
+      await sp.p.getByRole('button', { name: 'Back' }).click();
+      const restored = await sp.p.locator('#go').isVisible();
+      check('splash Privacy: the text opens in the card at 320×320 (Back in reach) and Back restores the card; no navigation', /what it stores and why/.test(inCard.text) && /splash\.html$/.test(inCard.url) && inCard.fits && inCard.back && restored, JSON.stringify(inCard));
+      await sp.ctx.close();
+      const { ctx, p } = await raw({ width: 390, height: 844 }, W);
+      await toPlate(p);
+      await p.locator('#end .board__open').click();
+      await p.waitForSelector('#end .privacy__open');
+      await p.locator('#end .privacy__open').click();
+      const t = await text(p);
+      await p.getByRole('button', { name: 'Back' }).click();
+      const backOnBoard = await p.locator('#end .forget__open').isVisible();
+      check('Board Privacy: an in-game panel with what is stored, and Back returns to the Board', /Privacy \| What Descent stores and why/.test(t) && /Delete my data/.test(t) && backOnBoard, t.slice(0, 120));
+      await ctx.close();
+    }
     // The stranger's four arrivals.
     {
       const old = await raw({ width: 390, height: 844 }, `${URL}?post=1`);
@@ -1135,10 +1157,9 @@ async (page) => {
       await ready(p);
       await p.waitForFunction(() => /Score/.test(document.getElementById('end').innerText));
       const prim = await p.locator('#end .btn--primary').innerText();
-      const sp = await ctx.newPage();
-      await sp.goto('http://localhost:5190/splash.html?floor=warden&boss=alive&post=3');
-      await sp.waitForFunction(() => !document.getElementById('go').disabled);
-      const st = (await sp.locator('body').innerText()).replace(/\n+/g, ' | ');
+      await p.goto('http://localhost:5190/splash.html?floor=warden&boss=alive&post=3'); // same tab: a new one would re-seed day 3
+      await p.waitForFunction(() => !document.getElementById('go').disabled);
+      const st = (await p.locator('body').innerText()).replace(/\n+/g, ' | ');
       check('stranger on an old floor they played: the plate and the splash point to today\'s floor', prim === 'Go to Floor 4' && /Today is Floor 4\. \| Today's floor/.test(st), `${prim} / ${st.slice(0, 90)}`);
       await ctx.close();
     }

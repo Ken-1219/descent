@@ -24,11 +24,24 @@ if (typeof depth === 'number') floor.textContent = `Floor ${depth}`;
 const expand = (e: MouseEvent) => (import.meta.env.DEV ? location.assign(`game.html${location.search}`) : requestExpandedMode(e, 'game'));
 // Phase 10b (A59): the funnel's first two steps. The server counts each once per player per floor.
 const step = (s: 'splash' | 'descend', d: number) => report({ kind: 'step', depth: d, step: s });
-const privacy = $('privacy');
-privacy.addEventListener('click', () => {
-  const url = PRIVACY.url(context?.subredditName ?? 'descent_game_dev');
-  if (import.meta.env.DEV) location.assign(url);
-  else navigateTo(url);
+// The privacy text opens in the card itself (A56): nobody is sent away from the feed to read it.
+const card = $('card');
+$('privacy').addEventListener('click', () => {
+  const back = document.createElement('button');
+  back.className = 'btn btn--primary';
+  back.textContent = 'Back';
+  const panel = document.createElement('div');
+  panel.className = 'splash__text';
+  for (const b of PRIVACY.blocks) {
+    const n = document.createElement('h' in b ? 'h2' : 'p');
+    n.textContent = 'h' in b ? b.h : 'p' in b ? b.p : `${b.li[0]}: ${b.li[1]}`;
+    panel.append(n);
+  }
+  panel.append(back);
+  const was = [...card.children];
+  card.replaceChildren(panel);
+  back.addEventListener('click', () => card.replaceChildren(...was));
+  back.focus();
 });
 let onGo: (e: MouseEvent) => void = expand;
 go.addEventListener('click', (e) => onGo(e));

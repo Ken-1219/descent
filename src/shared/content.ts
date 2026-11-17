@@ -358,28 +358,27 @@ export type ClientClass = (typeof CLIENTS)[number];
 export const LOAD = { bucketMs: 250, maxMs: 15_000 };
 /** Error beacons: per player per floor, per page load, the shared logged-out budget per floor, message length. */
 export const BEACON = { errorsPerUser: 5, errorsPerLoad: 3, anonErrors: 50, msgChars: 120 };
-/** The privacy page on the subreddit wiki (A56), written by the mod tool "Write the privacy page". */
+/**
+ * What Descent stores and why (A56). Shown in the game (the splash and the Board) from these blocks; the subreddit wiki page
+ * `page` is the public copy, written from the same blocks by the mod tool "Write the privacy page".
+ */
+type PrivacyBlock = { h: string } | { p: string } | { li: [string, string] };
+const PRIVACY_BLOCKS: readonly PrivacyBlock[] = [
+  { h: 'Descent: what it stores and why' },
+  { p: "Descent is a daily game. To run it, it stores, on Reddit's own servers for this app only:" },
+  { li: ['Your Reddit user ID and username', 'so the game knows which run is yours and can show your name on boards, ghosts and the Warden memorial.'] },
+  { li: ['Your runs', 'the moves of each run, its score, how and where it ended, your carving, your votes and the trap you set.'] },
+  { li: ['Lifetime records', 'deepest floor, deaths, souls, honour and your streak.'] },
+  { li: ['Depth as flair', 'whether you chose to show your depth as user flair (off unless you turn it on).'] },
+  { li: ['Anonymous measurements', 'how long the game took to load and on which kind of client (iOS app, Android app, mobile web, desktop), error messages, failed saves, and counts of steps such as "tapped Descend". These carry no device identifiers.'] },
+  { p: 'Your snoovatar is fetched from Reddit when a ghost card is opened and is not stored. Nothing is sent outside Reddit, sold or shared.' },
+  { p: 'Deleting your data: open the Board and tap "Delete my data". If you delete your Reddit account, Descent removes your ID, name and records within a few weeks.' },
+  { p: 'Questions: message the moderators of this subreddit.' },
+];
 export const PRIVACY = {
   page: 'descent-privacy',
-  /** Old Reddit renders app-written wiki pages; the new UI showed "does not exist" for it (Nov 17). */
-  url: (subreddit: string) => `https://old.reddit.com/r/${subreddit}/wiki/descent-privacy`,
-  text: [
-    '# Descent: what it stores and why',
-    '',
-    'Descent is a daily game. To run it, it stores, on Reddit\'s own servers for this app only:',
-    '',
-    '- **Your Reddit user ID and username**, so the game knows which run is yours and can show your name on boards, ghosts and the Warden memorial.',
-    '- **Your runs**: the moves of each run, its score, how and where it ended, your carving, your votes and the trap you set.',
-    '- **Lifetime records**: deepest floor, deaths, souls, honour and your streak.',
-    '- **Whether you chose to show your depth as user flair** (off unless you turn it on).',
-    '- **Anonymous measurements**: how long the game took to load and on which kind of client (iOS app, Android app, mobile web, desktop), error messages, failed saves, and counts of steps such as "tapped Descend". These carry no device identifiers.',
-    '',
-    'Your snoovatar is fetched from Reddit when a ghost card is opened and is not stored.',
-    '',
-    'Nothing is sent outside Reddit, sold or shared.',
-    '',
-    '**Deleting your data:** open the Board and tap "Delete my data". If you delete your Reddit account, Descent removes your ID, name and records within a few weeks.',
-    '',
-    'Questions: message the moderators of this subreddit.',
-  ].join('\n'),
+  /** The public copy. New Reddit shows it only while the subreddit's wiki is enabled (it was "disabled" on Nov 17). */
+  url: (subreddit: string) => `https://www.reddit.com/r/${subreddit}/wiki/descent-privacy`,
+  blocks: PRIVACY_BLOCKS,
+  text: PRIVACY_BLOCKS.map((b) => ('h' in b ? `# ${b.h}` : 'p' in b ? b.p : `- **${b.li[0]}**: ${b.li[1]}`)).join('\n\n'),
 };

@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { memorial } from '../boss';
-import { flair, rollover } from '../rollover';
+import { flair, flairNote, rollover } from '../rollover';
 import { sweep } from '../privacy';
 import type { Env } from '../index';
 
@@ -17,8 +17,8 @@ scheduler.post('/rollover', async (c) => {
 scheduler.post('/flair', async (c) => {
   const body = await c.req.json<{ data?: { depth?: unknown } }>().catch((): { data?: { depth?: unknown } } => ({}));
   const depth = Number(body.data?.depth);
-  const r = Number.isInteger(depth) && depth > 0 ? await flair(depth) : { done: 0, left: 0 };
-  c.set('note', `flair floor ${depth}: ${r.done} set, ${r.left} left`);
+  const r = Number.isInteger(depth) && depth > 0 ? await flair(depth) : { set: 0, removed: 0, failed: 0, skipped: 0, left: 0 };
+  c.set('note', `flair floor ${depth}: ${flairNote(r)}`);
   return c.json({ status: 'ok', ...r });
 });
 

@@ -474,21 +474,32 @@ export async function realResult(depth: number): Promise<{ cleared: number; fell
  * The flair job (A55, opt-in): opted-in players get their depth; a player who never opted in has any flair Descent set
  * before removed, once (`flairCleared`).
  */
-export async function drainFlair(depth: number, limit: number, batch: number): Promise<{ done: number; left: number }> {
+export type FlairRun = { set: number; removed: number; failed: number; skipped: number; left: number };
+export async function drainFlair(depth: number, limit: number, batch: number): Promise<FlairRun> {
   const all = Object.entries(await redis.hGetAll(key(depth, 'flair'))).sort(([a], [b]) => (a < b ? -1 : 1));
   const take = all.slice(0, limit);
   const on = take.length ? await redis.hMGet('flairOn', take.map(([u]) => u)) : [];
   const set: { username: string; text: string }[] = [];
+  const r: FlairRun = { set: 0, removed: 0, failed: 0, skipped: 0, left: all.length - take.length };
   for (const [i, [u, v]] of take.entries()) {
     const f: { name: string; text: string } = JSON.parse(v);
     if (on[i]) set.push({ username: f.name, text: f.text });
-    else if (await redis.hSetNX('flairCleared', u, '1')) await reddit.removeUserFlair(context.subredditName, f.name).catch((e: unknown) => console.error(`flair removal failed: ${String(e)}`));
+    else if (await redis.hSetNX('flairCleared', u, '1')) {
+      const ok = await reddit.removeUserFlair(context.subredditName, f.name).then(() => true, (e: unknown) => (console.error(`flair removal failed for ${f.name}: ${String(e)}`), false));
+      r[ok ? 'removed' : 'failed']++;
+    } else r.skipped++;
   }
+  // Only rows Reddit answers ok count as set: a call that "succeeds" with a rejected row is a failure (the Phase 8 lesson).
   for (let i = 0; i < set.length; i += batch) {
-    await reddit.setUserFlairBatch(context.subredditName, set.slice(i, i + batch)).catch((e: unknown) => console.error(`flair batch failed: ${String(e)}`));
+    const chunk = set.slice(i, i + batch);
+    const res = await reddit.setUserFlairBatch(context.subredditName, chunk).catch((e: unknown) => (console.error(`flair batch failed: ${String(e)}`), []));
+    const ok = res.filter((x) => x.ok).length;
+    r.set += ok;
+    r.failed += chunk.length - ok;
+    for (const x of res) if (!x.ok) console.error(`flair row rejected: ${x.status ?? ''} ${JSON.stringify(x.errors ?? {})}`);
   }
   if (take.length) await redis.hDel(key(depth, 'flair'), take.map(([u]) => u));
-  return { done: take.length, left: all.length - take.length };
+  return r;
 }
 
 /** Depth as flair (A55): on is applied by the next flair job; off removes your flair now. */

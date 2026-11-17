@@ -1,0 +1,342 @@
+{
+ "runs": [
+  {
+   "name": "floor 0: the tutorial win",
+   "log": "DRRURRRRDDDDLLLLLL",
+   "result": {
+    "outcome": "won",
+    "score": 1402,
+    "turns": 18,
+    "torch": 102,
+    "cause": "stairs",
+    "tile": {
+     "x": 1,
+     "y": 6
+    },
+    "dealt": 0
+   },
+   "state": {
+    "turn": 18,
+    "pos": {
+     "x": 1,
+     "y": 6
+    },
+    "hearts": 3,
+    "torch": 102,
+    "dealt": 0,
+    "ended": {
+     "kind": "won",
+     "cause": "stairs"
+    },
+    "tiles": 551545976,
+    "enemies": 640216792
+   },
+   "events": 2133642548
+  },
+  {
+   "name": "floor 6 (cursed, a player trap): the win",
+   "log": "RRRRRRRRUULUUU",
+   "result": {
+    "outcome": "won",
+    "score": 1322,
+    "turns": 14,
+    "torch": 22,
+    "cause": "stairs",
+    "tile": {
+     "x": 11,
+     "y": 5
+    },
+    "dealt": 0
+   },
+   "state": {
+    "turn": 14,
+    "pos": {
+     "x": 11,
+     "y": 5
+    },
+    "hearts": 3,
+    "torch": 22,
+    "dealt": 0,
+    "ended": {
+     "kind": "won",
+     "cause": "stairs"
+    },
+    "tiles": 1858839232,
+    "enemies": 3471785160
+   },
+   "events": 61500791
+  },
+  {
+   "name": "floor 6: waiting out the torch in the dark",
+   "log": "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW",
+   "result": {
+    "outcome": "dead",
+    "score": 42,
+    "turns": 42,
+    "torch": 0,
+    "cause": "dark",
+    "tile": {
+     "x": 4,
+     "y": 10
+    },
+    "dealt": 0
+   },
+   "state": {
+    "turn": 42,
+    "pos": {
+     "x": 4,
+     "y": 10
+    },
+    "hearts": 0,
+    "torch": 0,
+    "dealt": 0,
+    "ended": {
+     "kind": "dead",
+     "cause": "dark"
+    },
+    "tiles": 41812178,
+    "enemies": 3471785160
+   },
+   "events": 3576844974
+  },
+  {
+   "name": "floor 7 (Warden): ten links and out",
+   "log": "LLLLDLLLDDRDDDDDDDDRDDLDLUUULLD",
+   "result": {
+    "outcome": "won",
+    "score": 1223,
+    "turns": 31,
+    "torch": 23,
+    "cause": "stairs",
+    "tile": {
+     "x": 2,
+     "y": 12
+    },
+    "dealt": 10
+   },
+   "state": {
+    "turn": 31,
+    "pos": {
+     "x": 2,
+     "y": 12
+    },
+    "hearts": 2,
+    "torch": 23,
+    "dealt": 10,
+    "ended": {
+     "kind": "won",
+     "cause": "stairs"
+    },
+    "tiles": 309832315,
+    "enemies": 96080720
+   },
+   "events": 569743317
+  },
+  {
+   "name": "floor 7: through the player trap, past a slam",
+   "log": "LLLLDDLDWLDDLLDDDD",
+   "result": {
+    "outcome": "won",
+    "score": 1226,
+    "turns": 18,
+    "torch": 26,
+    "cause": "stairs",
+    "tile": {
+     "x": 2,
+     "y": 12
+    },
+    "dealt": 0
+   },
+   "state": {
+    "turn": 18,
+    "pos": {
+     "x": 2,
+     "y": 12
+    },
+    "hearts": 2,
+    "torch": 26,
+    "dealt": 0,
+    "ended": {
+     "kind": "won",
+     "cause": "stairs"
+    },
+    "tiles": 309832315,
+    "enemies": 2122855897
+   },
+   "events": 2423378334
+  },
+  {
+   "name": "floor 7: killed by the Warden",
+   "log": "LLLLLDDDLDDLDD",
+   "result": {
+    "outcome": "dead",
+    "score": 14,
+    "turns": 14,
+    "torch": 32,
+    "cause": "warden",
+    "tile": {
+     "x": 3,
+     "y": 8
+    },
+    "dealt": 2
+   },
+   "state": {
+    "turn": 14,
+    "pos": {
+     "x": 3,
+     "y": 8
+    },
+    "hearts": 0,
+    "torch": 32,
+    "dealt": 2,
+    "ended": {
+     "kind": "dead",
+     "cause": "warden"
+    },
+    "tiles": 925596045,
+    "enemies": 1469225775
+   },
+   "events": 3573625898
+  },
+  {
+   "name": "floor 7 fallen: the empty arena",
+   "log": "LLLLDDLLDDDDDDDLL",
+   "result": {
+    "outcome": "won",
+    "score": 1327,
+    "turns": 17,
+    "torch": 27,
+    "cause": "stairs",
+    "tile": {
+     "x": 2,
+     "y": 12
+    },
+    "dealt": 0
+   },
+   "state": {
+    "turn": 17,
+    "pos": {
+     "x": 2,
+     "y": 12
+    },
+    "hearts": 3,
+    "torch": 27,
+    "dealt": 0,
+    "ended": {
+     "kind": "won",
+     "cause": "stairs"
+    },
+    "tiles": 925596045,
+    "enemies": 1947613349
+   },
+   "events": 4236256196
+  },
+  {
+   "name": "floor 8 (goblins T2, spikes T2): the win",
+   "log": "LLLLLLLUUULLUUUUUUUR",
+   "result": {
+    "outcome": "won",
+    "score": 1328,
+    "turns": 20,
+    "torch": 28,
+    "cause": "stairs",
+    "tile": {
+     "x": 4,
+     "y": 2
+    },
+    "dealt": 0
+   },
+   "state": {
+    "turn": 20,
+    "pos": {
+     "x": 4,
+     "y": 2
+    },
+    "hearts": 3,
+    "torch": 28,
+    "dealt": 0,
+    "ended": {
+     "kind": "won",
+     "cause": "stairs"
+    },
+    "tiles": 462522265,
+    "enemies": 4149973329
+   },
+   "events": 1489178398
+  },
+  {
+   "name": "floor 8: torch out",
+   "log": "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW",
+   "result": {
+    "outcome": "dead",
+    "score": 54,
+    "turns": 54,
+    "torch": 0,
+    "cause": "dark",
+    "tile": {
+     "x": 12,
+     "y": 11
+    },
+    "dealt": 0
+   },
+   "state": {
+    "turn": 54,
+    "pos": {
+     "x": 12,
+     "y": 11
+    },
+    "hearts": 0,
+    "torch": 0,
+    "dealt": 0,
+    "ended": {
+     "kind": "dead",
+     "cause": "dark"
+    },
+    "tiles": 462522265,
+    "enemies": 2995302280
+   },
+   "events": 3388690176
+  },
+  {
+   "name": "floor 9 (cursed, a dart trap): waiting it out",
+   "log": "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW",
+   "result": {
+    "outcome": "dead",
+    "score": 44,
+    "turns": 44,
+    "torch": 0,
+    "cause": "dark",
+    "tile": {
+     "x": 5,
+     "y": 12
+    },
+    "dealt": 0
+   },
+   "state": {
+    "turn": 44,
+    "pos": {
+     "x": 5,
+     "y": 12
+    },
+    "hearts": 0,
+    "torch": 0,
+    "dealt": 0,
+    "ended": {
+     "kind": "dead",
+     "cause": "dark"
+    },
+    "tiles": 37705641,
+    "enemies": 522571050
+   },
+   "events": 494422683
+  }
+ ],
+ "generated": {
+  "1": 2974935269,
+  "5": 464917417,
+  "7": 2128350876,
+  "14": 1780396520,
+  "21": 384894190,
+  "28": 3968020999
+ }
+}

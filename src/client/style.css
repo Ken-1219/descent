@@ -723,6 +723,31 @@ body:has(#end:not([hidden])) .carving {
 .splash__go {
   width: min(100%, 320px);
 }
+/* The privacy text in the card itself: it fills the card and scrolls inside it, never the feed. */
+.splash__text {
+  grid-row: 1 / -1;
+  align-self: stretch;
+  width: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  text-align: left;
+  font-size: var(--t-small);
+}
+.splash__text h2 {
+  margin: 0 0 var(--gap);
+  font-size: var(--t-small);
+  color: var(--ember);
+}
+.splash__text .btn {
+  width: 100%;
+  position: sticky;
+  bottom: 0;
+}
+.privacy p {
+  margin: 0 0 var(--gap);
+  text-align: left;
+}
 /* Phase 10b: the privacy page, a quiet text link under Descend (A56). */
 .splash__privacy {
   border: 0;

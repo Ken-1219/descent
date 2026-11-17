@@ -81,10 +81,10 @@ test('the sweep purges only accounts Reddit no longer has; an error skips; it re
 
 test('flair is opt-in (A55): only opted-in players get it; others have Descent\'s flair removed once; off removes it now', async () => {
   await redis.hSet('f:1:flair', { t2_in: JSON.stringify({ name: 'in', text: 'Cleared floor 1' }), t2_out: JSON.stringify({ name: 'out', text: 'Fell on floor 1' }) });
-  const batch = vi.spyOn(reddit, 'setUserFlairBatch').mockResolvedValue([]);
+  const batch = vi.spyOn(reddit, 'setUserFlairBatch').mockResolvedValue([{ ok: true, status: 'added flair for user in' }]);
   const remove = vi.spyOn(reddit, 'removeUserFlair').mockResolvedValue(undefined);
   await setFlair('t2_in', 'in', true);
-  await drainFlair(1, 100, 50);
+  expect(await drainFlair(1, 100, 50)).toMatchObject({ set: 1, removed: 1, failed: 0 });
   expect(batch).toHaveBeenCalledWith(expect.any(String), [{ username: 'in', text: 'Cleared floor 1' }]);
   expect(remove).toHaveBeenCalledWith(expect.any(String), 'out');
   await redis.hSet('f:2:flair', { t2_out: JSON.stringify({ name: 'out', text: 'Fell on floor 2' }) });
@@ -92,4 +92,9 @@ test('flair is opt-in (A55): only opted-in players get it; others have Descent\'
   expect(remove).toHaveBeenCalledTimes(1); // once per player, not every day
   await setFlair('t2_in', 'in', false);
   expect(remove).toHaveBeenLastCalledWith(expect.any(String), 'in');
+  // A call that resolves with a rejected row is a failure, never "set" (the Phase 8 line reported one that never happened).
+  batch.mockResolvedValue([{ ok: false, status: 'skipped', errors: { user: 'no such user' } }]);
+  await setFlair('t2_in', 'in', true);
+  await redis.hSet('f:3:flair', { t2_in: JSON.stringify({ name: 'in', text: 'Cleared floor 3' }) });
+  expect(await drainFlair(3, 100, 50)).toMatchObject({ set: 0, failed: 1 });
 });

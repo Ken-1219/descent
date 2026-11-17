@@ -1,5 +1,5 @@
 // Phase 9: the Board and the Chronicle, opened from the already-played plate. Each loads on demand (never with the floor).
-import { CURSE_TEXT, ZONE_NAMES } from '../shared/content';
+import { CURSE_TEXT, PRIVACY, ZONE_NAMES } from '../shared/content';
 import type { BoardRow, BoardRows, ChronicleRow } from '../shared/api';
 import { api } from './net';
 import { button, el, endPanel, type PanelAction } from './ui';
@@ -30,12 +30,19 @@ const chronicleList = (rows: readonly ChronicleRow[], killerName: (k: string) =>
 };
 
 /**
- * Phase 10b (A56): the privacy page, and "Delete my data" behind one confirmation. After a purge the device's saved run
+ * Phase 10b (A56): the privacy text (in the game, not a link out), and "Delete my data" behind one confirmation. After a purge the device's saved run
  * logs go too, so nothing is resubmitted, and the page reloads as a newcomer's.
  */
-function dataLinks(end: HTMLElement, again: () => void, privacy: () => void) {
+function dataLinks(end: HTMLElement, again: () => void) {
   const page = button('Privacy', 'privacy__open');
-  page.addEventListener('click', privacy);
+  page.addEventListener('click', () =>
+    endPanel(end, {
+      title: 'Privacy',
+      line: 'What Descent stores and why.',
+      body: [el('div', 'privacy', ...PRIVACY.blocks.slice(1).map((b) => ('h' in b ? el('h2', '', b.h) : 'p' in b ? el('p', '', b.p) : el('p', '', el('strong', '', b.li[0]), `: ${b.li[1]}`))))],
+      primary: { label: 'Back', run: again },
+    }),
+  );
   const del = button('Delete my data', 'forget__open');
   del.addEventListener('click', () =>
     endPanel(end, {
@@ -61,7 +68,7 @@ function dataLinks(end: HTMLElement, again: () => void, privacy: () => void) {
 }
 
 /** The board: loaded only now (never with the floor). Today, deepest floor, souls, honour; the two plates. */
-export async function boardPanel(end: HTMLElement, depth: number, back: PanelAction, privacy: () => void) {
+export async function boardPanel(end: HTMLElement, depth: number, back: PanelAction) {
   endPanel(end, { title: 'Board', line: 'Reading the ledger…', primary: back });
   const b = await api.board(depth).catch(() => null);
   if (!b) return endPanel(end, { title: 'Board', line: "Can't reach the board. Try again.", primary: back });
@@ -85,7 +92,7 @@ export async function boardPanel(end: HTMLElement, depth: number, back: PanelAct
   }
   show('today');
   const plates = [b.trapsetter && `Top Trapsetter: ${b.trapsetter.name} (${b.trapsetter.value} souls)`, b.liar && `Most Notorious Liar: ${b.liar.name} (${b.liar.value} liar votes)`].filter(Boolean).join(' · ');
-  endPanel(end, { title: 'Board', line: plates || `Floor ${depth}: ${b.today.total} on the board today.`, body: [bar, view, dataLinks(end, () => void boardPanel(end, depth, back, privacy), privacy)], primary: back });
+  endPanel(end, { title: 'Board', line: plates || `Floor ${depth}: ${b.today.total} on the board today.`, body: [bar, view, dataLinks(end, () => void boardPanel(end, depth, back))], primary: back });
 }
 
 export async function chroniclePanel(end: HTMLElement, back: PanelAction, killerName: (k: string) => string) {
