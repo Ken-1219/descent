@@ -2,7 +2,7 @@
 import * as Phaser from 'phaser';
 import { PALETTE, TILE, type Token } from '../shared/content';
 import { carvingOf, type Ghost } from '../shared/ghosts';
-import { blockTiles, lightRadius, visibility, type Event, type Pos, type State } from '../shared/sim';
+import { blockTiles, lightRadius, tells, visibility, type Event, type Pos, type State } from '../shared/sim';
 import { FONT_3X5, type SpriteName } from './art';
 import {
   ANIMS, PACK, buildAtlas, links, choreograph, enemyLook, frameAt, HURT, loadPack, marks, px, py, rgba, RUN, shine, tileLook,
@@ -57,6 +57,10 @@ type Actor = {
   ox: number;
   oy: number;
   tint: Token | null;
+  /** Phase 11e: lit by the torch now (from sync), shown through the fog until revealUntil (an attacker in the dark), flashed until flashUntil (your bump landed). */
+  lit?: boolean;
+  revealUntil?: number;
+  flashUntil?: number;
 };
 type Motion = { actor: Actor; keys: Key[] };
 
@@ -67,6 +71,7 @@ export class DescentScene extends Phaser.Scene {
   private hero: Actor | null = null;
   private enemies = new Map<number, Actor>();
   private digits = new Map<number, Phaser.GameObjects.Image>();
+  private tellGfx: Phaser.GameObjects.Graphics | null = null;
   private props = new Map<number, { sig: string; actors: Actor[] }>();
   private markImgs: Phaser.GameObjects.Image[] = [];
   private torches: { img: Phaser.GameObjects.Image; frame: number; until: number }[] = [];
@@ -159,8 +164,9 @@ export class DescentScene extends Phaser.Scene {
       }),
     );
     this.hero = this.actor(state.pos.x, state.pos.y, 5, ANIMS['hero-idle']);
-    this.streakGfx = this.add.graphics().setDepth(1998);
+    this.streakGfx = this.add.graphics().setDepth(2001); // a dart or arrow shows even through the dark (Phase 11e)
     this.linkGfx = this.add.graphics().setDepth(1997);
+    this.tellGfx = this.add.graphics().setDepth(1996);
     this.fog = this.add.graphics().setDepth(2000);
     if (this.textures.exists('glow')) this.textures.remove('glow');
     this.glow = this.textures.createCanvas('glow', w * TILE, state.tiles.length * TILE);
@@ -178,6 +184,13 @@ export class DescentScene extends Phaser.Scene {
     const mw = (this.state.tiles[0]?.length ?? 0) * TILE;
     const mh = this.state.tiles.length * TILE;
     cam.setBounds(Math.min(0, (mw - vw) / 2), Math.min(0, (mh - vh) / 2), Math.max(mw, vw), Math.max(mh, vh) + this.liftPx);
+    // Phase 11e: a dead zone. The camera stays locked to the hero (it moves in the same frame, never lags) but only once the
+    // hero would come within the torch's reach (radius 4, plus 1) of the view's edge, so the map holds still for most moves
+    // and exits stay where you saw them.
+    const reach = 5 * TILE;
+    // A lift (a panel covering the map's lower part) must move the camera at once, so it turns the dead zone off.
+    if (this.liftPx > 0) cam.setDeadzone();
+    else cam.setDeadzone(Math.max(0, vw - 2 * reach), Math.max(0, vh - 2 * reach));
   }
 
   /** Ghosts to draw (fetched with the floor, again on the result screen). They are pictures only: never in the sim. */
@@ -332,13 +345,14 @@ export class DescentScene extends Phaser.Scene {
       a.ox = look.dx;
       a.oy = look.dy;
       const big = e.kind === 'warden';
-      a.img.setVisible(blockTiles(e).some((p) => vis[p.y * w + p.x] === 2));
+      a.lit = blockTiles(e).some((p) => vis[p.y * w + p.x] === 2); // show() sets the visibility each frame
       // A pile is floor (rule 6): it lies under whoever stands on it.
       a.img.setDepth(depth(big ? e.y + 1 : e.y, e.mode === 'pile' ? 3 : 5));
       if (e.mode !== 'pile' && e.x !== state.pos.x) a.img.setFlipX(state.pos.x < e.x);
       this.digits.get(e.id)?.destroy();
       this.digits.delete(e.id);
-      if (look.digit) this.digits.set(e.id, this.image({ src: 'own', name: look.digit }, e.x, e.y, depth(e.y, 7)).setVisible(vis[e.y * w + e.x] === 2));
+      // The Warden's countdown is drawn at twice the size: it is the one number a fight turns on (Phase 11e).
+      if (look.digit) this.digits.set(e.id, this.image({ src: 'own', name: look.digit }, e.x, e.y, depth(e.y, 7)).setScale(big ? 2 : 1).setVisible(blockTiles(e).some((p) => vis[p.y * w + p.x] === 2)));
     }
     const lg = this.linkGfx;
     if (lg) {
@@ -348,6 +362,9 @@ export class DescentScene extends Phaser.Scene {
     this.drawGhosts(vis, w);
     for (const img of this.markImgs) img.destroy();
     this.markImgs = marks(state).map((m) => this.image(m.frame, m.x, m.y, depth(m.y, 6)));
+    // Phase 11e: every tile an attack is aimed at is filled, above the actors (a mark on your own tile shows) and under the fog.
+    this.tellGfx?.clear().fillStyle(color('blood'), 0.35);
+    for (const t of tells(state)) if (t.kind === 'windup') this.tellGfx?.fillRect(t.x * TILE, t.y * TILE, TILE, TILE);
     if (this.hero) this.hero.tint = state.torch <= 0 && !state.ended ? 'stone' : null;
   }
 
@@ -374,6 +391,15 @@ export class DescentScene extends Phaser.Scene {
     this.streakAt = now;
     let died = false;
     for (const e of events) {
+      // Phase 11e: your bump lands visibly (a bone flash); whatever strikes you shows for the turn, even from the dark.
+      if (e.t === 'attack' && !this.reduced && !instant) {
+        const a = this.enemies.get(e.id);
+        if (a) a.flashUntil = now + 90;
+      }
+      if (e.t === 'enemyAttack') {
+        const a = this.enemies.get(e.id);
+        if (a) a.revealUntil = now + 700;
+      }
       if (e.t === 'kill' || e.t === 'collapse') {
         const a = this.enemies.get(e.id);
         const kind = this.state.enemies.find((o) => o.id === e.id)?.kind ?? next.enemies.find((o) => o.id === e.id)?.kind;
@@ -496,8 +522,14 @@ export class DescentScene extends Phaser.Scene {
     a.img.setTexture(f.src === 'own' ? 'own' : 'pack', f.src === 'own' ? `${f.name}@lit` : f.name);
     a.img.setPosition(a.x + (moving ? 0 : a.ox), a.y + a.yo + (f.dy ?? 0) + (moving ? 0 : a.oy));
     const tint = f.tint ?? a.tint;
-    if (tint) a.img.setTint(color(tint)).setTintMode(f.tint ? Phaser.TintModes.FILL : Phaser.TintModes.MULTIPLY);
+    if (a.flashUntil && now < a.flashUntil) a.img.setTint(color('bone')).setTintMode(Phaser.TintModes.FILL);
+    else if (tint) a.img.setTint(color(tint)).setTintMode(f.tint ? Phaser.TintModes.FILL : Phaser.TintModes.MULTIPLY);
     else a.img.clearTint();
+    if (a.lit !== undefined) {
+      const revealed = !a.lit && now < (a.revealUntil ?? 0);
+      a.img.setVisible(a.lit || revealed);
+      if (revealed) a.img.setDepth(2002); // above the fog for the turn it struck from the dark; the next sync restores it
+    }
   }
 
   private drawGlow() {

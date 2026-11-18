@@ -1,11 +1,11 @@
 /// <reference types="vite/client" />
 // Boot, input router, HUD wiring and the dev hook. Rules live in src/shared/sim.ts; this file only sends actions.
-import { BOARD, CURSE_TEXT, FLOOR_0, FLOOR_0_GHOSTS, HEARTS, ITEMS, KILL_FAMILY, NAMELESS, PALETTE, TILE, TORCH_LOW_PCT, TRAPS, TRAP_TEXT, ZONE_NAMES, type Curse } from '../shared/content';
+import { BOARD, CURSE_TEXT, WARDEN, FLOOR_0, FLOOR_0_GHOSTS, HEARTS, ITEMS, KILL_FAMILY, NAMELESS, PALETTE, TILE, TORCH_LOW_PCT, TRAPS, TRAP_TEXT, ZONE_NAMES, type Curse } from '../shared/content';
 import { slitLine, zoneOf } from '../shared/grid';
 import { context, navigateTo, showLoginPrompt } from '@devvit/web/client';
 import type { BossView, FloorResponse, GhostView, MyTrap, RunResult } from '../shared/api';
 import { carvingLabel, type Ghost, type Vote } from '../shared/ghosts';
-import { isAction, replay, start, step, type Action, type End, type Floor, type Pos } from '../shared/sim';
+import { isAction, replay, start, step, type Action, type End, type Event, type Floor, type Pos } from '../shared/sim';
 import { api, clientClass, report, submit, watchErrors, where } from './net';
 import { journey } from './journey';
 import { sound } from './sound';
@@ -44,6 +44,7 @@ const cardRoot = $('card');
 
 // The map view keeps at least 9×9 tiles at the largest integer zoom (2–4), then fills the stage with whole tiles.
 const MIN_TILES = 9;
+const FILL_COLS = 8; // the torch's reach (4) each side of the hero, less half a tile at the edges
 const SWIPE_PX = 24;
 const REPEAT_DELAY_MS = 300;
 const REPEAT_MS = 200;
@@ -112,20 +113,30 @@ let lastTorch = Infinity;
  * Phase 11d (blind playtest): a turn's news under the HUD. What hurt you and the hearts left; that a dark room burns the torch
  * faster (once per floor); that picking up an item left the one you held. Words only: the rules are untouched.
  */
-let notice: { turn: number; text: string } | null = null;
+let notice: { turn: number; text: string; hurt?: true } | null = null;
 const darkSeen = new Set<string>();
 const ITEM_WORD: Record<string, string> = { potion: 'potion', oil: 'lamp oil', bomb: 'bomb' };
 const HURT_BY: Record<string, string> = { gate: 'A closing gate', trap: 'A trap', spikes: 'Spikes', dart: 'A dart', arrow: 'An arrow', dark: 'The dark', pit: 'The fall', warden: 'The Warden', goblin: 'A goblin', imp: 'An imp', skeleton: 'A skeleton', bomb: 'The blast' };
-function noticeOf(events: readonly { t: string }[], prevItem: string | null, s: typeof state): { turn: number; text: string } | null {
-  const hurt = events.find((e): e is { t: 'hurt'; cause: string } => e.t === 'hurt' && 'cause' in e);
-  if (hurt && s.hearts > 0) return { turn: s.turn, text: `${HURT_BY[hurt.cause] ?? 'Something'} hit you: ${s.hearts} ${s.hearts === 1 ? 'heart' : 'hearts'} left.` };
-  const got = events.find((e): e is { t: 'pickup'; item: string } => e.t === 'pickup' && 'item' in e);
-  if (got && prevItem && prevItem !== got.item) return { turn: s.turn, text: `You took the ${ITEM_WORD[got.item] ?? got.item}; your ${ITEM_WORD[prevItem] ?? prevItem} is left here.` };
+// Phase 11e (second blind playtest): what your own action did, so a kill, a bomb or an item is never silent.
+const USED: Record<string, string> = { potion: 'The potion gave back a heart.', oil: 'The lamp oil feeds your torch.', bomb: 'The bomb went off: everything beside you is cleared.' };
+function noticeOf(events: readonly Event[], prev: typeof state, s: typeof state): { turn: number; text: string; hurt?: true } | null {
+  const hurt = events.find((e) => e.t === 'hurt');
+  if (hurt && s.hearts > 0) return { turn: s.turn, hurt: true, text: `${HURT_BY[hurt.cause] ?? 'Something'} hit you: ${s.hearts} ${s.hearts === 1 ? 'heart' : 'hearts'} left.` }; // beats a torch notice
+  const got = events.find((e) => e.t === 'pickup');
+  if (got && prev.item && prev.item !== got.item) return { turn: s.turn, text: `You took the ${ITEM_WORD[got.item] ?? got.item}; your ${ITEM_WORD[prev.item] ?? prev.item} is left here.` };
+  const used = events.find((e) => e.t === 'use');
+  const usedText = used && USED[used.item];
+  if (usedText) return { turn: s.turn, text: usedText };
+  const kind = (id: number) => prev.enemies.find((e) => e.id === id)?.kind;
+  for (const e of events) {
+    if (e.t === 'collapse') return { turn: s.turn, text: 'The skeleton crumbles. It will rise again.' };
+    if (e.t === 'kill' && kind(e.id)) return { turn: s.turn, text: `The ${kind(e.id) === 'warden' ? 'Warden' : kind(e.id)} falls.` };
+  }
   const room = s.floor.dark?.find((r) => s.pos.x >= r.x && s.pos.x < r.x + r.w && s.pos.y >= r.y && s.pos.y < r.y + r.h);
   const key = room && `${s.floor.depth}:${room.x},${room.y}`;
   if (key && !darkSeen.has(key)) {
     darkSeen.add(key);
-    return { turn: s.turn, text: 'A dark room: your torch burns faster here. Light a brazier to end it.' };
+    return { turn: s.turn, text: 'Dark room: the torch burns faster. Light a brazier to end it.' };
   }
   return null;
 }
@@ -157,7 +168,7 @@ const view = () => {
   const curse = state.floor.curses?.[0];
   // During a live run on the Warden's floor the chain counts down with your own bumps (its HP when the run began, less yours).
   const chain = boss && live && !state.ended && state.enemies.some((e) => e.kind === 'warden') ? Math.max(0, boss.hp - state.dealt) : null;
-  hud({ hearts: state.hearts, hasKey: state.hasKey, item: pack ? state.item : null, torch: state.torch, torchMax: state.floor.torch, depth: state.floor.depth, curse: curse ? CURSE_TEXT[curse].name : null, chain });
+  hud({ hearts: state.hearts, hasKey: state.hasKey, item: pack ? state.item : null, torch: state.torch, torchMax: state.floor.torch, depth: state.floor.depth, curse: curse ? CURSE_TEXT[curse].name : null, chain, mine: chain === null ? 0 : state.dealt });
   // A torch event (crossing low, reaching zero) owns the line under the HUD on the turn it happens.
   if ((!lowTorch(lastTorch) && lowTorch(state.torch)) || (lastTorch > 0 && state.torch <= 0)) torchTurn = state.turn;
   lastTorch = state.torch;
@@ -169,7 +180,11 @@ view();
 const fit = () => {
   const w = stage.clientWidth;
   const h = stage.clientHeight;
-  const zoom = Math.max(2, Math.min(4, Math.floor(Math.min(w, h) / (MIN_TILES * TILE))));
+  let zoom = Math.max(2, Math.min(4, Math.floor(Math.min(w, h) / (MIN_TILES * TILE))));
+  // Phase 11e: a floor shorter than a tall stage is zoomed in (whole steps, so pixels stay crisp) until it fills the
+  // height, as long as FILL_COLS columns still show across (a blind tester saw a thin band in a tall black screen).
+  const mapH = state.floor.rows.length * TILE;
+  while (zoom < 4 && mapH * zoom < h && w >= FILL_COLS * TILE * (zoom + 1)) zoom += 1;
   const cols = Math.max(1, Math.floor(w / (TILE * zoom)));
   const rows = Math.max(1, Math.floor(h / (TILE * zoom)));
   return { width: cols * TILE, height: rows * TILE, zoom };
@@ -193,11 +208,12 @@ const game = new Phaser.Game({
   scale: { mode: Phaser.Scale.NONE, ...fit() },
   scene,
 });
-addEventListener('resize', () => {
+const refit = () => {
   const s = fit();
   game.scale.resize(s.width, s.height);
   game.scale.setZoom(s.zoom);
-});
+};
+addEventListener('resize', refit);
 // Pause the Phaser loop while the tab is hidden (§15.3).
 document.addEventListener('visibilitychange', () => (document.hidden ? game.loop.sleep() : game.loop.wake()));
 
@@ -422,6 +438,7 @@ async function result(prefetched?: FloorResponse) {
     state = log ? replay(floor, [...log].filter(isAction)) : start(floor);
     if (mine && !log) state = { ...state, pos: { x: mine.x, y: mine.y } };
     scene.reset(state);
+    refit();
   }
   plate = r;
   setGhosts(withPending(r.depth, r.ghosts));
@@ -445,23 +462,27 @@ async function result(prefetched?: FloorResponse) {
   boss = r.boss ?? null;
   const bossNow = el('div', 'plate__boss');
   if (boss) body.push(wardenPlate(bossNow, boss));
+  // Phase 11e: the card shows its primary, Practice and one link (the carvings to judge, else the Board); the rest sit
+  // behind one native "More" disclosure (a blind tester counted six buttons).
   const links = el('div', 'plate__links');
+  const moreList = el('div', 'plate__links');
+  const more = el('details', 'plate__more', el('summary', 'btn', 'More'), moreList);
   const others = shown.list.filter((g) => g.carving && !g.mine).length;
-  const link = (label: string, cls: string, go: () => void) => {
+  const link = (label: string, cls: string, go: () => void, shown = false) => {
     const b = button(label, cls);
     b.addEventListener('click', go);
-    links.append(b);
+    (shown ? links : moreList).append(b);
   };
-  if (others) link(`Carvings (${others})`, 'carvings__open', () => carvingsPanel(r.depth));
+  if (others) link(`Carvings (${others})`, 'carvings__open', () => carvingsPanel(r.depth), true);
   const back = { label: 'Back', run: () => void result(plate ?? undefined) };
-  link('Board', 'board__open', () => void boardPanel(end, r.depth, back));
+  link('Board', 'board__open', () => void boardPanel(end, r.depth, back), !others);
   const toChronicle = () => void chroniclePanel(end, back, killerName, (d) => void practisePast(d, toChronicle));
   link('Chronicle', 'chronicle__open', toChronicle);
   // Phase 10b: depth as flair is opt-in (A55); a broken thing is two taps from modmail (A58).
   let flairOn = !!r.flair;
   const flairLabel = () => `Depth as flair: ${flairOn ? 'On' : 'Off'}`;
   link(flairLabel(), 'flair__toggle', () => {
-    const b = links.querySelector('.flair__toggle');
+    const b = moreList.querySelector('.flair__toggle');
     void api.flair(!flairOn).then((f) => {
       flairOn = f.on;
       if (b) {
@@ -470,11 +491,12 @@ async function result(prefetched?: FloorResponse) {
       }
     }, () => undefined);
   });
-  links.querySelector('.flair__toggle')?.setAttribute('aria-pressed', String(flairOn));
+  moreList.querySelector('.flair__toggle')?.setAttribute('aria-pressed', String(flairOn));
   link('Something broke?', 'report__open', () => go(reportUrl('result plate')));
   // Phase 11c: the post's comments, one tap from the card (the crowd talks there).
   const comments = context?.postId ? `https://www.reddit.com/comments/${context.postId.replace(/^t3_/, '')}` : null;
   if (comments) link('Comments', 'comments__open', () => go(comments));
+  links.append(more);
   body.push(links);
   // While the floor is live, the next unfinished choice is the plate's one primary action.
   const won = r.run.outcome === 'won';
@@ -493,7 +515,7 @@ async function result(prefetched?: FloorResponse) {
   // With nothing left to choose, the next step is the conversation: the comments become the primary (and leave the links).
   const talk: PanelAction | null = comments ? { label: 'See the comments', run: () => go(comments) } : null;
   const first = next ?? onward ?? talk ?? practice;
-  if (first === talk) links.querySelector('.comments__open')?.remove();
+  if (first === talk) moreList.querySelector('.comments__open')?.remove();
   // Phase 11d: the floor you just played, again, where nothing counts (never before your own run: you are on its card).
   const practiceAgain: PanelAction = { label: 'Practice this floor', run: () => practise(r.depth, r.floor, r.ghosts, () => void result()) };
   endPanel(end, { title, line, body, primary: first, secondary: practiceAgain });
@@ -588,6 +610,7 @@ function again() {
   queued = null;
   state = begin();
   scene.reset(state);
+  refit();
   scene.lift(0);
   scene.preview(null);
   setGhosts(dayGhosts);
@@ -635,7 +658,7 @@ function intro() {
   const fell = deaths ? deaths.reduce((a, b) => a + b, 0) : (y?.fell ?? 0);
   const hz = danger.indexOf(Math.max(...danger));
   const lines: string[] = [];
-  if (!y) lines.push('The first floor. Nobody has fallen yet.');
+  if (!y) lines.push(state.floor.depth === 1 ? 'The first floor. Nobody has fallen yet.' : 'Nobody fell here yesterday.');
   else if (fell === 0) lines.push(`Nobody fell on Floor ${y.depth}, so nothing moved.`);
   else if (fell < 3) lines.push(`Only ${fell} fell on Floor ${y.depth}: too few to move anything.`);
   else {
@@ -643,6 +666,8 @@ function intro() {
     if (y.zone !== null && Math.max(...danger) > 0 && hz !== y.zone) lines.push(`Today's danger gathered in the ${zoneName(hz)}.`);
     if (y.killer) lines.push(`Top killer: ${killerName(y.killer)}.`);
   }
+  // Phase 11e: the day's torch budget, said before the first move (Floor 0's practice torch is more generous).
+  lines.unshift(`Torch: ${state.torch} turns of light today${store.get(F0_KEY) ? ` (practice gave ${FLOOR_0.torch})` : ''}.`);
   const traps = f.traps?.length ?? 0;
   if (traps) lines.push(`Survivors set ${traps} trap${traps === 1 ? '' : 's'} here.`);
   const news = trapNews(playable?.myTrap ?? null);
@@ -655,7 +680,7 @@ function intro() {
     : [
         el('p', 'intro__boss', boss.carried ? 'The Warden returns, still wounded.' : 'The Warden waits, chained.'),
         chainMeter(boss.hp, boss.pool),
-        el('p', 'intro__line', 'Bump it to break a link. Stairs are open.'),
+        el('p', 'intro__line', `Walk into it: each bump breaks one link (${WARDEN.perRun} a run at most). Everyone today shares this chain; when it breaks, the Warden falls for all. Take the stairs whenever you like: your links count either way.`),
       ];
   endPanel(end, {
     title: `Floor ${f.depth}`,
@@ -681,7 +706,7 @@ function nearby() {
   const near = shown.list.filter((g) => g.carving && reach(g) <= 1);
   const g = near[0];
   // Phase 11d: what just happened, said on the turn it happened (a torch event first, then this, then a carving).
-  if (notice?.turn === state.turn && !state.ended && !(torchTurn === state.turn && lowTorch(state.torch))) {
+  if (notice && state.turn - notice.turn <= (notice.hurt ? 1 : 0) && !state.ended && (notice.hurt || !(torchTurn === state.turn && lowTorch(state.torch)))) {
     carvingLine.replaceChildren(el('span', '', notice.text));
     carvingLine.hidden = false;
     return;
@@ -689,7 +714,13 @@ function nearby() {
   if (!g?.carving || (torchTurn === state.turn && lowTorch(state.torch))) {
     // Phase 10b (A61): a newcomer's Floor 0 says it is practice, and what it opens, so the day's post doesn't look skipped.
     const practiceFirst = !lowTorch(state.torch) && state.floor.depth === 0 && playable;
-    carvingLine.replaceChildren(el('span', '', practiceFirst ? `Practice first: find the stairs.` : state.torch > 0 ? `Torch low: ${state.torch} turns of light left.` : 'Torch out: the dark is taking your hearts.'));
+    // Phase 11e: on a Warden floor, until your first link breaks, the goal in plain words.
+    if (!lowTorch(state.torch) && !state.ended && boss && !boss.killer && live && state.dealt === 0 && state.enemies.some((e) => e.kind === 'warden')) {
+      carvingLine.replaceChildren(el('span', '', 'Bump the Warden for links. Stairs any time.'));
+      carvingLine.hidden = false;
+      return;
+    }
+    carvingLine.replaceChildren(el('span', '', practiceFirst ? (state.turn < 8 ? 'Practice first: find the stairs.' : 'Practice torch is generous: real floors give less.') : state.torch > 0 ? `Torch low: ${state.torch} turns of light left.` : 'Torch out: the dark is taking your hearts.'));
     carvingLine.hidden = !!state.ended || (!practiceFirst && !lowTorch(state.torch));
     return;
   }
@@ -764,7 +795,7 @@ const run = async (a: Action) => {
   busy = true;
   inputAt = performance.now();
   requestAnimationFrame(() => (inputToMotion = performance.now() - inputAt));
-  const prevItem = state.item;
+  const prev = state;
   const r = step(state, a);
   // Only actions that change state are logged: a free bump would make a log unbounded, and the server rejects one.
   if (live && r.state !== state) {
@@ -777,7 +808,7 @@ const run = async (a: Action) => {
     store.set(logKey(live), live.log);
   }
   state = r.state;
-  notice = noticeOf(r.events, prevItem, state); // before view(): the line under the HUD reads it this turn
+  notice = noticeOf(r.events, prev, state) ?? (notice?.hurt && state.turn - notice.turn <= 1 ? notice : null); // before view(); a hit stays a turn longer
   view();
   if (r.events.some((e) => e.t === 'hurt')) stopRepeat();
   lastSound = sound.play(r.events);
@@ -881,6 +912,17 @@ else if (day.kind === 'none' && !devFloor) endPanel(end, { title: 'No floor yet'
 else if (state.ended) finish(state.ended); // resumed onto a finished run: show it and (re)submit, which is a safe retry
 else if (live && state.turn === 0 && !stages.intro) intro(); // a fresh run on the day's floor starts at the intro (unless already up)
 
+// Phase 11e: on a Warden floor the shared chain moves during your run too: the same visible-only 20 s poll as the plate.
+if (boss)
+  window.setInterval(() => {
+    if (!live || !boss || boss.killer || !end.hidden || document.hidden) return;
+    void api.pulse(live.depth).then((p) => {
+      if (p.boss) {
+        boss = p.boss; // the server's HP, which doesn't hold this run's links yet: the HUD subtracts them
+        view();
+      }
+    }, () => undefined);
+  }, BOARD.pollMs);
 void scene.ready.then(() => {
   document.getElementById('boot')?.setAttribute('hidden', ''); // A64: the flame gives way to the floor
   boot.up = true;
@@ -901,7 +943,7 @@ type DescentHook = {
   load: (depth: number | string, opts?: { mercy?: boolean; torch?: number; seed?: number }) => void;
   skipAnim: (on: boolean) => void;
   /** Every scene's id and action log, for e2e checks that replay them by keyboard or taps. */
-  scenes: () => { id: string; log: Action[] }[];
+  scenes: () => { id: string; log: Action[]; hurt: [number, string][] }[];
   metrics: () => { inputToMotion: number; shakes: number; hitStops: number; sound: string | null; muted: boolean };
   /** The local rollover (local.ts); reload to see the new day. */
   advanceDay: () => void;
@@ -944,7 +986,7 @@ if (import.meta.env.DEV) {
       again();
     },
     skipAnim: (on) => (skipAnim = on),
-    scenes: () => SCENES.map((s) => ({ id: s.id, log: [...s.log] })),
+    scenes: () => SCENES.map((s) => ({ id: s.id, log: [...s.log], hurt: s.hurt.map(([n, c]): [number, string] => [n, c]) })),
     metrics: () => ({ inputToMotion, shakes: scene.shakes, hitStops: scene.hitStops, sound: lastSound, muted: sound.muted }),
     advanceDay: LOCAL?.advanceDay ?? (() => undefined),
     offline: LOCAL?.setOffline ?? (() => undefined),

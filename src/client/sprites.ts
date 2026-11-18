@@ -427,8 +427,11 @@ export function enemyLook(e: Enemy): { anim: Anim; dx: number; dy: number; digit
   if (e.mode === 'pile') return { anim: still(P('skull')), dx: 0, dy: 0, digit: DIGIT[e.timer - 1] ?? null };
   if (e.mode === 'windup') {
     const a = e.aim[0];
-    return { anim: still(P(WINDUP[e.kind])), dx: a ? -Math.sign(a.x - e.x) : 0, dy: a ? -Math.sign(a.y - e.y) : 0, digit: null };
+    // Phase 11e: the Warden counts down; in its wind-up the slam is next turn ("1").
+    return { anim: still(P(WINDUP[e.kind])), dx: a ? -Math.sign(a.x - e.x) : 0, dy: a ? -Math.sign(a.y - e.y) : 0, digit: e.kind === 'warden' ? 'digit-1' : null };
   }
+  // Between slams the Warden shows the turns until the next one (its quiet turns, the wind-up, the slam), once it is 4 or fewer.
+  if (e.kind === 'warden' && e.mode === 'chase') return { anim: IDLE.warden, dx: 0, dy: 0, digit: DIGIT[e.timer + 1] ?? null };
   return { anim: e.kind === 'imp' && e.mode === 'idle' ? ANIMS['imp-perch'] : IDLE[e.kind], dx: 0, dy: 0, digit: null };
 }
 

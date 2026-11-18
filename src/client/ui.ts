@@ -1,5 +1,5 @@
-import { CARVINGS, CURSE_TEXT, NAMELESS, TRAP_TEXT, ZONE_NAMES, type CarvingKind, type Curse, type Item } from '../shared/content';
-import { CARVING_CHOICES, carvingLabel, carvingOf, type Ghost, type Vote } from '../shared/ghosts';
+import { CARVINGS, CURSE_TEXT, NAMELESS, TRAP_EFFECT, TRAP_TEXT, ZONE_NAMES, type Curse, type Item } from '../shared/content';
+import { CARVING_CHOICES, carvingLabel, type Ghost, type Vote } from '../shared/ghosts';
 import { iconCanvas } from './sprites';
 
 type Kids = (Node | string)[];
@@ -120,34 +120,80 @@ export const ghostCard = (g: GhostCard) => {
   return card;
 };
 
-/** Picker groups: what each kind of phrase does, in words that never hint whether it is true. */
-const GROUP: Readonly<Record<CarvingKind, string>> = { warning: 'Warn', path: 'Show the way', treasure: 'Promise' };
 
-/** The carving picker: one native select (compact enough to keep the death tile in view at 320×320). */
+/**
+ * Phase 11e: a list of choices drawn from the game's own buttons, in place of a native select. One is picked at a time
+ * (aria-pressed); arrow keys move along the list and pick, Home/End jump. It sits in a fieldset, so `disabled` locks it.
+ */
+const choiceList = <T extends string>(label: string, items: readonly { id: T; name: string; note?: string }[], onPick: (id: T) => void, cls = '') => {
+  const box = el('fieldset', `choices ${cls}`.trim(), el('legend', 'sr-only', label));
+  const rows = items.map((it, i) => {
+    const b = button(el('span', 'choice__name', it.name), 'choice');
+    if (it.note) b.append(el('span', 'choice__note', it.note));
+    b.setAttribute('aria-pressed', 'false');
+    b.tabIndex = i === 0 ? 0 : -1;
+    b.addEventListener('click', () => pick(i));
+    return b;
+  });
+  const pick = (i: number) => {
+    const it = items[i];
+    if (!it) return;
+    rows.forEach((r, k) => {
+      r.setAttribute('aria-pressed', String(k === i));
+      r.tabIndex = k === i ? 0 : -1;
+    });
+    onPick(it.id);
+  };
+  box.addEventListener('keydown', (e) => {
+    const i = rows.findIndex((r) => r === document.activeElement);
+    const to = i < 0 ? undefined : { ArrowDown: i + 1, ArrowRight: i + 1, ArrowUp: i - 1, ArrowLeft: i - 1, Home: 0, End: rows.length - 1 }[e.key];
+    if (to === undefined) return;
+    e.preventDefault();
+    e.stopPropagation(); // the game's own arrow keys stay out of a choice list
+    const k = (to + rows.length) % rows.length;
+    rows[k]?.focus();
+    pick(k);
+  });
+  box.append(...rows);
+  return box;
+};
+
+/**
+ * The carving picker: two steps in one row, as short as a select (the tile where you fell stays in view). Pick a phrase;
+ * a path phrase then swaps the row for its four directions, led by the phrase itself (tap it to choose again).
+ */
 export const carvingPicker = (onChange: (raw: string | null) => void) => {
-  const select = el('select', 'picker');
-  select.setAttribute('aria-label', 'Carving');
-  const none = el('option', '', 'Choose a carving');
-  none.value = '';
-  select.append(none);
-  for (const kind of ['warning', 'path', 'treasure'] as const) {
-    const group = el('optgroup');
-    group.label = GROUP[kind];
-    for (const raw of CARVING_CHOICES) {
-      if (CARVINGS[raw.split(':')[0] ?? '']?.kind !== kind) continue;
-      const o = el('option', '', carvingLabel(raw));
-      o.value = raw;
-      group.append(o);
-    }
-    select.append(group);
-  }
-  select.addEventListener('change', () => onChange(carvingOf(select.value) ? select.value : null));
-  return select;
+  const dirs = el('div', 'carve-dir');
+  dirs.hidden = true;
+  const phrases = choiceList(
+    'Carving',
+    Object.entries(CARVINGS).map(([id, c]) => ({ id, name: c.kind === 'path' ? `${c.text}…` : c.text })),
+    (id) => {
+      const c = CARVINGS[id];
+      if (c?.kind !== 'path') return onChange(id);
+      const again = button(c.text, 'choice carve-dir__again');
+      again.setAttribute('aria-label', `${c.text}: choose another phrase`);
+      again.addEventListener('click', () => {
+        dirs.hidden = true;
+        phrases.hidden = false;
+        onChange(null);
+        phrases.querySelector<HTMLElement>('[aria-pressed="true"]')?.focus();
+      });
+      const ways = choiceList('Which way', CARVING_CHOICES.filter((r) => r.startsWith(`${id}:`)).map((raw) => ({ id: raw, name: carvingLabel(raw).split(' ').pop() ?? '' })), onChange, 'choices--row');
+      dirs.replaceChildren(again, ways);
+      phrases.hidden = true;
+      dirs.hidden = false;
+      onChange(null);
+      ways.querySelector<HTMLElement>('.choice')?.focus();
+    },
+    'choices--wrap',
+  );
+  return el('fieldset', 'choices-step', phrases, dirs);
 };
 
 /** `curse`: the floor's curse name (the crowd's vote), shown as a chip after the floor number. */
 /** `chain`: on the Warden's floor, the links left on its shared chain (its HP less what this run broke); else null. */
-export type HudView = { hearts: number; hasKey: boolean; item: Item | null; torch: number; torchMax: number; depth: number; curse: string | null; chain: number | null };
+export type HudView = { hearts: number; hasKey: boolean; item: Item | null; torch: number; torchMax: number; depth: number; curse: string | null; chain: number | null; mine?: number };
 const ITEM_NAME: Record<Item, string> = { potion: 'potion', oil: 'lamp oil', bomb: 'bomb' };
 
 /** Builds the HUD once; `update` replaces only the pieces whose value changed. */
@@ -168,9 +214,10 @@ export const createHud = (root: HTMLElement, lowPct: number, maxHearts: number, 
     }
     if (v.hearts !== last?.hearts) parts.hearts.replaceChildren(hearts(v.hearts, maxHearts));
     // The key never appears on a Warden floor, so its slot shows the chain there.
-    if (v.chain !== null && v.chain !== last?.chain) {
-      const box = slot(`Warden chain: ${v.chain} links left`, iconCanvas('chain', 2));
-      box.append(el('span', 'hud__links', String(v.chain)));
+    if (v.chain !== null && (v.chain !== last?.chain || v.mine !== last?.mine)) {
+      // Phase 11e: the shared links left, and (once you have broken one) yours this run beside them.
+      const box = slot(`Warden chain: ${v.chain} links left${v.mine ? `, ${v.mine} broken by you this run` : ''}`, iconCanvas('chain', 2));
+      box.append(el('span', 'hud__links', String(v.chain)), ...(v.mine ? [el('span', 'hud__mine', `-${v.mine}`)] : []));
       parts.key.replaceChildren(box);
     }
     else if (v.chain === null && (v.hasKey !== last?.hasKey || last?.chain !== null)) parts.key.replaceChildren(v.hasKey ? slot('Key held', iconCanvas('key', 2)) : slot('No key'));
@@ -217,7 +264,7 @@ export const endPanel = (
   actions.addEventListener('keyup', (e) => {
     if (e.key === ' ' && performance.now() - opened < 500) e.preventDefault();
   });
-  (p.body?.find((n): n is HTMLElement => n instanceof HTMLSelectElement) ?? primary).focus();
+  (root.querySelector<HTMLElement>('.choices .choice[tabindex="0"]') ?? primary).focus(); // a choice list takes focus first
   return primary;
 };
 
@@ -239,26 +286,18 @@ export const saveLine = () => {
   };
 };
 
-/** The curse vote: one select, each curse with its one-line effect (select, then Vote). */
-export const cursePicker = (onChange: (c: Curse | null) => void) => {
-  const select = el('select', 'picker');
-  select.setAttribute('aria-label', 'Curse for tomorrow');
-  const none = el('option', '', 'Choose a curse');
-  none.value = '';
-  select.append(none);
-  for (const [id, t] of Object.entries(CURSE_TEXT)) {
-    const o = el('option', '', `${t.name}: ${t.effect}`);
-    o.value = id;
-    select.append(o);
-  }
-  select.addEventListener('change', () => {
-    const c = Object.keys(CURSE_TEXT).find((k): k is Curse => k === select.value);
-    onChange(c ?? null);
-  });
-  return select;
-};
+/** The curse vote: one row per curse with its one-line effect (pick, then Vote). */
+export const cursePicker = (onChange: (c: Curse | null) => void) =>
+  choiceList(
+    'Curse for tomorrow',
+    Object.keys(CURSE_TEXT).flatMap((k) => {
+      const id = Object.keys(CURSE_TEXT).find((c): c is Curse => c === k);
+      return id ? [{ id, name: CURSE_TEXT[id].name, note: CURSE_TEXT[id].effect }] : [];
+    }),
+    onChange,
+  );
 
-/** The trap picker: a 3×3 compass of zones (spatial, so a grid) and a select for the kind (select, then Set trap). */
+/** The trap picker: a 3×3 compass of zones (spatial, so a grid) and a row per kind with its effect (pick both, then Set trap). */
 export const trapPicker = (onChange: (zone: number | null, kind: keyof typeof TRAP_TEXT | null) => void) => {
   let zone: number | null = null;
   let kind: keyof typeof TRAP_TEXT | null = null;
@@ -277,21 +316,15 @@ export const trapPicker = (onChange: (zone: number | null, kind: keyof typeof TR
     return b;
   });
   grid.append(...cells);
-  const select = el('select', 'picker');
-  select.setAttribute('aria-label', 'Trap');
-  const none = el('option', '', 'Choose a trap');
-  none.value = '';
-  select.append(none);
-  for (const [id, label] of Object.entries(TRAP_TEXT)) {
-    const o = el('option', '', label);
-    o.value = id;
-    select.append(o);
-  }
-  select.addEventListener('change', () => {
-    kind = Object.keys(TRAP_TEXT).find((k): k is keyof typeof TRAP_TEXT => k === select.value) ?? null;
-    onChange(zone, kind);
-  });
-  return el('div', 'trap-pick', grid, select);
+  const kinds = choiceList(
+    'Trap',
+    (['spikes', 'dart', 'stairs'] as const).map((id) => ({ id, name: TRAP_TEXT[id], note: TRAP_EFFECT[id] })),
+    (id) => {
+      kind = id;
+      onChange(zone, kind);
+    },
+  );
+  return el('fieldset', 'trap-pick', grid, kinds);
 };
 
 /** Carved ghosts on this floor as rows; a row opens the ghost card (Trust/Liar live there). */

@@ -6,6 +6,8 @@
 // this profile the owner of a trap that has hurt 2 and killed 1 here; ?yesterday=few gives a day of 2 deaths;
 // ?board=N fills the board with N players (this profile ranked by its own run); ?floor=warden serves a small Warden arena;
 // ?boss=alive|carried|killed sets its shared pool (killed serves the floor without it, as the server does).
+// Phase 11e: ?day=N&seed=S makes today Floor N, generated from seed S (the floor the rollover would post with no crowd
+// changes is generate(N, fairSeed(N, …).seed)); a Warden day takes &boss=alive.
 import { generate } from '../shared/gen';
 import { CURSES, FLOOR_0, TRAP_TEXT, type Curse } from '../shared/content';
 import type { BoardRows, BossView, MyTrap } from '../shared/api';
@@ -18,7 +20,7 @@ import type { Api } from './net';
 const K = 'descent:local:';
 const read = <T>(k: string): T | null => JSON.parse(localStorage.getItem(K + k) ?? 'null');
 const write = (k: string, v: unknown) => localStorage.setItem(K + k, JSON.stringify(v));
-const day = () => read<number>('day') ?? 1;
+const day = () => Number(new URLSearchParams(location.search).get('day')) || (read<number>('day') ?? 1);
 const floorOf = (d: number): Floor => {
   const stored = read<Floor>(`floor:${d}`);
   if (stored) return stored;
@@ -26,7 +28,7 @@ const floorOf = (d: number): Floor => {
   const base: Floor = q.get('floor') === 'f0' ? { ...FLOOR_0, depth: d, mercy: false, seed: d }
     : q.get('floor') === 'warden' ? { depth: d, mercy: false, seed: d, torch: 90, rows: ARENA }
     : q.get('floor') === 'trap' ? { ...FLOOR_0, depth: d, mercy: false, seed: d, rows: FLOOR_0.rows.map((r) => r.replaceAll('^', 'x')), traps: [2, 3, 4].map((y) => ({ x: 10, y, kind: 'spikes' as const, owner: 't2_trapper', name: 'trapper' })) }
-    : generate(d, hash(`descent:local:${d}`)).floor;
+    : generate(d, Number(q.get('seed')) || hash(`descent:local:${d}`)).floor;
   const curse = Object.keys(CURSES).find((c): c is Curse => c === q.get('curse'));
   const f: Floor = {
     ...base,

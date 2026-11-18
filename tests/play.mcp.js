@@ -32,7 +32,16 @@ async (page) => {
   const toPicker = async (p) => {
     await toCard(p);
     await p.locator('#end .btn--primary').click();
-    await p.waitForSelector('#end select.picker');
+    await p.waitForSelector('#end .choices');
+  };
+  // Phase 11e: the card's extra links sit behind More; open it when a link isn't showing.
+  const tap = async (p, cls) => {
+    if (!(await p.locator(`#end .${cls}`).isVisible())) await p.locator('#end .plate__more > summary').click();
+    await p.locator(`#end .${cls}`).click();
+  };
+  // Phase 11e: choices are tappable rows; a path carving is its phrase, then its arrow.
+  const pick = async (p, ...names) => {
+    for (const n of names) await p.locator('#end .choice', { has: p.locator('.choice__name', { hasText: new RegExp(`^${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}…?$`) }) }).click();
   };
 
   // 1. Rules in the browser (skipAnim on, mercy floor)
@@ -320,7 +329,13 @@ async (page) => {
       await p.goto(`${URL}?scene=${id}`);
       await p.waitForFunction(() => window.__descent);
       await p.evaluate(() => window.__descent.ready);
-      for (const a of byId(id).log) { await p.locator(a === 'I' ? '.item-btn' : `.dpad [data-act="${a}"]`).tap(); await p.waitForTimeout(140); }
+      for (const a of byId(id).log) {
+        const t = (await S(p)).turn;
+        await p.locator(a === 'I' ? '.item-btn' : `.dpad [data-act="${a}"]`).tap();
+        // the turn lands, then the lock ends (a fixed wait dropped a tap on a loaded machine)
+        await p.waitForFunction((t) => window.__descent.state().turn > t || window.__descent.state().ended, t, { timeout: 2000 }).catch(() => undefined);
+        await p.waitForTimeout(140);
+      }
       const st = await S(p);
       check(`scene ${id} plays to its end by taps`, st.ended && st.ended.kind === 'won', JSON.stringify(st.ended));
       await ctx.close();
@@ -490,7 +505,7 @@ async (page) => {
       await toPicker(p); // the card's Carve opens the carving step
       const carveBtn = p.locator('#end .btn--primary');
       const disabledFirst = await carveBtn.isDisabled();
-      await p.locator('#end select.picker').selectOption('trap-ahead');
+      await pick(p, 'Trap ahead');
       await carveBtn.click();
       await p.waitForFunction(() => /Your ghost: Trap ahead/.test(document.getElementById('end').innerText), null, { timeout: 8000 });
       await p.reload();
@@ -509,7 +524,7 @@ async (page) => {
       await p.waitForFunction(() => /left no carving/.test(document.getElementById('end').innerText), null, { timeout: 8000 });
       const plate = await endText(p);
       await p.locator('#end .btn--primary').click(); // Carve
-      await p.locator('#end select.picker').selectOption('safe-way:L');
+      await pick(p, 'Safe this way', '←');
       await p.locator('#end .btn--primary').click();
       await p.waitForFunction(() => /Your ghost: Safe this way ←/.test(document.getElementById('end').innerText), null, { timeout: 8000 });
       check('skip, then carve later from the result plate; the path carries its direction', /Carve/.test(plate), flat(await endText(p)));
@@ -543,14 +558,16 @@ async (page) => {
             const r = b.getBoundingClientRect();
             if (!r.width || getComputedStyle(b).visibility === 'hidden') continue;
             if (r.height < 44 || r.width < 44) out.push(`small ${b.textContent.trim().slice(0, 12)} ${Math.round(r.width)}x${Math.round(r.height)}`);
-            if (r.bottom > innerHeight + 0.5 || r.right > innerWidth + 0.5) out.push(`off ${b.textContent.trim().slice(0, 12)}`);
+            const row = b.closest('.choices--wrap')?.getBoundingClientRect(); // a sideways-scrolling row: the row must fit
+            const box = row ?? r;
+            if (box.bottom > innerHeight + 0.5 || box.right > innerWidth + 0.5) out.push(`off ${b.textContent.trim().slice(0, 12)}`);
           }
           return out;
         });
         bad.push(...(await layout()).map((b) => `${vp.width}x${vp.height} floor ${b}`));
         await dieHere(p);
         await toPicker(p);
-        await p.locator('#end select.picker').selectOption('stairs-way:U');
+        await pick(p, 'Stairs this way', '↑');
         await p.waitForTimeout(300);
         const view = await p.evaluate(() => {
           const s = window.__descent.state();
@@ -609,11 +626,11 @@ async (page) => {
       await win(p);
       await toPicker(p); // the card's "Vote on a curse" step
       const disabled = await p.locator('#end .btn--primary').isDisabled();
-      await p.locator('#end select.picker').selectOption('deep-dark');
+      await pick(p, 'Deep Dark');
       await p.locator('#end .btn--primary').click();
       await toPicker(p); // back on the card, its next step: "Set a trap"
       await p.getByRole('button', { name: 'South-west' }).click();
-      await p.locator('#end select.picker').selectOption('stairs');
+      await pick(p, 'False stairs');
       await p.locator('#end .btn--primary').click();
       await p.waitForFunction(() => /Your trap/.test(document.getElementById('end').innerText));
       await p.reload();
@@ -654,7 +671,7 @@ async (page) => {
       await die(p);
       await toCard(p);
       await p.waitForFunction(() => /Carvings \(/.test(document.getElementById('end').innerText));
-      await p.locator('#end .carvings__open').click();
+      await tap(p, 'carvings__open');
       await p.locator('#end .carvings__row').first().click();
       const cardAfter = await p.locator('#card').innerText();
       check('totals hidden during the run (no vote buttons or counts, "Vote after your run"), shown after it', during && /Vote after your run/.test(cardDuring) && !/Trust \d|Liar \d/.test(cardDuring) && /Trust \d+/.test(cardAfter) && /Liar \d+/.test(cardAfter), `${cardDuring.replace(/\n+/g, ' | ')} → ${cardAfter.replace(/\n+/g, ' | ')}`);
@@ -703,11 +720,11 @@ async (page) => {
         await toPicker(p);
         await layout(p, 'trap step', vp);
         await p.getByRole('button', { name: 'Centre' }).click();
-        await p.locator('#end select.picker').selectOption('spikes');
+        await pick(p, 'Spikes');
         await p.locator('#end .btn--primary').click();
         await p.waitForFunction(() => /Your trap/.test(document.getElementById('end').innerText));
         await layout(p, 'plate', vp);
-        await p.locator('#end .carvings__open').click();
+        await tap(p, 'carvings__open');
         await layout(p, 'carvings', vp);
         await p.locator('#end .carvings__row').first().click();
         await layout(p, 'card', vp);
@@ -862,13 +879,13 @@ async (page) => {
       await toPlate(p);
       const plate = await endText(p);
       const maps = await p.locator('#end .minimap').count();
-      await p.locator('#end .board__open').click();
+      await tap(p, 'board__open');
       await p.waitForSelector('#end .board__row');
       const inside = await p.evaluate(() => ({ you: [...document.querySelectorAll('#end .board__row--you')].length, gap: !!document.querySelector('#end .board__gap'), rows: document.querySelectorAll('#end .board__row').length }));
       check('the already-played plate: streak, live count, countdown, mini-map, Board and Chronicle', /Streak 1 floor/.test(plate) && /fell here today/.test(plate) && /next floor in \dh/.test(plate) && maps === 1, plate.slice(0, 200));
       check('the board with you inside the top rows: your row marked, no gap', inside.you === 1 && !inside.gap && inside.rows === 6, JSON.stringify(inside));
       await p.locator('#end .btn--primary').click(); // Back
-      await p.locator('#end .carvings__open').click();
+      await tap(p, 'carvings__open');
       await p.locator('#end .carvings__row').first().click();
       await p.waitForFunction(() => /Deaths/.test(document.getElementById('card').innerText));
       const card = (await p.locator('#card').innerText()).replace(/\n+/g, ' | ');
@@ -880,12 +897,12 @@ async (page) => {
       const { ctx, p } = await raw({ width: 390, height: 844 }, `${URL}?board=40`);
       await ready(p);
       await toPlate(p);
-      await p.locator('#end .board__open').click();
+      await tap(p, 'board__open');
       await p.waitForSelector('#end .board__row');
       const outside = await p.evaluate(() => ({ you: document.querySelector('#end .board__row--you')?.textContent, gap: !!document.querySelector('#end .board__gap'), rows: document.querySelectorAll('#end .board__row').length }));
       check('the board with you outside the top rows: top 10, a gap, then your row and rank', outside.gap && outside.rows === 11 && /^41/.test(outside.you ?? ''), JSON.stringify(outside));
       await p.locator('#end .btn--primary').click();
-      await p.locator('#end .chronicle__open').click();
+      await tap(p, 'chronicle__open');
       await p.waitForFunction(() => /Chronicle/.test(document.getElementById('end').innerText));
       check('the Chronicle opens from the plate', /ledger/.test(await endText(p)), (await endText(p)).slice(0, 100));
       await ctx.close();
@@ -914,11 +931,11 @@ async (page) => {
           if (q.includes('board')) {
             await toPlate(p);
             await layout(p, 'plate', vp);
-            await p.locator('#end .board__open').click();
+            await tap(p, 'board__open');
             await p.waitForSelector('#end .board__row');
             await layout(p, 'board', vp);
             await p.locator('#end .btn--primary').click();
-            await p.locator('#end .chronicle__open').click();
+            await tap(p, 'chronicle__open');
             await p.waitForFunction(() => /Chronicle/.test(document.getElementById('end').innerText));
             await layout(p, 'chronicle', vp);
           }
@@ -950,7 +967,7 @@ async (page) => {
     const text = async (p, sel = '#end') => (await p.locator(sel).innerText()).replace(/\n+/g, ' | ');
     const W = `${URL}?floor=warden`;
     for (const [state, want, meter] of [
-      ['alive', /The Warden waits, chained\. \| 84 of 120 links \| Bump it to break a link\. Stairs are open\./, '84'],
+      ['alive', /The Warden waits, chained\. \| 84 of 120 links \| Walk into it: each bump breaks one link \(30 a run at most\)\. Everyone today shares this chain; when it breaks, the Warden falls for all\. Take the stairs whenever you like: your links count either way\./, '84'],
       ['carried', /The Warden returns, still wounded\. \| 40 of 40 links/, '40'],
       ['killed', /The Warden fell to u\/Warden_Slayer_2026\. \| Its arena is quiet\. The stairs are open\./, null],
     ]) {
@@ -970,7 +987,7 @@ async (page) => {
       const before = await p.locator('#hud [aria-label^="Warden chain"]').getAttribute('aria-label');
       await p.evaluate(async () => { for (const a of 'RRR') await window.__descent.act(a); });
       const after = await p.locator('#hud [aria-label^="Warden chain"]').getAttribute('aria-label');
-      check('the HUD chain counts down one link per bump (its HP when the run began, less yours)', before === 'Warden chain: 84 links left' && after === 'Warden chain: 81 links left', `${before} → ${after}`);
+      check('the HUD chain counts down one link per bump (its HP when the run began, less yours), and shows your links', before === 'Warden chain: 84 links left' && after === 'Warden chain: 81 links left, 3 broken by you this run', `${before} → ${after}`);
       await p.evaluate(async () => { for (const a of 'UURRRRRDDDDD') { if (window.__descent.state().ended) break; await window.__descent.act(a); } });
       await p.waitForFunction(() => document.querySelector('#end:not([hidden])'));
       const endT = await text(p);
@@ -1063,13 +1080,13 @@ async (page) => {
       const { ctx, p } = await raw({ width: 390, height: 844 }, W);
       await toPlate(p);
       const flair = p.locator('#end .flair__toggle');
-      const off = (await flair.innerText()) === 'Depth as flair: Off' && (await flair.getAttribute('aria-pressed')) === 'false';
-      await flair.click();
+      const off = (await flair.textContent()) === 'Depth as flair: Off' && (await flair.getAttribute('aria-pressed')) === 'false';
+      await tap(p, 'flair__toggle');
       await p.waitForFunction(() => document.querySelector('#end .flair__toggle')?.getAttribute('aria-pressed') === 'true');
       await p.reload();
       await ready(p);
       await p.waitForFunction(() => /Score/.test(document.getElementById('end').innerText));
-      const kept = (await p.locator('#end .flair__toggle').innerText()) === 'Depth as flair: On';
+      const kept = (await p.locator('#end .flair__toggle').textContent()) === 'Depth as flair: On';
       check('flair is opt-in: Off until you turn it on, and it stays on', off && kept);
       const beacons = await p.evaluate(() => JSON.parse(localStorage.getItem('descent:local:beacons') ?? '[]'));
       const load = beacons.find((b) => b.kind === 'load');
@@ -1077,7 +1094,7 @@ async (page) => {
       check('a load beacon carries the floor, a time, one of four client classes and the load stages, nothing else', load && load.depth === 3 && Number.isInteger(load.ms) && ['ios', 'android', 'mweb', 'desktop'].includes(load.client) && Object.keys(load).sort().join() === 'client,depth,kind,ms,stages' && stageKeys === 'engine,floor,intro,script', JSON.stringify(load));
       let asked = '';
       await p.route('https://www.reddit.com/**', (r) => { asked = r.request().url(); return r.abort(); });
-      await p.locator('#end .report__open').click();
+      await tap(p, 'report__open');
       await p.waitForTimeout(500);
       check('"Something broke?" opens modmail compose to the subreddit, pre-filled with floor, screen and client class', /\/message\/compose\?to=%2Fr%2F/.test(asked) && /Floor%203/.test(asked) && /result%20plate/.test(asked), asked.slice(0, 160));
       await ctx.close();
@@ -1085,7 +1102,7 @@ async (page) => {
     {
       const { ctx, p } = await raw({ width: 390, height: 844 }, W);
       await toPlate(p);
-      await p.locator('#end .board__open').click();
+      await tap(p, 'board__open');
       await p.waitForSelector('#end .forget__open');
       const hasPrivacy = await p.locator('#end .privacy__open').count();
       await p.locator('#end .forget__open').click();
@@ -1124,7 +1141,7 @@ async (page) => {
       await sp.ctx.close();
       const { ctx, p } = await raw({ width: 390, height: 844 }, W);
       await toPlate(p);
-      await p.locator('#end .board__open').click();
+      await tap(p, 'board__open');
       await p.waitForSelector('#end .privacy__open');
       await p.locator('#end .privacy__open').click();
       const t = await text(p);
@@ -1208,7 +1225,7 @@ async (page) => {
         const { ctx, p } = await raw(vp, W);
         await toPlate(p);
         await fit(p, 'plate');
-        await p.locator('#end .board__open').click();
+        await tap(p, 'board__open');
         await p.waitForSelector('#end .forget__open');
         await fit(p, 'board');
         await p.locator('#end .forget__open').click();
@@ -1430,7 +1447,7 @@ async (page) => {
       await dieOut(p);
       await toCard(p);
       const before = await stored(p);
-      await p.locator('#end .chronicle__open').click();
+      await tap(p, 'chronicle__open');
       await p.waitForSelector('#end .chronicle__practice');
       await p.locator('#end .chronicle__practice').first().click();
       await p.waitForFunction(() => !document.getElementById('practice').hidden);
@@ -1457,7 +1474,7 @@ async (page) => {
         if (!endOk) bad.push(`${vp.width}x${vp.height} practice end`);
         await p.getByRole('button', { name: 'Leave practice' }).click();
         await toCard(p);
-        await p.locator('#end .chronicle__open').click();
+        await tap(p, 'chronicle__open');
         await p.waitForSelector('#end .chronicle__practice');
         const chrOk = await p.evaluate(() => [...document.querySelectorAll('#end .chronicle__practice')].every((b) => { const r = b.getBoundingClientRect(); return r.height >= 44 && r.right <= innerWidth + 0.5 && b.scrollWidth <= b.clientWidth + 1; }) && document.documentElement.scrollWidth <= innerWidth);
         if (!chrOk) bad.push(`${vp.width}x${vp.height} chronicle practice buttons`);
@@ -1477,6 +1494,56 @@ async (page) => {
     await p.evaluate(async (path) => { window.__descent.skipAnim(true); for (const a of path) { await window.__descent.act(a); if (window.__descent.state().hearts < 3) break; } }, [...TO_DOOR, 'R', 'R', 'R', 'R', 'R', 'R']);
     const st = await p.evaluate(() => ({ hearts: window.__descent.state().hearts, line: document.getElementById('carving').hidden ? '' : document.getElementById('carving').innerText }));
     check('a hit is named under the HUD with the hearts left (Spikes hit you: 2 hearts left.)', st.hearts === 2 && /Spikes hit you: 2 hearts left\./.test(st.line), JSON.stringify(st));
+    await ctx.close();
+  }
+  // 24. Phase 11e: no heart is lost unseen. For every damage source in the scenes, the cause is on screen on the turn it hits:
+  // the line under the HUD names it (or, on the last heart, the death panel does).
+  {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    await ctx.addInitScript(() => localStorage.setItem('descent:f0', '1')); // the Warden arena, not Floor 0 first
+    const p = await ctx.newPage();
+    await p.goto(URL);
+    await p.waitForFunction(() => window.__descent);
+    const all = await p.evaluate(() => window.__descent.scenes());
+    const byCause = new Map();
+    for (const sc of all) for (const [turn, cause] of sc.hurt) if (!byCause.has(cause)) byCause.set(cause, { id: sc.id, turn, log: sc.log });
+    // Sources no scene's script is hurt by (an archer's arrow, a skeleton, the Warden, the dark, a gate): their scenes, then
+    // standing still until something lands.
+    for (const sc of all) if (!sc.hurt.length && /^(skeletons|mechanisms|dark)-/.test(sc.id)) byCause.set(`any:${sc.id}`, { id: sc.id, turn: 0, log: [...sc.log, ...Array(60).fill('W')] });
+    byCause.set('warden', { id: null, turn: 0, log: [...'DDRRR', ...Array(60).fill('W')] }); // beside the Warden's block
+    byCause.set('dark', { id: 'f0', turn: 0, log: Array(20).fill('W') }); // Floor 0 on a 3-turn torch
+    const NAME = { spikes: /Spikes/, trap: /trap/i, dart: /dart/i, arrow: /arrow/i, pit: /fall|pit/i, warden: /Warden/, goblin: /goblin/i, imp: /imp/i, skeleton: /skeleton/i, dark: /dark/i, gate: /gate/i };
+    const bad = [];
+    const found = new Set();
+    for (const [cause, sc] of byCause) {
+      if (!sc.id) await p.evaluate(() => localStorage.removeItem('descent:local:floor:1')); // the fake server cached a generated Floor 1
+      await p.goto(sc.id && sc.id !== 'f0' ? `${URL}?scene=${sc.id}` : sc.id ? URL : `${URL}?floor=warden&boss=alive`);
+      await p.waitForFunction(() => window.__descent);
+      await p.evaluate(() => window.__descent.ready);
+      if (sc.id === 'f0') await p.evaluate(() => window.__descent.load(0, { torch: 3, mercy: false }));
+      const seen = await p.evaluate(async ({ log }) => {
+        window.__descent.skipAnim(true);
+        document.querySelector('#end.end--intro .btn--primary')?.click();
+        for (const a of log) {
+          const before = window.__descent.state().hearts;
+          await window.__descent.act(a);
+          const s = window.__descent.state();
+          if (s.hearts < before) {
+            await new Promise((r) => setTimeout(r, 50));
+            const line = document.getElementById('carving');
+            const end = document.getElementById('end');
+            return { turn: s.turn, hearts: s.hearts, text: `${line.hidden ? '' : line.innerText} | ${end.hidden ? '' : end.innerText} @${s.pos.x},${s.pos.y} t${s.turn}` };
+          }
+        }
+        return null;
+      }, sc);
+      if (!seen && cause.startsWith('any:')) continue; // nothing reached the hero there
+      const named = Object.entries(NAME).find(([, r]) => /hit you|took you|You fell/.test(seen?.text ?? '') && r.test(seen?.text ?? ''))?.[0];
+      if (named) found.add(named);
+      const re = NAME[cause] ?? /hit you|took you/;
+      if (!seen || !re.test(seen.text) || /Something hit you/.test(seen.text)) bad.push(`${cause} (${sc.id} t${sc.turn}): ${seen ? seen.text.replace(/\s+/g, ' ').slice(0, 90) : 'no hit'}`);
+    }
+    check(`every damage source names its cause on the turn it hits (${[...found].sort().join(', ')})`, found.size >= 9 && bad.length === 0, bad.join(' ; '));
     await ctx.close();
   }
   } catch (e) {

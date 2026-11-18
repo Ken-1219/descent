@@ -320,6 +320,8 @@ export const CURSE_TEXT: Readonly<Record<Curse, { name: string; effect: string }
 };
 /** Trapsetter traps (always open to survivors) and the compass zones they go in (3×3, reading order). */
 export const TRAP_TEXT: Readonly<Record<'spikes' | 'dart' | 'stairs', string>> = { spikes: 'Spikes', dart: 'Dart slit', stairs: 'False stairs' };
+/** Each trap's one-line effect, shown on its choice row (Phase 11e). */
+export const TRAP_EFFECT: Readonly<Record<keyof typeof TRAP_TEXT, string>> = { spikes: 'a heart from whoever steps on it', dart: 'fires along its line when stepped near', stairs: 'look like the way down, cost a heart' };
 export const ZONE_NAMES: readonly string[] = ['North-west', 'North', 'North-east', 'West', 'Centre', 'East', 'South-west', 'South', 'South-east'];
 
 // ---- Phase 8: rollover ----

@@ -611,6 +611,10 @@ Each phase lists Build, Show me (what to open), Checks, and Gate.
 
 - **Built:** CI installs from `bun.lock` (npm had pulled a second @devvit/server and broken the test harness). The Journeys allowlist request is drafted (`docs/superpowers/submission/journeys-request.md`), and RELEASE.md requires an uploaded version for the judged subreddit. Practice mode (A78): "Practice this floor" on the result card and "Practice" on each Chronicle row; nothing is sent or counted; read-only `GET /api/practice`. Blind-playtest fixes (A79): hit, dark-room and item-swap notices, no stray Retry, panel keys guarded, the mute keeps no focus. Proposals: phone framing, digits, imp feedback, Warden marks.
 
+### Phase 11e — Readable on a phone (Nov 18, inserted by the owner)
+
+- **Built:** whole-number zoom that fills the stage, with a camera locked to the hero plus a dead zone (A80). System digits through a `local()` face, so no font download (A81). No heart lost unseen: filled wind-up tiles, a bump flash, attackers shown through the dark, and the cause named on every hit (A82). Warden countdown, plain-words intro, first-turn hint, your links in the HUD and a live shared total (A83). Styled choice rows replace the native selects, and the carving takes two steps (A84). The result card shows its primary action, Practice and one link, with the rest under More (A85). The intro states the torch budget (A86). Timing tests are best-of or median (A87). `?day=N&seed=S` added to the local harness (A88). Second blind playtest (touch, 390×844): action notices, wrapping hints, and a HUD that fits at 320 (A89).
+
 ### Phase 12 — Seed and submit (Dec 6–8)
 
 - Bug fixes only.

@@ -9,6 +9,14 @@
   font-display: block;
 }
 
+/* Phase 11e: digits that can't be mistaken. The pixel font's 3, 5 and 8 read alike at phone size (a blind tester read
+   torch 35 as 88), so 0-9 come from the device's own sans: no download, no font budget. Letters stay pixel. */
+@font-face {
+  font-family: 'Descent Digits';
+  src: local('Helvetica Neue Bold'), local('HelveticaNeue-Bold'), local('Roboto Bold'), local('Roboto-Bold'), local('Segoe UI Bold'), local('SegoeUI-Bold'), local('Arial Bold'), local('Arial-BoldMT'), local('DejaVu Sans Bold'), local('Helvetica Neue'), local('Roboto'), local('Arial');
+  unicode-range: U+0030-0039;
+}
+
 /* Torchlit Ink tokens. Must match PALETTE in src/shared/content.ts (tests/shared.test.ts checks). */
 :root {
   --ink-0: #0d0f14;
@@ -33,8 +41,8 @@
   --t-head: 20px;
   --t-title: 24px;
   --t-display: 48px;
-  --font-ui: 'Pixelify Sans', ui-monospace, monospace;
-  --font-title: 'Jacquard 24', var(--font-ui);
+  --font-ui: 'Descent Digits', 'Pixelify Sans', ui-monospace, monospace;
+  --font-title: 'Descent Digits', 'Jacquard 24', 'Pixelify Sans', ui-monospace, monospace;
   color-scheme: dark;
 }
 
@@ -196,6 +204,7 @@ h3 {
   font-family: var(--font-title);
   font-size: var(--t-title);
   line-height: 1;
+  flex: none;
 }
 
 .hearts {
@@ -216,16 +225,50 @@ h3 {
 .slot--full {
   border-color: var(--bone);
 }
+/* Phase 11e (playtest): on a phone the torch count was pushed under the mute on two-digit floors. */
+@media (max-width: 420px) {
+  .hud {
+    gap: 6px;
+  }
+  .hud .slot {
+    width: 32px;
+    height: 32px;
+  }
+  .hud .hud__mute {
+    padding: 0 4px;
+  }
+}
+@media (max-width: 359px) {
+  .hud {
+    gap: 4px;
+  }
+  .hud .slot {
+    width: 28px;
+    height: 28px;
+  }
+  .hud .hearts {
+    gap: 2px;
+  }
+  .hud .hearts canvas {
+    width: 24px;
+    height: 24px;
+  }
+  .hud .wick__left,
+  .hud .wick__ash {
+    display: none; /* the flame and the count are what a glance reads */
+  }
+}
 
 .wick {
   display: flex;
   align-items: center;
   gap: var(--gap);
   flex: 1;
-  min-width: 72px;
+  min-width: 0; /* the track gives way first, so a two-digit floor never pushes the count under the mute */
 }
 .wick__track {
   flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
   height: 32px;
@@ -239,6 +282,7 @@ h3 {
   border-top: var(--line) dashed var(--stone);
 }
 .wick__count {
+  flex: none;
   min-width: 2ch;
   text-align: right;
   font-size: var(--t-small);
@@ -569,10 +613,7 @@ body:has(#end:not([hidden])) .carving {
   display: none; /* the line is for play; an end panel replaces it */
 }
 .carving span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  min-width: 0; /* wraps: a hint cut off by an ellipsis hid its instruction (Phase 11e playtest) */
 }
 
 /* The ghost card: tap a wisp or press Read. Reading is not an action, so it sits over the game without stopping it. */
@@ -941,7 +982,75 @@ body:has(#end:not([hidden])) .carving {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   gap: var(--gap);
-  align-items: center;
+  align-items: start;
+}
+/* Phase 11e: choice lists (curse, trap, carving) in place of native selects. */
+.choices,
+.choices-step,
+.trap-pick {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.choices {
+  display: grid;
+  gap: 4px;
+}
+/* The carving's phrases: one row that scrolls sideways (touch or arrow keys), so the panel stays as short as a select
+   and the tile where you fell stays in view (Phase 11e). */
+.choices--wrap {
+  grid-auto-flow: column;
+  grid-auto-columns: max-content;
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  padding-bottom: 4px;
+}
+.choices--wrap .btn.choice {
+  scroll-snap-align: start;
+}
+.choices--row {
+  grid-template-columns: repeat(4, var(--tap));
+}
+.btn.choice {
+  justify-content: space-between;
+  flex-wrap: wrap;
+  column-gap: var(--gap);
+  row-gap: 0;
+  padding: 2px var(--gap);
+  text-align: left;
+}
+.choices--row .btn.choice {
+  justify-content: center;
+  padding: 0;
+}
+.choice__note {
+  font-size: var(--t-small);
+  color: var(--stone);
+}
+.btn.choice[aria-pressed='true'] .choice__note {
+  color: inherit;
+}
+.carve-dir {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px;
+}
+.carve-dir[hidden],
+.choices[hidden] {
+  display: none;
+}
+.btn.carve-dir__again {
+  overflow: hidden;
+  white-space: nowrap;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 .compass-pick {
   display: grid;
@@ -1088,6 +1197,23 @@ body:has(#end:not([hidden])) .carving {
   width: auto;
   flex: 1 0 auto; /* wrap rather than clip a label */
 }
+/* Phase 11e: "More" on the result card. Open, its links take the full row under it. */
+.plate__more {
+  display: contents;
+}
+.plate__more > summary {
+  list-style: none;
+}
+.plate__more > summary::-webkit-details-marker {
+  display: none;
+}
+.plate__more[open] > summary {
+  background: var(--bone);
+  color: var(--ink-0);
+}
+.plate__more > .plate__links {
+  flex-basis: 100%;
+}
 .board__data {
   display: flex;
   flex-wrap: wrap;
@@ -1222,6 +1348,15 @@ body:has(#end:not([hidden])) .carving {
   font-size: var(--t-small);
   line-height: 1;
   color: var(--bone);
+  text-shadow: 1px 1px 0 var(--ink-0), -1px -1px 0 var(--ink-0);
+}
+.hud__mine {
+  position: absolute;
+  left: 1px;
+  top: -2px;
+  font-size: var(--t-small);
+  line-height: 1;
+  color: var(--ember);
   text-shadow: 1px 1px 0 var(--ink-0), -1px -1px 0 var(--ink-0);
 }
 .plate__boss {
