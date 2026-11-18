@@ -607,6 +607,10 @@ Each phase lists Build, Show me (what to open), Checks, and Gate.
 
 - **Built:** Devvit Journeys over one run (A72), the splash's date, attribution and stats (A73), one result card with optional steps and a comments link (A74), a newcomer's Floor 0 straight into the intro (A75), cards that fit at 360×640 (A76), the always-today post to pin (A71), the "Nameless delvers per day" setting with its own job (A70). Files: `src/client/journey.ts` (Journeys client, new).
 
+### Phase 11d — Journeys access, practice, blind playtests (Nov 18, inserted by the owner)
+
+- **Built:** CI installs from `bun.lock` (npm had pulled a second @devvit/server and broken the test harness). The Journeys allowlist request is drafted (`docs/superpowers/submission/journeys-request.md`), and RELEASE.md requires an uploaded version for the judged subreddit. Practice mode (A78): "Practice this floor" on the result card and "Practice" on each Chronicle row; nothing is sent or counted; read-only `GET /api/practice`. Blind-playtest fixes (A79): hit, dark-room and item-swap notices, no stray Retry, panel keys guarded, the mute keeps no focus. Proposals: phone framing, digits, imp feedback, Warden marks.
+
 ### Phase 12 — Seed and submit (Dec 6–8)
 
 - Bug fixes only.

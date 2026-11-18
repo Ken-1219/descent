@@ -10,7 +10,7 @@ import { CARVING_CHOICES, carvingOf, ghostView, type GhostRecord, type GhostView
 import { bot } from '../shared/bot';
 import { hash, mulberry32 } from '../shared/rng';
 import { judge, start, step, type Action, type Floor, type RunResult } from '../shared/sim';
-import type { CarvingResponse, Choices, FloorResponse, RunResponse, Standings, TrapResponse, VoteResponse } from '../shared/api';
+import type { PracticeResponse, CarvingResponse, Choices, FloorResponse, RunResponse, Standings, TrapResponse, VoteResponse } from '../shared/api';
 
 type StoredMods = Mods & { seed: number };
 /** `trapSouls`: what this run's replay gave trap owners (so the reset tool can take it back). */
@@ -512,4 +512,19 @@ export async function setFlair(user: string, name: string | null, on: boolean): 
   await redis.hDel('flairOn', [user]);
   if (name) await reddit.removeUserFlair(context.subredditName, name).catch((e: unknown) => console.error(`flair removal failed: ${String(e)}`));
   return false;
+}
+
+/**
+ * Phase 11d: a floor to practise, read-only (nothing here writes). A past floor, or today's only after the caller's own run
+ * is stored, so practice can never scout a live floor. The client never submits a practice run; the server would refuse
+ * it anyway (a past floor is closed, today's already has the caller's run).
+ */
+export async function practiceFor(user: string | undefined, depth: number): Promise<PracticeResponse> {
+  const t = await today();
+  if (!user) return { kind: 'rejected', reason: 'logged out' };
+  if (!Number.isInteger(depth) || depth < 1 || depth > t.day) return { kind: 'rejected', reason: 'no such floor' };
+  if (depth === t.day && !(await redis.hGet(key(depth, 'runs'), user))) return { kind: 'rejected', reason: 'play it first' };
+  const floor = await storedFloor(depth);
+  if (!floor) return { kind: 'rejected', reason: 'no such floor' };
+  return { kind: 'practice', depth, floor, ghosts: await ghostsOf(depth, user) };
 }

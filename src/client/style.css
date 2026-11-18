@@ -809,6 +809,37 @@ body:has(#end:not([hidden])) .carving {
     animation: none;
   }
 }
+/* Phase 11d: practice says so plainly, at the foot of the map, with a way out. */
+.practice {
+  position: absolute;
+  inset: auto 0 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap);
+  margin: 0;
+  padding: 0 var(--gap);
+  background: var(--ink-1);
+  border-top: var(--line) solid var(--gilt);
+  color: var(--gilt);
+  font-size: var(--t-small);
+}
+.practice[hidden] {
+  display: none;
+}
+.practice .btn {
+  width: auto;
+}
+.chronicle__row {
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: var(--gap);
+}
+.end__panel .chronicle__row .chronicle__practice {
+  width: auto;
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: center;
+}
 /* The privacy text in the card itself: it fills the card and scrolls inside it, never the feed. */
 .splash__text {
   grid-row: 1 / -1;

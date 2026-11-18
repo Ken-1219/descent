@@ -16,7 +16,8 @@ Commands are from the project root; `bunx devvit` is the Devvit CLI already in `
 1. You must moderate the subreddit with full permissions.
 2. Install exactly that version: `bunx devvit install r/<players> descent-game@<version>`.
 3. Check it: `bunx devvit list installs r/<players>`.
-4. **No publishing.** The hackathon rules say not to submit the app for publishing; an uploaded, private app qualifies. Never run `devvit publish` or `bun run launch`.
+4. **An uploaded version, never a playtest one.** The judged subreddit must run a version made by `devvit upload` and installed with `devvit install`. Playtest versions (`0.0.1.N`) answer every Devvit Journeys event with `JOURNEY_RECEIPT_DENIED_PLAYTEST` ("not recorded for playtest app"), so they would never count. Once the uploaded version is installed, send the allowlist request in `docs/superpowers/submission/journeys-request.md`. Until Reddit allowlists the app, receipts read `JOURNEY_RECEIPT_DENIED_NOT_ALLOWLISTED`; after, `JOURNEY_RECEIPT_VALID`. The logs show each receipt (`journey <event>: <status>`).
+5. **No publishing.** The hackathon rules say not to submit the app for publishing; an uploaded, private app qualifies. Never run `devvit publish` or `bun run launch`.
 
 ## 3. Start the game there
 1. **Dev tools off:** open the subreddit's settings for the app (subreddit → Mod Tools → Apps → descent-game → Settings). Confirm "Dev tools (reset my run, roll over now, set the Warden's links)" is **off**. Its default is off.

@@ -17,13 +17,16 @@ const boardList = (b: BoardRows, unit: string) => {
 };
 
 /** The Chronicle: a ledger, one line per floor. */
-const chronicleList = (rows: readonly ChronicleRow[], killerName: (k: string) => string) => {
+const chronicleList = (rows: readonly ChronicleRow[], killerName: (k: string) => string, practise: (depth: number) => void) => {
   const list = el('ol', 'chronicle');
   for (const r of rows) {
     const where = r.zone === null ? '' : `, most in the ${ZONE_NAMES[r.zone]?.toLowerCase()}`;
     const curse = r.curse ? ` · ${CURSE_TEXT[r.curse].name}` : '';
     const killer = r.killer ? ` · ${killerName(r.killer)} took the most` : '';
-    list.append(el('li', 'chronicle__row', el('span', 'chronicle__floor', `Floor ${r.depth}`), el('span', '', `${r.fell} fell${where}; ${r.cleared} cleared${curse}${killer}.`)));
+    const go = button('Practice', 'chronicle__practice');
+    go.setAttribute('aria-label', `Practise Floor ${r.depth} (nothing counts)`);
+    go.addEventListener('click', () => practise(r.depth));
+    list.append(el('li', 'chronicle__row', el('span', 'chronicle__floor', `Floor ${r.depth}`), el('span', '', `${r.fell} fell${where}; ${r.cleared} cleared${curse}${killer}.`), go));
   }
   if (!rows.length) list.append(el('li', 'muted', 'The ledger is empty. Floor 1 is still open.'));
   return list;
@@ -95,7 +98,7 @@ export async function boardPanel(end: HTMLElement, depth: number, back: PanelAct
   endPanel(end, { title: 'Board', line: plates || `Floor ${depth}: ${b.today.total} on the board today.`, body: [bar, view, dataLinks(end, () => void boardPanel(end, depth, back))], primary: back });
 }
 
-export async function chroniclePanel(end: HTMLElement, back: PanelAction, killerName: (k: string) => string) {
+export async function chroniclePanel(end: HTMLElement, back: PanelAction, killerName: (k: string) => string, practise: (depth: number) => void) {
   const c = await api.chronicle().catch(() => null);
-  endPanel(end, { title: 'Chronicle', line: c ? 'The ledger of the dead, newest first.' : "Can't reach the Chronicle. Try again.", body: c ? [chronicleList(c.rows, killerName)] : [], primary: back });
+  endPanel(end, { title: 'Chronicle', line: c ? 'The ledger of the dead, newest first. Practise any floor: nothing counts.' : "Can't reach the Chronicle. Try again.", body: c ? [chronicleList(c.rows, killerName, practise)] : [], primary: back });
 }

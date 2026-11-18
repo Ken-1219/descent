@@ -208,6 +208,15 @@ export const endPanel = (
   root.replaceChildren(el('div', 'plate end__panel', el('h1', 'title', p.title), el('p', '', p.line), ...(p.body ?? []), ...(p.status ? [p.status] : []), actions));
   root.classList.toggle('end--clear', !!p.clear); // leaves the map undimmed (the carving picker shows your tile)
   root.hidden = false;
+  // A held key (Space is also Wait) must not press a panel's button the moment it appears: repeats and the first half
+  // second are ignored (Phase 11d: a blind tester lost a death screen to a held Space).
+  const opened = performance.now();
+  actions.addEventListener('keydown', (e) => {
+    if ((e.key === ' ' || e.key === 'Enter') && (e.repeat || performance.now() - opened < 500)) e.preventDefault();
+  });
+  actions.addEventListener('keyup', (e) => {
+    if (e.key === ' ' && performance.now() - opened < 500) e.preventDefault();
+  });
   (p.body?.find((n): n is HTMLElement => n instanceof HTMLSelectElement) ?? primary).focus();
   return primary;
 };
@@ -216,6 +225,7 @@ export const endPanel = (
 export const saveLine = () => {
   const text = el('span');
   const retry = button('Retry', 'save__retry');
+  retry.hidden = true; // only after a save fails (a fresh line, as on the card's vote and trap steps, has nothing to retry)
   const node = el('p', 'save', text, retry);
   node.setAttribute('aria-live', 'polite');
   return {

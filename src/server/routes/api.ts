@@ -1,8 +1,8 @@
 import { Hono } from 'hono';
 import { context } from '@devvit/web/server';
 import { telemetry } from '@devvit/analytics/server/reddit';
-import type { Beacon, FlairResponse, ForgetResponse, BoardResponse, CardResponse, CarvingRequest, ChronicleResponse, PulseResponse, CarvingResponse, FloorResponse, RunRequest, RunResponse, StartRequest, TrapRequest, TrapResponse, VoteResponse } from '../../shared/api';
-import { carve, floorFor, logStart, placeTrap, setFlair, submitRun, today, voteCarving, voteCurse } from '../game';
+import type { PracticeResponse, Beacon, FlairResponse, ForgetResponse, BoardResponse, CardResponse, CarvingRequest, ChronicleResponse, PulseResponse, CarvingResponse, FloorResponse, RunRequest, RunResponse, StartRequest, TrapRequest, TrapResponse, VoteResponse } from '../../shared/api';
+import { carve, floorFor, logStart, placeTrap, practiceFor, setFlair, submitRun, today, voteCarving, voteCurse } from '../game';
 import { beacon, beaconNote, count } from '../health';
 import { purge } from '../privacy';
 import { boardsFor, cardFor, chronicle, pulse } from '../boards';
@@ -165,4 +165,11 @@ api.post('/telemetry/journey/:kind', async (c) => {
   if (!r) return c.json({ error: 'unknown journey event' }, 400);
   c.set('note', `journey ${kind}${b.action ? ` ${str(b.action)}` : ''}: ${r.receipt.status}${r.receipt.message ? ` (${r.receipt.message.slice(0, 80)})` : ''}`);
   return c.json(r);
+});
+
+// Phase 11d: practice. Read-only: a floor and its ghosts to replay; nothing is written and no funnel step counts.
+api.get('/practice', async (c) => {
+  const r = await practiceFor(context.userId, Number(c.req.query('depth')));
+  c.set('note', `practice d${c.req.query('depth') ?? '-'}: ${r.kind === 'practice' ? 'served (nothing saved)' : r.reason}`);
+  return c.json<PracticeResponse>(r);
 });

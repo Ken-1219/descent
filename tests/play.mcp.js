@@ -1175,7 +1175,7 @@ async (page) => {
       const { ctx, p } = await raw({ width: 390, height: 844 }, W, { f0: false });
       await ready(p);
       const line = await text(p, '#carving').catch(() => '');
-      check('stranger mid-day on a Warden floor: Floor 0 first, and it says it is practice that opens the day\'s floor', /Practice first: reach the stairs to open Floor 3\./.test(line), line);
+      check('stranger mid-day on a Warden floor: Floor 0 first, and it says it is practice (short enough not to be cut off)', /^Practice first: find the stairs\.$/.test(line.trim()), line);
       await ctx.close();
     }
     {
@@ -1381,6 +1381,102 @@ async (page) => {
     await p.waitForFunction(() => !document.getElementById('go').disabled);
     const t = await p.evaluate(() => ({ text: document.querySelector('.splash__card').innerText, fits: document.documentElement.scrollWidth <= innerWidth && document.querySelector('.splash__foot').getBoundingClientRect().bottom <= innerHeight + 0.5 }));
     check('splash essentials at 320×320: name, description, floor, date, attribution and today\'s stats, all on the card', /Descent/.test(t.text) && /A daily dungeon/.test(t.text) && /Floor \d+/.test(t.text) && /\d{1,2} [A-Z][a-z]{2}/.test(t.text) && /by u\//.test(t.text) && /\d+ fell here today · \d+ carved a warning/.test(t.text) && t.fits, t.text.replace(/\n+/g, ' | '));
+    await ctx.close();
+  }
+
+  // 22. Phase 11d: practice. Today's floor from its card (after your run) and past floors from the Chronicle; nothing counts
+  {
+    const at = async (vp, q, day = 3) => {
+      const ctx = await browser.newContext({ viewport: vp });
+      await ctx.addInitScript((day) => { if (!sessionStorage.getItem('s')) { sessionStorage.setItem('s', '1'); localStorage.setItem('descent:f0', '1'); localStorage.setItem('descent:local:day', String(day)); } }, day);
+      const p = await ctx.newPage();
+      p.on('pageerror', (e) => errs.push(String(e)));
+      await p.goto(`${URL}${q}`);
+      await p.waitForFunction(() => window.__descent);
+      await p.evaluate(() => window.__descent.ready);
+      return { ctx, p };
+    };
+    // The local fake server caches a floor it generates (as the real server stores floors); that cache is not a write by practice.
+    const stored = (p) => p.evaluate(() => JSON.stringify(Object.keys(localStorage).filter((k) => k.startsWith('descent:local:') && !k.endsWith(':beacons') && !k.startsWith('descent:local:floor:')).sort().map((k) => [k, localStorage.getItem(k)])));
+    const dieOut = (p) => p.evaluate(async () => { window.__descent.skipAnim(true); for (let i = 0; i < 1500 && !window.__descent.state().ended; i++) await window.__descent.act('W'); });
+    {
+      const { ctx, p } = await at({ width: 390, height: 844 }, '?ghosts=20');
+      await p.locator('#end .btn--primary').click();
+      await dieOut(p);
+      await toCard(p);
+      const before = await stored(p);
+      const secondary = await p.locator('#end .end__actions .btn:not(.btn--primary)').innerText();
+      await p.getByRole('button', { name: 'Practice this floor' }).click();
+      const tag = await p.locator('#practice').innerText();
+      const st = await p.evaluate(() => ({ turn: window.__descent.state().turn, ghosts: window.__descent.ghosts().list.length, panel: !document.getElementById('end').hidden }));
+      const carved = await p.evaluate(() => window.__descent.ghosts().list.find((g) => g.carving && !g.mine)?.id);
+      if (carved) await p.evaluate((id) => window.__descent.card(id), carved);
+      const card = carved ? await p.locator('#card').innerText() : '';
+      const voteButtons = carved ? await p.locator('#card').getByRole('button', { name: /^(Trust|Liar)/ }).count() : 0;
+      if (carved) await p.keyboard.press('Escape');
+      await dieOut(p);
+      await p.waitForFunction(() => /Practice: you fell/.test(document.getElementById('end').innerText));
+      const over = await p.locator('#end').innerText();
+      const after = await stored(p);
+      await p.getByRole('button', { name: 'Leave practice' }).click();
+      await toCard(p);
+      const back = await p.evaluate(() => ({ tag: document.getElementById('practice').hidden, text: document.getElementById('end').innerText }));
+      check('practice from the result card: plainly labelled, the floor\'s ghosts show, no votes, nothing stored; Leave returns to the card', secondary === 'Practice this floor' && /Practice · nothing counts/.test(tag) && /Leave/.test(tag) && st.turn === 0 && !st.panel && st.ghosts > 0 && voteButtons === 0 && /nothing was saved/.test(over) && /Practice again/.test(over) && before === after && back.tag && /Score/.test(back.text), JSON.stringify({ secondary, tag, st, card: card.slice(0, 60), same: before === after }));
+      await ctx.close();
+    }
+    {
+      const { ctx, p } = await at({ width: 390, height: 844 }, '?floor=warden&boss=alive');
+      await p.locator('#end .btn--primary').click();
+      await dieOut(p);
+      await toCard(p);
+      const before = await stored(p);
+      await p.locator('#end .chronicle__open').click();
+      await p.waitForSelector('#end .chronicle__practice');
+      await p.locator('#end .chronicle__practice').first().click();
+      await p.waitForFunction(() => !document.getElementById('practice').hidden);
+      const st = await p.evaluate(() => ({ floor: window.__descent.state().floor, warden: window.__descent.state().enemies.length, hud: document.getElementById('hud').innerText }));
+      await p.getByRole('button', { name: 'Leave' }).click();
+      await p.waitForSelector('#end .chronicle__practice');
+      const after = await stored(p);
+      check('practice a past (Warden) floor from the Chronicle: the past floor with its Warden, labelled, nothing stored; Leave returns to the Chronicle', st.floor === 2 && st.warden >= 1 && !/links/.test(st.hud) && before === after, JSON.stringify(st));
+      await ctx.close();
+    }
+    {
+      const bad = [];
+      for (const vp of [{ width: 320, height: 320 }, { width: 375, height: 667 }, { width: 1280, height: 800 }]) {
+        const { ctx, p } = await at(vp, '?ghosts=20');
+        await p.locator('#end .btn--primary').click();
+        await dieOut(p);
+        await toCard(p);
+        await p.getByRole('button', { name: 'Practice this floor' }).click();
+        const tagOk = await p.evaluate(() => { const t = document.getElementById('practice').getBoundingClientRect(); const b = document.querySelector('#practice .btn').getBoundingClientRect(); return t.right <= innerWidth + 0.5 && t.bottom <= innerHeight + 0.5 && b.height >= 44 && document.documentElement.scrollWidth <= innerWidth; });
+        if (!tagOk) bad.push(`${vp.width}x${vp.height} practice notice`);
+        await dieOut(p);
+        await p.waitForFunction(() => /Practice: you fell/.test(document.getElementById('end').innerText));
+        const endOk = await p.evaluate(() => { const panel = document.querySelector('#end .end__panel'); const prim = panel.querySelector('.btn--primary').getBoundingClientRect(); return prim.bottom <= innerHeight + 0.5 && prim.top >= 0 && document.documentElement.scrollWidth <= innerWidth; });
+        if (!endOk) bad.push(`${vp.width}x${vp.height} practice end`);
+        await p.getByRole('button', { name: 'Leave practice' }).click();
+        await toCard(p);
+        await p.locator('#end .chronicle__open').click();
+        await p.waitForSelector('#end .chronicle__practice');
+        const chrOk = await p.evaluate(() => [...document.querySelectorAll('#end .chronicle__practice')].every((b) => { const r = b.getBoundingClientRect(); return r.height >= 44 && r.right <= innerWidth + 0.5 && b.scrollWidth <= b.clientWidth + 1; }) && document.documentElement.scrollWidth <= innerWidth);
+        if (!chrOk) bad.push(`${vp.width}x${vp.height} chronicle practice buttons`);
+        await ctx.close();
+      }
+      check('layout 320×320 to 1280×800: the practice notice, the practice end panel and the Chronicle\'s Practice buttons fit', bad.length === 0, bad.join(' ; '));
+    }
+  }
+
+  // 23. Phase 11d (blind playtest): damage says what hit you and the hearts left, on the turn it happens
+  {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    const p = await ctx.newPage();
+    await p.goto(URL);
+    await p.waitForFunction(() => window.__descent);
+    await p.evaluate(() => window.__descent.ready);
+    await p.evaluate(async (path) => { window.__descent.skipAnim(true); for (const a of path) { await window.__descent.act(a); if (window.__descent.state().hearts < 3) break; } }, [...TO_DOOR, 'R', 'R', 'R', 'R', 'R', 'R']);
+    const st = await p.evaluate(() => ({ hearts: window.__descent.state().hearts, line: document.getElementById('carving').hidden ? '' : document.getElementById('carving').innerText }));
+    check('a hit is named under the HUD with the hearts left (Spikes hit you: 2 hearts left.)', st.hearts === 2 && /Spikes hit you: 2 hearts left\./.test(st.line), JSON.stringify(st));
     await ctx.close();
   }
   } catch (e) {

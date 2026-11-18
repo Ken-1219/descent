@@ -168,6 +168,12 @@ export const local: Api = {
   // Phase 10b: beacons are kept for the e2e checks; flair and "Delete my data" act on this profile.
   beacon: async (b) => write('beacons', [...(read<unknown[]>('beacons') ?? []), b]),
   flair: async (on) => (write('flair', on), { on }),
+  practice: async (depth) => {
+    net();
+    if (depth < 1 || depth > day()) return { kind: 'rejected', reason: 'no such floor' };
+    if (depth === day() && !runOf(depth)) return { kind: 'rejected', reason: 'play it first' };
+    return { kind: 'practice', depth, floor: floorOf(depth), ghosts: withVotes(depth, ghostsOf(depth)) };
+  },
   forget: async () => {
     for (let d = 1; d <= day(); d++) for (const k of ['run', 'ghost', 'carving', 'votes', 'curse', 'trap']) localStorage.removeItem(`${K}${k}:${d}`);
     return { floors: day() };

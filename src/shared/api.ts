@@ -84,3 +84,6 @@ export type LoadStages = { script: number; floor: number; engine: number; intro:
 export type FlairRequest = { on: boolean };
 export type FlairResponse = { on: boolean };
 export type ForgetResponse = { floors: number };
+
+// Phase 11d: practice. A floor to replay that saves nothing: a past floor, or today's once your own run is in.
+export type PracticeResponse = { kind: 'practice'; depth: number; floor: Floor; ghosts: GhostView } | { kind: 'rejected'; reason: string };

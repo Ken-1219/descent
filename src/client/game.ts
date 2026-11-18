@@ -108,6 +108,27 @@ let boss: BossView | null = day !== 'error' && (day.kind === 'play' || day.kind 
 let shown: GhostView = NONE;
 const lowTorch = (t: number) => t * 100 <= state.floor.torch * TORCH_LOW_PCT;
 let lastTorch = Infinity;
+/**
+ * Phase 11d (blind playtest): a turn's news under the HUD. What hurt you and the hearts left; that a dark room burns the torch
+ * faster (once per floor); that picking up an item left the one you held. Words only: the rules are untouched.
+ */
+let notice: { turn: number; text: string } | null = null;
+const darkSeen = new Set<string>();
+const ITEM_WORD: Record<string, string> = { potion: 'potion', oil: 'lamp oil', bomb: 'bomb' };
+const HURT_BY: Record<string, string> = { gate: 'A closing gate', trap: 'A trap', spikes: 'Spikes', dart: 'A dart', arrow: 'An arrow', dark: 'The dark', pit: 'The fall', warden: 'The Warden', goblin: 'A goblin', imp: 'An imp', skeleton: 'A skeleton', bomb: 'The blast' };
+function noticeOf(events: readonly { t: string }[], prevItem: string | null, s: typeof state): { turn: number; text: string } | null {
+  const hurt = events.find((e): e is { t: 'hurt'; cause: string } => e.t === 'hurt' && 'cause' in e);
+  if (hurt && s.hearts > 0) return { turn: s.turn, text: `${HURT_BY[hurt.cause] ?? 'Something'} hit you: ${s.hearts} ${s.hearts === 1 ? 'heart' : 'hearts'} left.` };
+  const got = events.find((e): e is { t: 'pickup'; item: string } => e.t === 'pickup' && 'item' in e);
+  if (got && prevItem && prevItem !== got.item) return { turn: s.turn, text: `You took the ${ITEM_WORD[got.item] ?? got.item}; your ${ITEM_WORD[prevItem] ?? prevItem} is left here.` };
+  const room = s.floor.dark?.find((r) => s.pos.x >= r.x && s.pos.x < r.x + r.w && s.pos.y >= r.y && s.pos.y < r.y + r.h);
+  const key = room && `${s.floor.depth}:${room.x},${room.y}`;
+  if (key && !darkSeen.has(key)) {
+    darkSeen.add(key);
+    return { turn: s.turn, text: 'A dark room: your torch burns faster here. Light a brazier to end it.' };
+  }
+  return null;
+}
 let torchTurn = -1;
 let pack: HTMLCanvasElement | null = null;
 void loadPack().then((p) => {
@@ -128,6 +149,7 @@ const showMute = () => {
 mute.addEventListener('click', () => {
   sound.toggle();
   showMute();
+  mute.blur(); // Space is Wait: a focused mute must not toggle on the next turn
 });
 showMute();
 $('hud').append(mute);
@@ -211,6 +233,34 @@ function trapNews(t: MyTrap) {
   return t.hurt || t.killed ? `Your ${name} hurt ${t.hurt} and took ${t.killed} here.` : `Your ${name} ${one ? 'waits' : 'wait'} here; nobody has stepped on ${one ? 'it' : 'them'} yet.`;
 }
 const practice: PanelAction = { label: 'Practice Floor 0', run: () => play(FLOOR_0, null) };
+
+// ---- Phase 11d: practice. A floor played again where nothing counts: no run, ghost, vote, trap, board entry, soul, streak,
+// funnel step or journey event is sent (the run never leaves this page). Its ghosts and carvings show, read-only. ----
+let practising: { depth: number; back: () => void; ghosts: GhostView } | null = null;
+let replayPlate = false;
+const practiceTag = $('practice');
+/** Practise a floor: today's from its result card (after your run), a past one from the Chronicle. */
+function practise(depth: number, f: Floor, ghosts: GhostView, back: () => void) {
+  practising = { depth, back, ghosts };
+  journey.end(plate?.run.outcome === 'won', plate?.run.score ?? 0); // a real run's journey never spans practice
+  play(f, null);
+  practiceTag.hidden = false;
+}
+function leavePractice() {
+  if (!practising) return;
+  const { back } = practising;
+  practising = null;
+  practiceTag.hidden = true;
+  replayPlate = true; // the card's map shows your real run again, not the practice
+  back();
+}
+practiceTag.querySelector('button')?.addEventListener('click', leavePractice);
+/** A past floor's practice, fetched only when asked (nothing loads for a player who never practises). */
+async function practisePast(depth: number, back: () => void) {
+  const r = await api.practice(depth).catch(() => null);
+  if (!r || r.kind !== 'practice') return endPanel(end, { title: 'Practice', line: r?.reason === 'play it first' ? 'Play today\'s floor first; then you can practise it.' : "Can't open that floor. Try again.", primary: { label: 'Back', run: back } });
+  practise(r.depth, r.floor, r.ghosts, back);
+}
 const fellLine = (n: number) => (n === 1 ? '1 fell here today.' : `${n} fell here today.`);
 let played: RunResult | null = null;
 /** Resolves true once the day's run is stored; a carving waits on it (§15.1: play never waits on the network). */
@@ -218,6 +268,15 @@ let runSaved: Promise<boolean> = Promise.resolve(false);
 
 const finish = (ended: End) => {
   const title = ended.kind === 'won' ? `Floor ${state.floor.depth} cleared` : 'You fell';
+  if (practising) {
+    const p = practising;
+    return endPanel(end, {
+      title: ended.kind === 'won' ? `Practice: Floor ${p.depth} cleared` : 'Practice: you fell',
+      line: `${endLine(ended, state.turn)} Practice: nothing was saved.`,
+      primary: { label: 'Practice again', run: () => play(state.floor, null) },
+      secondary: { label: 'Leave practice', run: leavePractice },
+    });
+  }
   if (!live) {
     const first = state.floor.depth === 0 && !store.get(F0_KEY);
     if (first) void api.start({ depth: 0 }).catch(() => undefined); // tutorial seen, on the server
@@ -354,7 +413,8 @@ async function result(prefetched?: FloorResponse) {
   played = r.run;
   runSaved = Promise.resolve(true); // the server sent it, so it is stored: a carving made from this plate goes straight out
   const mine = r.ghosts.list.find((g) => g.mine);
-  if (state.floor.depth !== r.depth) {
+  if (state.floor.depth !== r.depth || replayPlate) {
+    replayPlate = false;
     // The plate's map is the day's floor: your run replayed if this device kept its log, else you stand on your ghost.
     floor = r.floor;
     live = null;
@@ -395,7 +455,8 @@ async function result(prefetched?: FloorResponse) {
   if (others) link(`Carvings (${others})`, 'carvings__open', () => carvingsPanel(r.depth));
   const back = { label: 'Back', run: () => void result(plate ?? undefined) };
   link('Board', 'board__open', () => void boardPanel(end, r.depth, back));
-  link('Chronicle', 'chronicle__open', () => void chroniclePanel(end, back, killerName));
+  const toChronicle = () => void chroniclePanel(end, back, killerName, (d) => void practisePast(d, toChronicle));
+  link('Chronicle', 'chronicle__open', toChronicle);
   // Phase 10b: depth as flair is opt-in (A55); a broken thing is two taps from modmail (A58).
   let flairOn = !!r.flair;
   const flairLabel = () => `Depth as flair: ${flairOn ? 'On' : 'Off'}`;
@@ -433,7 +494,9 @@ async function result(prefetched?: FloorResponse) {
   const talk: PanelAction | null = comments ? { label: 'See the comments', run: () => go(comments) } : null;
   const first = next ?? onward ?? talk ?? practice;
   if (first === talk) links.querySelector('.comments__open')?.remove();
-  endPanel(end, { title, line, body, primary: first, ...(first !== practice ? { secondary: practice } : {}) });
+  // Phase 11d: the floor you just played, again, where nothing counts (never before your own run: you are on its card).
+  const practiceAgain: PanelAction = { label: 'Practice this floor', run: () => practise(r.depth, r.floor, r.ghosts, () => void result()) };
+  endPanel(end, { title, line, body, primary: first, secondary: practiceAgain });
   if (!next) journey.end(r.run.outcome === 'won', r.run.score); // Phase 11c: the run's journey closes once no choice is left
   watch(r.depth, r.nextAt, fellNow, clock, bossNow); // after the plate is in the page: the clock stops once it leaves
 }
@@ -537,7 +600,7 @@ function again() {
 /** Floor 0 shows its scripted ghosts, the day's floor the crowd's, dev floors none. */
 function setGhosts(g: GhostView) {
   dayGhosts = g;
-  shown = state.floor.depth === 0 ? SCRIPTED : devFloor ? NONE : g;
+  shown = state.floor.depth === 0 ? SCRIPTED : devFloor ? NONE : practising ? practising.ghosts : g;
   scene.setGhosts(shown);
   nearby();
 }
@@ -600,7 +663,7 @@ function intro() {
     body: [
       ...warden,
       introCompass(deaths, danger),
-      el('p', 'intro__legend muted', deaths ? '☠ fell yesterday · ▲ danger today' : '▲ danger today'),
+      el('p', 'intro__legend muted', `${deaths ? '☠ fell yesterday · ' : ''}▲ danger today · red frame: most danger`),
       ...lines.map((t) => el('p', 'intro__line', t)),
       ...(fresh ? [el('p', 'intro__new', `New today: ${fresh}.`)] : []),
     ],
@@ -617,10 +680,16 @@ function intro() {
 function nearby() {
   const near = shown.list.filter((g) => g.carving && reach(g) <= 1);
   const g = near[0];
+  // Phase 11d: what just happened, said on the turn it happened (a torch event first, then this, then a carving).
+  if (notice?.turn === state.turn && !state.ended && !(torchTurn === state.turn && lowTorch(state.torch))) {
+    carvingLine.replaceChildren(el('span', '', notice.text));
+    carvingLine.hidden = false;
+    return;
+  }
   if (!g?.carving || (torchTurn === state.turn && lowTorch(state.torch))) {
     // Phase 10b (A61): a newcomer's Floor 0 says it is practice, and what it opens, so the day's post doesn't look skipped.
     const practiceFirst = !lowTorch(state.torch) && state.floor.depth === 0 && playable;
-    carvingLine.replaceChildren(el('span', '', practiceFirst ? `Practice first: reach the stairs to open Floor ${playable.depth}.` : state.torch > 0 ? `Torch low: ${state.torch} turns of light left.` : 'Torch out: the dark is taking your hearts.'));
+    carvingLine.replaceChildren(el('span', '', practiceFirst ? `Practice first: find the stairs.` : state.torch > 0 ? `Torch low: ${state.torch} turns of light left.` : 'Torch out: the dark is taking your hearts.'));
     carvingLine.hidden = !!state.ended || (!practiceFirst && !lowTorch(state.torch));
     return;
   }
@@ -654,7 +723,7 @@ function openCard(g: Ghost, onClose?: () => void) {
   };
   afterCard = onClose;
   // Votes: only on the day's floor, never on Floor 0's scripted ghosts or your own; open once your run there has ended.
-  const real = state.floor.depth > 0 && !devFloor && !!g.carving && !g.mine;
+  const real = state.floor.depth > 0 && !devFloor && !practising && !!g.carving && !g.mine; // practice: read-only
   const ended = plate !== null && plate.depth === state.floor.depth;
   const depth = state.floor.depth;
   const votes = !real ? undefined
@@ -695,6 +764,7 @@ const run = async (a: Action) => {
   busy = true;
   inputAt = performance.now();
   requestAnimationFrame(() => (inputToMotion = performance.now() - inputAt));
+  const prevItem = state.item;
   const r = step(state, a);
   // Only actions that change state are logged: a free bump would make a log unbounded, and the server rejects one.
   if (live && r.state !== state) {
@@ -707,6 +777,7 @@ const run = async (a: Action) => {
     store.set(logKey(live), live.log);
   }
   state = r.state;
+  notice = noticeOf(r.events, prevItem, state); // before view(): the line under the HUD reads it this turn
   view();
   if (r.events.some((e) => e.t === 'hurt')) stopRepeat();
   lastSound = sound.play(r.events);
@@ -733,6 +804,7 @@ addEventListener('keydown', (e) => {
   }
   const a = KEYS[e.key];
   if (!a || !end.hidden) return;
+  if (document.activeElement instanceof HTMLElement && document.activeElement.closest('#hud, #practice')) document.activeElement.blur();
   e.preventDefault();
   if (e.repeat) return;
   act(a);
