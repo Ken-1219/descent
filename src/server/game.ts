@@ -1,6 +1,6 @@
 // Redis reads and writes for floors and runs. Routes pass identity in from the Devvit context; nothing here trusts a body.
 import { context, reddit, redis } from '@devvit/web/server';
-import { BOARD, CURSES, GHOSTS, NAMELESS, TRAP_TEXT, type Curse } from '../shared/content';
+import { BOARD, CURSES, GHOSTS, NAMELESS, TEACH, TRAP_TEXT, type Curse } from '../shared/content';
 import { trapHits, trapSouls, type Tally } from '../shared/crowd';
 import { nextRollover } from './boards';
 import { bossView, fallen, strike, unstrike } from './boss';
@@ -86,22 +86,24 @@ export async function floorFor(user: string | undefined, depth: number | null): 
   if (!stored) return { kind: 'none' };
   const boss = isWardenFloor(d) ? await bossView(d, user, () => playersOn(d - 1)) : undefined;
   const floor = boss?.killer ? withoutWarden(stored) : stored;
-  const [mine, resets, tutorial, trapped] = await Promise.all([
+  const [mine, resets, tutorial, trapped, seen] = await Promise.all([
     redis.hGet(key(d, 'runs'), user),
     redis.hGet(key(d, 'resets'), user),
     redis.hGet('tutorial', user),
     myTrap(d, user, floor),
+    redis.hGet('hints', user),
   ]);
+  const hints = Number(seen ?? 0);
   const attempt = Number(resets ?? 0);
   if (mine) {
     // Your run has ended here, so the carvings' Trust and Liar totals (and your own votes) come with the ghosts.
     const ghosts = await withVotes(d, user, await ghostsOf(d, user));
     const [streakRaw, flairOn] = await Promise.all([redis.hGet('streak', user), redis.hGet('flairOn', user)]);
     const streak = JSON.parse(streakRaw ?? '{"n":0}').n;
-    return { kind: 'played', depth: d, seed: floor.seed ?? 0, floor, run: result(JSON.parse(mine)), ghosts, live: d === t.day, attempt, choices: await choicesOf(d, user), myTrap: trapped, streak, nextAt: nextRollover(Date.now()), flair: !!flairOn, ...(d === t.day ? {} : { today: t.day, todayUrl: postUrl(t.postId) }), ...(boss ? { boss } : {}) };
+    return { kind: 'played', depth: d, seed: floor.seed ?? 0, floor, run: result(JSON.parse(mine)), ghosts, live: d === t.day, attempt, choices: await choicesOf(d, user), myTrap: trapped, streak, nextAt: nextRollover(Date.now()), flair: !!flairOn, hints, ...(d === t.day ? {} : { today: t.day, todayUrl: postUrl(t.postId) }), ...(boss ? { boss } : {}) };
   }
   if (d < t.day) return { kind: 'closed', depth: d, today: t.day, todayUrl: postUrl(t.postId) };
-  return { kind: 'play', depth: d, seed: floor.seed ?? 0, floor, ghosts: await ghostsOf(d, user), attempt, tutorial: !!tutorial, myTrap: trapped, ...(boss ? { boss } : {}) };
+  return { kind: 'play', depth: d, seed: floor.seed ?? 0, floor, ghosts: await ghostsOf(d, user), attempt, tutorial: !!tutorial, myTrap: trapped, hints, ...(boss ? { boss } : {}) };
 }
 
 /** Your trap on this floor (set yesterday) and what it has done so far: hurt and killed (A28). */
@@ -503,6 +505,14 @@ export async function drainFlair(depth: number, limit: number, batch: number): P
 }
 
 /** Depth as flair (A55): on is applied by the next flair job; off removes your flair now. */
+/** Phase 11f: one thing taught (its TEACH index) joins the player's bitmask. Null for a bit that names nothing. */
+export async function seeHint(user: string, bit: number): Promise<number | null> {
+  if (!Number.isInteger(bit) || bit < 0 || bit >= TEACH.length) return null;
+  const hints = Number((await redis.hGet('hints', user)) ?? 0) | (1 << bit);
+  await redis.hSet('hints', { [user]: String(hints) });
+  return hints;
+}
+
 export async function setFlair(user: string, name: string | null, on: boolean): Promise<boolean> {
   if (on) {
     await redis.hSet('flairOn', { [user]: '1' });

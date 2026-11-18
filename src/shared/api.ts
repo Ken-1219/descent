@@ -15,8 +15,8 @@ export type MyTrap = { kind: Trap['kind']; x: number; y: number; hurt: number; k
 /** GET /api/floor. The depth is the post's own (postData), so an old post shows its floor as closed. */
 export type FloorResponse =
   /** `attempt`: how often the mod reset tool cleared this player's run here (keys the client's saved log). */
-  | { kind: 'play'; depth: number; seed: number; floor: Floor; ghosts: GhostView; attempt: number; tutorial: boolean; myTrap: MyTrap; boss?: BossView }
-  | { kind: 'played'; depth: number; seed: number; floor: Floor; run: RunResult; ghosts: GhostView; live: boolean; attempt: number; choices: Choices; myTrap: MyTrap; streak: number; nextAt: number; flair?: boolean; today?: number; todayUrl?: string | null; boss?: BossView }
+  | { kind: 'play'; depth: number; seed: number; floor: Floor; ghosts: GhostView; attempt: number; tutorial: boolean; myTrap: MyTrap; boss?: BossView; hints?: number }
+  | { kind: 'played'; depth: number; seed: number; floor: Floor; run: RunResult; ghosts: GhostView; live: boolean; attempt: number; choices: Choices; myTrap: MyTrap; streak: number; nextAt: number; flair?: boolean; today?: number; todayUrl?: string | null; boss?: BossView; hints?: number }
   /** A "Post Floor 0" post: the tutorial, never stored or submitted. */
   | { kind: 'practice' }
   | { kind: 'closed'; depth: number; today: number; todayUrl: string | null }
@@ -81,6 +81,9 @@ export type Beacon =
   | { kind: 'step'; depth: number; step: 'splash' | 'descend' };
 /** A load's stages, ms from page start: the game script running, the floor response, Phaser and the scene, the intro readable. */
 export type LoadStages = { script: number; floor: number; engine: number; intro: number };
+/** Phase 11f: POST /api/hint marks one thing taught (its index in TEACH); the reply is every bit seen so far. */
+export type HintRequest = { bit: number };
+export type HintResponse = { hints: number };
 export type FlairRequest = { on: boolean };
 export type FlairResponse = { on: boolean };
 export type ForgetResponse = { floors: number };

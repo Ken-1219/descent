@@ -1,6 +1,7 @@
 // Golden runs (Phase 11 guard): stored floors with their action logs, replayed to a digest of everything the rules
 // produce. Polish may change how the game looks, never what it computes: tests/golden.test.ts fails on any difference.
 // Record again (only for a deliberate rule change, which Phase 11 forbids): `bun tests/golden.ts > tests/golden.json`.
+// Phase 11f re-recorded on purpose for the generator's fairness caps: the runs stayed identical, depths 14 and 28 moved.
 import { FLOOR_0 } from '../src/shared/content';
 import { generate } from '../src/shared/gen';
 import { hash } from '../src/shared/rng';

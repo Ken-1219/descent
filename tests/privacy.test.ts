@@ -17,7 +17,7 @@ async function seed() {
   await redis.set('f:1:floor', JSON.stringify(floor));
   for (const u of ['t2_gone', 't2_stay']) {
     for (const k of ['deepest', 'deaths', 'liars', 'trapsouls', 'souls', 'honour']) await redis.zAdd(k, { member: u, score: 3 });
-    for (const k of ['streak', 'tutorial', 'flairOn']) await redis.hSet(k, { [u]: '1' });
+    for (const k of ['streak', 'tutorial', 'flairOn', 'hints']) await redis.hSet(k, { [u]: '1' });
     await redis.hSet('names', { [u]: u.slice(3) });
     for (const k of ['runs', 'ghosts', 'carvings', 'starts', 'traps', 'flair', 'resets', 'errs']) await redis.hSet(`f:1:${k}`, { [u]: k === 'ghosts' ? JSON.stringify({ name: u.slice(3), x: 1, y: 1, cause: 'trap', at: 1, by: u === 't2_stay' ? 'gone' : 'stay' }) : '1' });
     await redis.zAdd('f:1:scores', { member: u, score: 5 });
@@ -36,7 +36,7 @@ test('purge removes every stored copy of a user\'s ID and name, and nothing of a
   await purge('t2_gone');
   const all = JSON.stringify(await Promise.all([
     ...['deepest', 'deaths', 'liars', 'trapsouls', 'souls', 'honour', 'f:1:scores', 'f:1:cv', 'boss:0:dmg'].map((k) => redis.zRange(k, 0, -1)),
-    ...['streak', 'tutorial', 'flairOn', 'names', 'f:1:runs', 'f:1:ghosts', 'f:1:carvings', 'f:1:starts', 'f:1:traps', 'f:1:flair', 'f:1:resets', 'f:1:errs', 'f:1:seen', 'f:1:trapped', 'f:1:votes', 'boss:0'].map((k) => redis.hGetAll(k)),
+    ...['streak', 'tutorial', 'flairOn', 'hints', 'names', 'f:1:runs', 'f:1:ghosts', 'f:1:carvings', 'f:1:starts', 'f:1:traps', 'f:1:flair', 'f:1:resets', 'f:1:errs', 'f:1:seen', 'f:1:trapped', 'f:1:votes', 'boss:0'].map((k) => redis.hGetAll(k)),
     redis.get('f:1:floor'),
   ]));
   expect(all).not.toContain('t2_gone');

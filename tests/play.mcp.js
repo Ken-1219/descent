@@ -4,6 +4,14 @@
 async (page) => {
   const URL = 'http://localhost:5190/game.html';
   const browser = page.context().browser();
+  // Phase 11f: a fresh player is taught each thing once (a line under the HUD). Every check below plays as a player who
+  // has been taught everything, so its lines are the ones it expects; section 25 starts from nothing taught.
+  const bare = browser.newContext.bind(browser);
+  browser.newContext = async (o) => {
+    const c = await bare(o);
+    await c.addInitScript(() => { try { if (localStorage.getItem('descent:taught') === null) localStorage.setItem('descent:taught', '255'); } catch { /* a page with no storage */ } });
+    return c;
+  };
   const results = [];
   const errs = [];
   const check = (name, pass, detail) => results.push({ name, pass: !!pass, detail });
@@ -882,7 +890,7 @@ async (page) => {
       await tap(p, 'board__open');
       await p.waitForSelector('#end .board__row');
       const inside = await p.evaluate(() => ({ you: [...document.querySelectorAll('#end .board__row--you')].length, gap: !!document.querySelector('#end .board__gap'), rows: document.querySelectorAll('#end .board__row').length }));
-      check('the already-played plate: streak, live count, countdown, mini-map, Board and Chronicle', /Streak 1 floor/.test(plate) && /fell here today/.test(plate) && /next floor in \dh/.test(plate) && maps === 1, plate.slice(0, 200));
+      check('the already-played plate: streak, live count, countdown, mini-map, Board and Chronicle', /Streak 1 floor/.test(plate) && /fell here today/.test(plate) && /next floor in \d{1,2}h \d{1,2}m/.test(plate) && maps === 1, plate.slice(0, 200));
       check('the board with you inside the top rows: your row marked, no gap', inside.you === 1 && !inside.gap && inside.rows === 6, JSON.stringify(inside));
       await p.locator('#end .btn--primary').click(); // Back
       await tap(p, 'carvings__open');
@@ -1545,6 +1553,132 @@ async (page) => {
     }
     check(`every damage source names its cause on the turn it hits (${[...found].sort().join(', ')})`, found.size >= 9 && bad.length === 0, bad.join(' ; '));
     await ctx.close();
+  }
+  // 25. Phase 11f: finding your way and learning each thing once.
+  {
+    const fresh = async (vp, q, taught = null) => {
+      const ctx = await browser.newContext({ viewport: vp, ...(vp.width < 500 ? { isMobile: true, hasTouch: true } : {}) });
+      // Once per tab (a reload keeps what this player has been taught since).
+      await ctx.addInitScript((t) => { localStorage.setItem('descent:f0', '1'); if (t !== null && !sessionStorage.getItem('taught-set')) { localStorage.setItem('descent:taught', t); sessionStorage.setItem('taught-set', '1'); } }, taught);
+      const p = await ctx.newPage();
+      p.on('pageerror', (e) => errs.push(String(e)));
+      p.on('console', (m) => { if (m.type() === 'error') errs.push(m.text()); });
+      await p.goto(`${URL}${q}`);
+      await p.waitForFunction(() => window.__descent);
+      await p.evaluate(() => window.__descent.ready);
+      return { ctx, p };
+    };
+    // Teach once: buried spikes (spikes-4) explained the first time one is in sight, never again for this player.
+    {
+      const { ctx, p } = await fresh({ width: 390, height: 844 }, '?scene=spikes-4', '0');
+      const lines = await p.evaluate(async () => {
+        window.__descent.skipAnim(true);
+        const out = [];
+        for (const a of window.__descent.scenes().find((s) => s.id === 'spikes-4').log.slice(0, 6)) {
+          await window.__descent.act(a);
+          const l = document.getElementById('carving');
+          out.push(l.hidden ? '' : l.innerText);
+        }
+        return { out, bits: Number(localStorage.getItem('descent:taught')), server: Number(localStorage.getItem('descent:local:hints')) };
+      });
+      const taught = lines.out.filter((t) => /Dull spikes sleep/.test(t)).length;
+      await p.reload();
+      await p.waitForFunction(() => window.__descent);
+      const again = await p.evaluate(async () => {
+        await window.__descent.ready;
+        window.__descent.skipAnim(true);
+        const out = [];
+        for (const a of window.__descent.scenes().find((s) => s.id === 'spikes-4').log.slice(0, 6)) {
+          await window.__descent.act(a);
+          const l = document.getElementById('carving');
+          out.push(l.hidden ? '' : l.innerText);
+        }
+        return out;
+      });
+      check('a thing is taught once per player: buried spikes explained on first sight, stored here and on the server, not again after a reload',
+        taught >= 1 && taught <= 2 && (lines.bits & 2) && (lines.server & 2) && !again.some((t) => /Dull spikes sleep/.test(t)), JSON.stringify({ lines, again }).slice(0, 300));
+      await ctx.close();
+    }
+    // The map: a button (and M), no turn, nothing logged; Escape closes; it shows only seen tiles.
+    {
+      const { ctx, p } = await fresh({ width: 390, height: 844 }, '?depth=13&seed=1013');
+      await p.evaluate(async () => { window.__descent.skipAnim(true); for (const a of 'DDD') await window.__descent.act(a); });
+      const before = await S(p);
+      await p.locator('.map-btn').click();
+      await p.waitForSelector('#card:not([hidden]) .map__canvas');
+      await p.keyboard.press('ArrowLeft'); // a game key while the map is open moves nothing
+      const open = await p.evaluate(() => {
+        const c = document.querySelector('.map__canvas');
+        const r = document.querySelector('#card .map').getBoundingClientRect();
+        return { w: c.width, h: c.height, fits: r.top >= 0 && r.bottom <= innerHeight && r.right <= innerWidth, focus: document.activeElement?.className };
+      });
+      const after = await S(p);
+      await p.keyboard.press('Escape');
+      const closed = await p.evaluate(() => document.getElementById('card').hidden);
+      check('the Map button opens an overview of the seen floor: no turn passes, nothing moves, Escape closes it',
+        open.w > 0 && open.fits && after.turn === before.turn && after.pos.x === before.pos.x && after.pos.y === before.pos.y && closed && /map__close/.test(open.focus ?? ''), JSON.stringify({ open, t: [before.turn, after.turn], closed }));
+      await ctx.close();
+    }
+    {
+      const { ctx, p } = await fresh({ width: 1280, height: 800 }, '?depth=13&seed=1013');
+      const t0 = (await S(p)).turn;
+      await p.keyboard.press('m');
+      const shown = await p.locator('#card .map__canvas').isVisible();
+      await p.keyboard.press('m');
+      const gone = await p.evaluate(() => document.getElementById('card').hidden);
+      check('M opens and closes the map on a keyboard, costing no turn', shown && gone && (await S(p)).turn === t0);
+      await ctx.close();
+    }
+    // The map plate fits from 320×320 to 1280×800, with a 44 px Close.
+    {
+      const bad = [];
+      for (const vp of [{ width: 320, height: 320 }, { width: 360, height: 640 }, { width: 390, height: 844 }, { width: 844, height: 390 }, { width: 1280, height: 800 }]) {
+        const { ctx, p } = await fresh(vp, '?depth=27&seed=1028');
+        await p.locator('.map-btn').click();
+        const out = await p.evaluate(() => {
+          const o = [];
+          if (document.documentElement.scrollWidth > innerWidth) o.push('hscroll');
+          const r = document.querySelector('#card .map')?.getBoundingClientRect();
+          if (!r || r.top < 0 || r.bottom > innerHeight + 0.5 || r.right > innerWidth + 0.5) o.push('map off screen');
+          const b = document.querySelector('.map__close').getBoundingClientRect();
+          if (b.height < 44 || b.width < 44) o.push('small close');
+          const m = document.querySelector('.map-btn').getBoundingClientRect();
+          if (m.height < 44 || m.width < 44) o.push('small map button');
+          return o;
+        });
+        bad.push(...out.map((x) => `${vp.width}x${vp.height} ${x}`));
+        await ctx.close();
+      }
+      check('layout 320×320 to 1280×800: the map plate fits with 44 px targets', bad.length === 0, bad.join(' ; '));
+    }
+    // The intro compass says what it shows, has compass letters, and on a Warden day marks the arena; the first turn says which way.
+    {
+      const { ctx, p } = await fresh({ width: 390, height: 844 }, '?floor=warden&boss=alive');
+      await p.waitForSelector('#end.end--intro');
+      const intro = await p.evaluate(() => ({
+        title: document.querySelector('.intro__compass-title')?.textContent ?? '',
+        letters: [...document.querySelectorAll('.intro-compass__zone')].map((z) => z.textContent).join(' '),
+        arena: [...document.querySelectorAll('.intro-compass__cell')].findIndex((c) => c.hasAttribute('data-arena')),
+      }));
+      await p.locator('#end .btn--primary').click();
+      await p.waitForFunction(() => !document.getElementById('carving').hidden);
+      const hint = await p.locator('#carving').innerText();
+      check('the intro compass has a heading and compass letters; a Warden day marks the arena\'s zone and the first turn says which way it lies',
+        /Danger on this floor/.test(intro.title) && intro.letters === 'NW N NE W C E SW S SE' && intro.arena >= 0 && /The Warden is to the (north|south|east|west)/.test(hint), JSON.stringify({ intro, hint }));
+      await ctx.close();
+    }
+    // The board explains Honour, liar votes and streaks.
+    {
+      const { ctx, p } = await fresh({ width: 390, height: 844 }, '?floor=f0');
+      await p.evaluate(() => { const e = document.getElementById('end'); if (e.classList.contains('end--intro')) e.querySelector('.btn--primary').click(); });
+      await p.evaluate(async () => { window.__descent.skipAnim(true); for (const a of 'DRRURRRRDDDDLLLLLL') await window.__descent.act(a); });
+      await toCard(p);
+      await tap(p, 'board__open');
+      await p.waitForSelector('#end .board__help');
+      const help = await p.locator('#end .board__help').innerText();
+      check('the board has one line each for Honour, liar votes and streaks', /Honour:/.test(help) && /Liar votes:/.test(help) && /Streak:/.test(help), help);
+      await ctx.close();
+    }
   }
   } catch (e) {
     // A step that throws (a timeout) is recorded after the last check that ran, so the rest of the report survives.

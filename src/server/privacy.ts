@@ -8,7 +8,7 @@ import { forget, cycleOf } from './boss';
 import { key, today } from './game';
 
 const LIFETIME_SETS = ['deepest', 'deaths', 'liars', 'trapsouls', 'souls', 'honour'] as const;
-const LIFETIME_HASHES = ['streak', 'tutorial', 'flairOn', 'flairCleared'] as const;
+const LIFETIME_HASHES = ['streak', 'tutorial', 'flairOn', 'flairCleared', 'hints'] as const;
 const PER_USER = ['runs', 'ghosts', 'carvings', 'starts', 'traps', 'flair', 'resets', 'errs'] as const;
 
 /** One floor's copies of the user: their fields, votes by or on them, their name on other ghosts, their trap's owner. */

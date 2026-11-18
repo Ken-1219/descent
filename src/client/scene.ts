@@ -15,7 +15,10 @@ const SHAKE_PX = 2;
 /** Hit-stop (A62): on damage the world holds for this long, then shakes. Inside the turn's 120 ms lock: input never waits. */
 const HITSTOP_MS = 60;
 const KILL_MS = 84;
-const REMEMBERED_ALPHA = 0.7;
+const REMEMBERED_ALPHA = 0.55; // Phase 11f: explored tiles stay readable (0.7 hid the trail the blind tester never noticed)
+const EDGE_TILES = 2;
+/** Phase 11f: a foe out of sight stays where you last saw it as a memory: one still frame, stone grey, faint. */
+const MEMORY_ALPHA = 0.5;
 const GLOW_DARK = 0.5;
 const TORCH_GLOW_TILES = 2.5;
 const BRAZIER_GLOW_TILES = 3;
@@ -71,6 +74,9 @@ export class DescentScene extends Phaser.Scene {
   private hero: Actor | null = null;
   private enemies = new Map<number, Actor>();
   private digits = new Map<number, Phaser.GameObjects.Image>();
+  /** Phase 11f: where each foe was last in sight, and the still memory drawn there once it is out of sight. */
+  private lastLit = new Map<number, Pos>();
+  private memories = new Map<number, Phaser.GameObjects.Image>();
   private tellGfx: Phaser.GameObjects.Graphics | null = null;
   private props = new Map<number, { sig: string; actors: Actor[] }>();
   private markImgs: Phaser.GameObjects.Image[] = [];
@@ -140,6 +146,8 @@ export class DescentScene extends Phaser.Scene {
     this.children.removeAll(true);
     this.enemies.clear();
     this.digits.clear();
+    this.memories.clear();
+    this.lastLit.clear();
     this.props.clear();
     this.markImgs = [];
     this.ghostActors = [];
@@ -177,13 +185,17 @@ export class DescentScene extends Phaser.Scene {
     this.sync(state);
   }
 
-  /** Camera bounds: the map, or the view centred on the map when the map is the smaller of the two. */
+  /**
+   * Camera bounds: the map plus EDGE_TILES of room on every side (Phase 11f: at any edge the hero stays clear of the hint
+   * line over the map's top and the bar at its foot), or the view centred on the map when the map is the smaller.
+   */
   private frame() {
     const cam = this.cameras.main;
     const { width: vw, height: vh } = this.scale;
-    const mw = (this.state.tiles[0]?.length ?? 0) * TILE;
-    const mh = this.state.tiles.length * TILE;
-    cam.setBounds(Math.min(0, (mw - vw) / 2), Math.min(0, (mh - vh) / 2), Math.max(mw, vw), Math.max(mh, vh) + this.liftPx);
+    const pad = EDGE_TILES * TILE;
+    const mw = (this.state.tiles[0]?.length ?? 0) * TILE + 2 * pad;
+    const mh = this.state.tiles.length * TILE + 2 * pad;
+    cam.setBounds(Math.min(-pad, (mw - vw) / 2 - pad), Math.min(-pad, (mh - vh) / 2 - pad), Math.max(mw, vw), Math.max(mh, vh) + this.liftPx);
     // Phase 11e: a dead zone. The camera stays locked to the hero (it moves in the same frame, never lags) but only once the
     // hero would come within the torch's reach (radius 4, plus 1) of the view's edge, so the map holds still for most moves
     // and exits stay where you saw them.
@@ -289,6 +301,34 @@ export class DescentScene extends Phaser.Scene {
     return g;
   }
 
+  /**
+   * Phase 11f: a foe in sight clears its memory; one that leaves sight leaves a memory where it was last seen (a still,
+   * stone-grey frame, never animated), until that tile is in sight again without it.
+   */
+  private remember(id: number, a: Actor, seenAt: Pos | null, vis: readonly number[], w: number) {
+    if (seenAt) {
+      this.forget(id);
+      this.lastLit.set(id, { x: seenAt.x, y: seenAt.y });
+      return;
+    }
+    const at = this.lastLit.get(id);
+    if (!at) return;
+    if (vis[at.y * w + at.x] === 2) {
+      this.forget(id); // you can see it isn't there any more
+      return;
+    }
+    if (!this.memories.has(id)) {
+      this.memories.set(id, this.add.image(px(at.x), py(at.y), a.img.texture.key, a.img.frame.name).setOrigin(0.5, 1).setDepth(depth(at.y, 4))
+        .setTint(color('stone')).setTintMode(Phaser.TintModes.FILL).setAlpha(MEMORY_ALPHA));
+    }
+  }
+
+  private forget(id: number) {
+    this.memories.get(id)?.destroy();
+    this.memories.delete(id);
+    this.lastLit.delete(id);
+  }
+
   /** Props whose tile changed are rebuilt (pits open, gates slam, spikes breathe); unchanged ones keep animating. */
   private syncProps(state: State) {
     const w = state.tiles[0]?.length ?? 0;
@@ -304,6 +344,8 @@ export class DescentScene extends Phaser.Scene {
           actors: look.map((p, k) => {
             const a = this.actor(x, y, 2 + k, p.anim);
             if (p.flat) a.img.setDepth(1 + k / 10);
+            // Phase 11f: a door or gate sorts with the row above it, so a hero standing just north is drawn over its top.
+            else if ('HhD/'.includes(row[x] ?? '')) a.img.setDepth(depth(y - 1, 2 + k));
             return a;
           }),
         });
@@ -346,6 +388,7 @@ export class DescentScene extends Phaser.Scene {
       a.oy = look.dy;
       const big = e.kind === 'warden';
       a.lit = blockTiles(e).some((p) => vis[p.y * w + p.x] === 2); // show() sets the visibility each frame
+      if (!big) this.remember(e.id, a, a.lit ? e : null, vis, w);
       // A pile is floor (rule 6): it lies under whoever stands on it.
       a.img.setDepth(depth(big ? e.y + 1 : e.y, e.mode === 'pile' ? 3 : 5));
       if (e.mode !== 'pile' && e.x !== state.pos.x) a.img.setFlipX(state.pos.x < e.x);
@@ -407,6 +450,7 @@ export class DescentScene extends Phaser.Scene {
           a.anim = HURT[kind];
           a.t0 = now;
           if (e.t === 'kill') {
+            this.forget(e.id);
             this.time.delayedCall(instant ? 0 : KILL_MS, () => a.img.destroy());
             this.enemies.delete(e.id);
             this.digits.get(e.id)?.destroy();

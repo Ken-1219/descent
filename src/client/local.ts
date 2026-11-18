@@ -8,7 +8,7 @@
 // ?boss=alive|carried|killed sets its shared pool (killed serves the floor without it, as the server does).
 // Phase 11e: ?day=N&seed=S makes today Floor N, generated from seed S (the floor the rollover would post with no crowd
 // changes is generate(N, fairSeed(N, …).seed)); a Warden day takes &boss=alive.
-import { generate } from '../shared/gen';
+import { generate, showcaseFamilies } from '../shared/gen';
 import { CURSES, FLOOR_0, TRAP_TEXT, type Curse } from '../shared/content';
 import type { BoardRows, BossView, MyTrap } from '../shared/api';
 import type { Trap } from '../shared/gen';
@@ -28,17 +28,22 @@ const floorOf = (d: number): Floor => {
   const base: Floor = q.get('floor') === 'f0' ? { ...FLOOR_0, depth: d, mercy: false, seed: d }
     : q.get('floor') === 'warden' ? { depth: d, mercy: false, seed: d, torch: 90, rows: ARENA }
     : q.get('floor') === 'trap' ? { ...FLOOR_0, depth: d, mercy: false, seed: d, rows: FLOOR_0.rows.map((r) => r.replaceAll('^', 'x')), traps: [2, 3, 4].map((y) => ({ x: 10, y, kind: 'spikes' as const, owner: 't2_trapper', name: 'trapper' })) }
-    : generate(d, Number(q.get('seed')) || hash(`descent:local:${d}`)).floor;
+    : { ...generate(d, Number(q.get('seed')) || hash(`descent:local:${d}`)).floor, showcase: showcaseFamilies(d) };
   const curse = Object.keys(CURSES).find((c): c is Curse => c === q.get('curse'));
   const f: Floor = {
     ...base,
     ...(curse ? { curses: [curse] } : {}),
     ...(q.get('yesterday') === 'few' ? { yesterday: { depth: d - 1 || 1, fell: 2, cleared: 5, zone: 4, curse: curse ?? null, deaths: [0, 0, 0, 0, 2, 0, 0, 0, 0], killer: 'spikes' } }
       : q.get('yesterday') ? { yesterday: { depth: d - 1 || 1, fell: 23, cleared: 9, zone: 2, curse: curse ?? null, deaths: [1, 2, 14, 0, 3, 0, 1, 2, 0], killer: 'goblin' } } : {}),
-    showcase: ['goblins'],
+    showcase: base.showcase ?? ['goblins'],
   };
   write(`floor:${d}`, f);
   return f;
+};
+/** The next 15:00 UTC, as the server's countdown: a fixed moment, so the card counts down (it used to restart). */
+const nextRollover = () => {
+  const at = Math.floor(Date.now() / 86_400_000) * 86_400_000 + 15 * 3_600_000;
+  return at > Date.now() ? at : at + 86_400_000;
 };
 const ARENA = ['###########', '#@........#', '#.........#', '#....WW...#', '#....WW...#', '#.........#', '#........>#', '###########'];
 /** The Warden's pool for ?boss=: what the server's bossView returns, with this profile's own links taken off. */
@@ -79,10 +84,10 @@ export const local: Api = {
     const mine = runOf(d);
     if (mine) {
       const { log: _, ...run } = mine;
-      return { kind: 'played', depth: d, seed: floor.seed ?? 0, floor, run, ghosts: withVotes(d, ghostsOf(d)), live: d === day(), attempt: 0, choices: choicesOf(d), myTrap: myTrap(), streak: read<number>('streak') ?? 1, nextAt: Date.now() + 5 * 3_600_000 + 12 * 60_000, flair: read<boolean>('flair') ?? false, ...(d === day() ? {} : { today: day(), todayUrl: `${location.pathname}?post=${day()}` }), ...(boss ? { boss } : {}) };
+      return { kind: 'played', depth: d, seed: floor.seed ?? 0, floor, run, ghosts: withVotes(d, ghostsOf(d)), live: d === day(), attempt: 0, choices: choicesOf(d), myTrap: myTrap(), streak: read<number>('streak') ?? 1, nextAt: nextRollover(), flair: read<boolean>('flair') ?? false, hints: read<number>('hints') ?? 0, ...(d === day() ? {} : { today: day(), todayUrl: `${location.pathname}?post=${day()}` }), ...(boss ? { boss } : {}) };
     }
     if (d < day()) return { kind: 'closed', depth: d, today: day(), todayUrl: `${location.pathname}?post=${day()}` };
-    return { kind: 'play', depth: d, seed: floor.seed ?? 0, floor, ghosts: ghostsOf(d), attempt: 0, tutorial: !!read('tutorial'), myTrap: myTrap(), ...(boss ? { boss } : {}) };
+    return { kind: 'play', depth: d, seed: floor.seed ?? 0, floor, ghosts: ghostsOf(d), attempt: 0, tutorial: !!read('tutorial'), myTrap: myTrap(), hints: read<number>('hints') ?? 0, ...(boss ? { boss } : {}) };
   },
   run: async ({ depth, log }) => {
     net();
@@ -170,6 +175,12 @@ export const local: Api = {
   // Phase 10b: beacons are kept for the e2e checks; flair and "Delete my data" act on this profile.
   beacon: async (b) => write('beacons', [...(read<unknown[]>('beacons') ?? []), b]),
   flair: async (on) => (write('flair', on), { on }),
+  hint: async (bit) => {
+    net();
+    const hints = (read<number>('hints') ?? 0) | (1 << bit);
+    write('hints', hints);
+    return { hints };
+  },
   practice: async (depth) => {
     net();
     if (depth < 1 || depth > day()) return { kind: 'rejected', reason: 'no such floor' };
@@ -178,6 +189,7 @@ export const local: Api = {
   },
   forget: async () => {
     for (let d = 1; d <= day(); d++) for (const k of ['run', 'ghost', 'carving', 'votes', 'curse', 'trap']) localStorage.removeItem(`${K}${k}:${d}`);
+    localStorage.removeItem(`${K}hints`);
     return { floors: day() };
   },
 };

@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 // The client's only network code. Dev builds route to local.ts (localStorage); production fetches /api/*.
 import { BEACON, type ClientClass } from '../shared/content';
-import type { PracticeResponse, Beacon, FlairResponse, ForgetResponse, BoardResponse, CardResponse, ChronicleResponse, PulseResponse, CarvingRequest, CarvingResponse, FloorResponse, RunRequest, RunResponse, StartRequest, TrapRequest, TrapResponse, VoteRequest, VoteResponse } from '../shared/api';
+import type { HintResponse, PracticeResponse, Beacon, FlairResponse, ForgetResponse, BoardResponse, CardResponse, ChronicleResponse, PulseResponse, CarvingRequest, CarvingResponse, FloorResponse, RunRequest, RunResponse, StartRequest, TrapRequest, TrapResponse, VoteRequest, VoteResponse } from '../shared/api';
 
 export type Api = {
   floor: () => Promise<FloorResponse>;
@@ -18,6 +18,7 @@ export type Api = {
   flair: (on: boolean) => Promise<FlairResponse>;
   forget: () => Promise<ForgetResponse>;
   practice: (depth: number) => Promise<PracticeResponse>;
+  hint: (bit: number) => Promise<HintResponse>;
 };
 
 const send = async <T>(path: string, body?: unknown): Promise<T> => {
@@ -41,6 +42,7 @@ const remote: Api = {
   flair: (on) => send('/api/flair', { on }),
   forget: () => send('/api/forget', {}),
   practice: (depth) => send(`/api/practice?depth=${depth}`),
+  hint: (bit) => send('/api/hint', { bit }),
 };
 
 export const api: Api = import.meta.env.DEV ? (await import('./local')).local : remote;

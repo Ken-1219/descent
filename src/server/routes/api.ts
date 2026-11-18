@@ -1,8 +1,8 @@
 import { Hono } from 'hono';
 import { context } from '@devvit/web/server';
 import { telemetry } from '@devvit/analytics/server/reddit';
-import type { PracticeResponse, Beacon, FlairResponse, ForgetResponse, BoardResponse, CardResponse, CarvingRequest, ChronicleResponse, PulseResponse, CarvingResponse, FloorResponse, RunRequest, RunResponse, StartRequest, TrapRequest, TrapResponse, VoteResponse } from '../../shared/api';
-import { carve, floorFor, logStart, placeTrap, practiceFor, setFlair, submitRun, today, voteCarving, voteCurse } from '../game';
+import type { PracticeResponse, Beacon, FlairResponse, HintResponse, ForgetResponse, BoardResponse, CardResponse, CarvingRequest, ChronicleResponse, PulseResponse, CarvingResponse, FloorResponse, RunRequest, RunResponse, StartRequest, TrapRequest, TrapResponse, VoteResponse } from '../../shared/api';
+import { carve, floorFor, logStart, placeTrap, practiceFor, seeHint, setFlair, submitRun, today, voteCarving, voteCurse } from '../game';
 import { beacon, beaconNote, count } from '../health';
 import { purge } from '../privacy';
 import { boardsFor, cardFor, chronicle, pulse } from '../boards';
@@ -132,6 +132,15 @@ api.post('/flair', async (c) => {
   const r: FlairResponse = { on: user && typeof on === 'boolean' ? await setFlair(user, context.username ?? null, on) : false };
   c.set('note', `flair ${r.on ? 'on' : 'off'}`);
   return c.json<FlairResponse>(r);
+});
+
+// Phase 11f: a thing taught once per player (a TEACH index). Logged out or a bad bit: nothing stored, 400.
+api.post('/hint', async (c) => {
+  const { bit } = await c.req.json<{ bit?: unknown }>().catch((): { bit?: unknown } => ({}));
+  const user = context.userId;
+  const hints = user && typeof bit === 'number' ? await seeHint(user, bit) : null;
+  c.set('note', `hint ${String(bit)}${hints === null ? ' refused' : ''}`);
+  return hints === null ? c.json({ kind: 'rejected' }, 400) : c.json<HintResponse>({ hints });
 });
 
 // "Delete my data" (A56): everything Descent stores about the caller, now.

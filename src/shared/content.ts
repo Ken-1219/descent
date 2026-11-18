@@ -237,6 +237,16 @@ export type Curse = keyof typeof CURSES;
 export const BOT_MAX_ACTIONS = 600;
 /** Budget spending stops after this many failed placements in a row (the floor is full). */
 export const PLACE_TRIES = 24;
+/**
+ * Phase 11f (fairness, measured on 448 posted floors): the most foes of one family a room may hold. Before: up to 16
+ * goblins, 20 imps and 10 skeletons in one room. A den counts as 2 goblins (it spawns them).
+ */
+export const FOE_FAMILIES = ['goblins', 'imps', 'skeletons'] as const;
+export type FoeFamily = (typeof FOE_FAMILIES)[number];
+export const FOE_CHARS: Readonly<Record<FoeFamily, Readonly<Record<string, number>>>> = { goblins: { g: 1, G: 2 }, imps: { i: 1 }, skeletons: { K: 1 } };
+export const ROOM_FOE_CAP: Readonly<Record<FoeFamily, number>> = { goblins: 4, imps: 4, skeletons: 3 };
+/** Phase 11f: the most dark rooms in a row along the safe route (before: 3 on 17 of 448 floors). */
+export const DARK_RUN_MAX = 2;
 /** A room holds at most one instance per this many floor tiles (at least one), by band: floors fill up as you descend. */
 export const TILES_PER_INSTANCE = [5, 4, 3, 3, 3, 3];
 /** Floor-shape rules 2-3: the day's new family appears alone in its showcase room, then combined with an older family in later rooms; it takes at most this many instances in any one room. */
@@ -322,6 +332,23 @@ export const CURSE_TEXT: Readonly<Record<Curse, { name: string; effect: string }
 export const TRAP_TEXT: Readonly<Record<'spikes' | 'dart' | 'stairs', string>> = { spikes: 'Spikes', dart: 'Dart slit', stairs: 'False stairs' };
 /** Each trap's one-line effect, shown on its choice row (Phase 11e). */
 export const TRAP_EFFECT: Readonly<Record<keyof typeof TRAP_TEXT, string>> = { spikes: 'a heart from whoever steps on it', dart: 'fires along its line when stepped near', stairs: 'look like the way down, cost a heart' };
+/**
+ * Phase 11f: each thing a player meets is explained once, the first time (one line under the HUD). The bit is the
+ * index: the server keeps a bitmask per player (`hints`), so the order here is a stored format: append, never reorder.
+ */
+export const TEACH = ['imp', 'spikes', 'skeleton', 'dark', 'gate', 'bomb', 'lamp', 'warden', 'dart'] as const;
+export type Teach = (typeof TEACH)[number];
+export const TEACH_TEXT: Readonly<Record<Teach, string>> = {
+  imp: 'An orange frame on a tile: a foe strikes there next turn. Step off it.',
+  spikes: 'Dull spikes sleep in the floor. They rise when you step next to them.',
+  skeleton: 'A bone pile is a skeleton that will rise again. Walk on; it can\'t be killed for good.',
+  dark: 'Dark room: your torch burns faster in here. A brazier, if the room has one, lights it: bump it.',
+  gate: 'Barred gate: no key opens it. A plate on the floor nearby does.',
+  bomb: 'A bomb: press Item to clear everything beside you, foes and traps.',
+  lamp: 'Lamp oil: press Item to feed your torch.',
+  warden: 'Red tiles: where the Warden slams next. The number counts the turns.',
+  dart: 'Red dots in a line: a dart flies along it. A blue plate on the floor, or a step near the slit, fires it.',
+};
 export const ZONE_NAMES: readonly string[] = ['North-west', 'North', 'North-east', 'West', 'Centre', 'East', 'South-west', 'South', 'South-east'];
 
 // ---- Phase 8: rollover ----

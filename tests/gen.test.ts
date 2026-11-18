@@ -1,6 +1,6 @@
 import { test, expect } from 'vitest';
-import { CURSES, FAMILIES, GATE_TORCH_PCT, ROOM1_ENEMY_GAP, ENTRANCE_CLEAR, TRAP_MAX, type Family } from '../src/shared/content';
-import { NO_MODS, budgetFor, generate, isWardenFloor, safePath, showcaseFamilies, strandFree, tiersFor, zoneWeights, type Mods } from '../src/shared/gen';
+import { CURSES, DARK_RUN_MAX, FAMILIES, FOE_FAMILIES, GATE_TORCH_PCT, ROOM_FOE_CAP, ROOM1_ENEMY_GAP, ENTRANCE_CLEAR, TRAP_MAX, type Family } from '../src/shared/content';
+import { NO_MODS, budgetFor, darkRun, foesIn, generate, isWardenFloor, platesReachable, safePath, showcaseFamilies, strandFree, tiersFor, zoneWeights, type Mods } from '../src/shared/gen';
 import { zoneOf } from '../src/shared/grid';
 import { lightRadius, start } from '../src/shared/sim';
 
@@ -149,9 +149,11 @@ test('generate(28): mean under 20 ms including retries; worst-case time is repor
   expect(ms[25] ?? Infinity).toBeLessThan(20);
 });
 
-test('generate(28) retries stay bounded: at most 4 rejections on any of seeds 1–200 (500 seeds measured: max 3)', { timeout: 30_000 }, () => {
+// Phase 11f: the fairness checks (foe caps, reachable plates, dark rooms in a row) reject more: 300 seeds at depths 27–28
+// measured max 7, p99 5, no fallback, mean 5 ms (it was max 3).
+test('generate(28) retries stay bounded: at most 8 rejections on any of seeds 1–200', { timeout: 30_000 }, () => {
   const worst = Math.max(...Array.from({ length: 200 }, (_, i) => generate(28, i + 1).rejected));
-  expect(worst).toBeLessThanOrEqual(4);
+  expect(worst).toBeLessThanOrEqual(8);
 });
 
 test('every curse: floors still pass the gates; Frail starts on 2 hearts; Deep Dark keeps the radius at 2 or more; Light Sleepers keeps the entrance out of its range', () => {
@@ -174,5 +176,18 @@ test('every curse: floors still pass the gates; Frail starts on 2 hearts; Deep D
     const gap = Math.max(0, room1.x - e.x, e.x - (room1.x + room1.w - 1)) + Math.max(0, room1.y - e.y, e.y - (room1.y + room1.h - 1));
     expect(gap).toBeGreaterThanOrEqual(ROOM1_ENEMY_GAP);
     expect(Math.abs(e.x - s0.pos.x) + Math.abs(e.y - s0.pos.y)).toBeGreaterThanOrEqual(ROOM1_ENEMY_GAP + CURSES['light-sleepers'].wakeDelta);
+  }
+});
+
+// Phase 11f (fairness): the second blind playtest marked every death unfair. Measured on 448 posted floors: up to 20 imps
+// in one room, a barred gate whose plate was out of reach, three dark rooms in a row on the only route.
+test('fairness caps: foes per room by family, a reachable plate for every barred gate, dark rooms in a row on the route', { timeout: 60_000 }, () => {
+  for (let d = 1; d <= 28; d++) {
+    for (let s = 1; s <= 4; s++) {
+      const g = generate(d, s * 1000 + d);
+      for (const r of g.rooms) for (const f of FOE_FAMILIES) expect(foesIn(g.floor.rows, r, f), `d${d} s${s} ${f}`).toBeLessThanOrEqual(ROOM_FOE_CAP[f]);
+      expect(platesReachable(g.floor), `d${d} s${s} plates`).toBe(true);
+      expect(darkRun(g.floor, g.rooms, g.safe.log), `d${d} s${s} dark run`).toBeLessThanOrEqual(DARK_RUN_MAX);
+    }
   }
 });

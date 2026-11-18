@@ -163,6 +163,8 @@ src/client/
   minimap.ts                Phase 9: a floor's rows and wisps on a 2D canvas (splash and already-played; no Phaser, no sim)
   sound.ts                  Phase 11: every sound synthesized with WebAudio; silent until the first tap in the game; mute remembered
   journey.ts                Phase 11c: Devvit Journeys for one run (start, progress, interactions, end), in order, never after End
+  map.ts                    Phase 11f: the Map overview: seen tiles, you and the stairs once seen (no turn, never logged)
+  teach.ts                  Phase 11f: each thing taught once per player (in sight or in hand), kept here and on the server
   assets/                   atlas.png, fonts/*.woff2, fonts/OFL.txt, icon
 src/server/
   index.ts                  Hono app, one log line per request
@@ -614,6 +616,10 @@ Each phase lists Build, Show me (what to open), Checks, and Gate.
 ### Phase 11e — Readable on a phone (Nov 18, inserted by the owner)
 
 - **Built:** whole-number zoom that fills the stage, with a camera locked to the hero plus a dead zone (A80). System digits through a `local()` face, so no font download (A81). No heart lost unseen: filled wind-up tiles, a bump flash, attackers shown through the dark, and the cause named on every hit (A82). Warden countdown, plain-words intro, first-turn hint, your links in the HUD and a live shared total (A83). Styled choice rows replace the native selects, and the carving takes two steps (A84). The result card shows its primary action, Practice and one link, with the rest under More (A85). The intro states the torch budget (A86). Timing tests are best-of or median (A87). `?day=N&seed=S` added to the local harness (A88). Second blind playtest (touch, 390×844): action notices, wrapping hints, and a HUD that fits at 320 (A89).
+
+### Phase 11f — Finding your way, teaching once, fair floors (Nov 18, inserted by the owner)
+
+- **Built:** a readable seen map (A90) and a Map overview that costs no turn (A91), remembered foes drawn as grey memories (A92), camera room past every edge (A93), the hero over gates (A94), an intro compass with a heading, letters and the Warden's arena (A95), each thing taught once per player and stored per user (A96, `POST /api/hint`), Board help (A97), generator fairness caps (A98: foes per room, reachable plates, at most 2 dark rooms in a row) with the generator goldens re-recorded on purpose (A99), and the third playtest's wording and map fixes (A100). Files: `src/client/map.ts` (the map overview), `src/client/teach.ts` (teach-once lessons).
 
 ### Phase 12 — Seed and submit (Dec 6–8)
 

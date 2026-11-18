@@ -95,7 +95,12 @@ export async function boardPanel(end: HTMLElement, depth: number, back: PanelAct
   }
   show('today');
   const plates = [b.trapsetter && `Top Trapsetter: ${b.trapsetter.name} (${b.trapsetter.value} souls)`, b.liar && `Most Notorious Liar: ${b.liar.name} (${b.liar.value} liar votes)`].filter(Boolean).join(' · ');
-  endPanel(end, { title: 'Board', line: plates || `Floor ${depth}: ${b.today.total} on the board today.`, body: [bar, view, dataLinks(end, () => void boardPanel(end, depth, back))], primary: back });
+  // Phase 11f: one line each for the words the board uses and never explained (the blind tester asked for all three).
+  const help = el('ul', 'board__help muted',
+    el('li', '', 'Honour: Trust votes on your carvings (the warning you may carve where you fall), given by players after their run.'),
+    el('li', '', 'Liar votes: the same players calling a carving false.'),
+    el('li', '', 'Streak: floors in a row you played, cleared or fell.'));
+  endPanel(end, { title: 'Board', line: plates || `Floor ${depth}: ${b.today.total} on the board today.`, body: [bar, view, help, dataLinks(end, () => void boardPanel(end, depth, back))], primary: back });
 }
 
 export async function chroniclePanel(end: HTMLElement, back: PanelAction, killerName: (k: string) => string, practise: (depth: number) => void) {

@@ -1,13 +1,15 @@
 /// <reference types="vite/client" />
 // Boot, input router, HUD wiring and the dev hook. Rules live in src/shared/sim.ts; this file only sends actions.
-import { BOARD, CURSE_TEXT, WARDEN, FLOOR_0, FLOOR_0_GHOSTS, HEARTS, ITEMS, KILL_FAMILY, NAMELESS, PALETTE, TILE, TORCH_LOW_PCT, TRAPS, TRAP_TEXT, ZONE_NAMES, type Curse } from '../shared/content';
-import { slitLine, zoneOf } from '../shared/grid';
+import { BOARD, CURSE_TEXT, WARDEN, FLOOR_0, FLOOR_0_GHOSTS, HEARTS, ITEMS, KILL_FAMILY, NAMELESS, PALETTE, TILE, TEACH_TEXT, TORCH_LOW_PCT, TRAPS, TRAP_TEXT, ZONE_NAMES, type Curse } from '../shared/content';
+import { find, slitLine, zoneOf } from '../shared/grid';
 import { context, navigateTo, showLoginPrompt } from '@devvit/web/client';
 import type { BossView, FloorResponse, GhostView, MyTrap, RunResult } from '../shared/api';
 import { carvingLabel, type Ghost, type Vote } from '../shared/ghosts';
 import { isAction, replay, start, step, type Action, type End, type Event, type Floor, type Pos } from '../shared/sim';
 import { api, clientClass, report, submit, watchErrors, where } from './net';
 import { journey } from './journey';
+import { lesson, taught } from './teach';
+import { mapPlate } from './map';
 import { sound } from './sound';
 import { iconCanvas, loadPack, packIcon } from './sprites';
 import { button, carvingPicker, carvingsList, chainMeter, controls, createHud, cursePicker, el, endPanel, ghostCard, introCompass, saveLine, trapPicker, type PanelAction } from './ui';
@@ -90,6 +92,7 @@ const store = {
 };
 const liveOf = (r: Day): Live => ({ depth: r.depth, seed: r.seed, attempt: r.attempt, floor: r.floor, log: store.get(logKey(r)) ?? '' });
 const playable = day !== 'error' && day.kind === 'play' ? day : null;
+if (day !== 'error' && (day.kind === 'play' || day.kind === 'played')) taught(day.hints);
 // The tutorial flag is kept on the server too: a deploy (new origin, empty storage) never shows Floor 0 again.
 if (playable && (store.get(F0_KEY) || playable.tutorial)) live = liveOf(playable);
 let floor: Floor = devFloor ?? live?.floor ?? FLOOR_0;
@@ -113,30 +116,26 @@ let lastTorch = Infinity;
  * Phase 11d (blind playtest): a turn's news under the HUD. What hurt you and the hearts left; that a dark room burns the torch
  * faster (once per floor); that picking up an item left the one you held. Words only: the rules are untouched.
  */
-let notice: { turn: number; text: string; hurt?: true } | null = null;
-const darkSeen = new Set<string>();
+// `keep`: a hit or a lesson stays a turn longer and beats a torch notice.
+let notice: { turn: number; text: string; keep?: true } | null = null;
 const ITEM_WORD: Record<string, string> = { potion: 'potion', oil: 'lamp oil', bomb: 'bomb' };
 const HURT_BY: Record<string, string> = { gate: 'A closing gate', trap: 'A trap', spikes: 'Spikes', dart: 'A dart', arrow: 'An arrow', dark: 'The dark', pit: 'The fall', warden: 'The Warden', goblin: 'A goblin', imp: 'An imp', skeleton: 'A skeleton', bomb: 'The blast' };
 // Phase 11e (second blind playtest): what your own action did, so a kill, a bomb or an item is never silent.
 const USED: Record<string, string> = { potion: 'The potion gave back a heart.', oil: 'The lamp oil feeds your torch.', bomb: 'The bomb went off: everything beside you is cleared.' };
-function noticeOf(events: readonly Event[], prev: typeof state, s: typeof state): { turn: number; text: string; hurt?: true } | null {
+function noticeOf(events: readonly Event[], prev: typeof state, s: typeof state): { turn: number; text: string; keep?: true } | null {
   const hurt = events.find((e) => e.t === 'hurt');
-  if (hurt && s.hearts > 0) return { turn: s.turn, hurt: true, text: `${HURT_BY[hurt.cause] ?? 'Something'} hit you: ${s.hearts} ${s.hearts === 1 ? 'heart' : 'hearts'} left.` }; // beats a torch notice
+  if (hurt && s.hearts > 0) return { turn: s.turn, keep: true, text: `${HURT_BY[hurt.cause] ?? 'Something'} hit you: ${s.hearts} ${s.hearts === 1 ? 'heart' : 'hearts'} left.` }; // beats a torch notice
+  const taughtNow = lesson(s, events); // Phase 11f: the first time each thing is met, once per player
+  if (taughtNow) return { turn: s.turn, keep: true, text: TEACH_TEXT[taughtNow] };
   const got = events.find((e) => e.t === 'pickup');
   if (got && prev.item && prev.item !== got.item) return { turn: s.turn, text: `You took the ${ITEM_WORD[got.item] ?? got.item}; your ${ITEM_WORD[prev.item] ?? prev.item} is left here.` };
   const used = events.find((e) => e.t === 'use');
-  const usedText = used && USED[used.item];
+  const usedText = used && (used.item === 'potion' && s.hearts === prev.hearts ? 'The potion was wasted: your hearts were already full.' : USED[used.item]);
   if (usedText) return { turn: s.turn, text: usedText };
   const kind = (id: number) => prev.enemies.find((e) => e.id === id)?.kind;
   for (const e of events) {
     if (e.t === 'collapse') return { turn: s.turn, text: 'The skeleton crumbles. It will rise again.' };
     if (e.t === 'kill' && kind(e.id)) return { turn: s.turn, text: `The ${kind(e.id) === 'warden' ? 'Warden' : kind(e.id)} falls.` };
-  }
-  const room = s.floor.dark?.find((r) => s.pos.x >= r.x && s.pos.x < r.x + r.w && s.pos.y >= r.y && s.pos.y < r.y + r.h);
-  const key = room && `${s.floor.depth}:${room.x},${room.y}`;
-  if (key && !darkSeen.has(key)) {
-    darkSeen.add(key);
-    return { turn: s.turn, text: 'Dark room: the torch burns faster. Light a brazier to end it.' };
   }
   return null;
 }
@@ -174,7 +173,7 @@ const view = () => {
   lastTorch = state.torch;
   nearby();
 };
-controls(pad);
+controls(pad, () => openMap());
 view();
 
 const fit = () => {
@@ -687,7 +686,8 @@ function intro() {
     line: curse ? `Cursed: ${CURSE_TEXT[curse].name}, ${CURSE_TEXT[curse].effect}.` : 'No curse today.',
     body: [
       ...warden,
-      introCompass(deaths, danger),
+      el('h2', 'intro__compass-title', 'Danger on this floor, by area'),
+      introCompass(deaths, danger, boss && !boss.killer ? arenaZone(f) : null, zoneOf(state.pos, f.rows.length)),
       el('p', 'intro__legend muted', `${deaths ? '☠ fell yesterday · ' : ''}▲ danger today · red frame: most danger`),
       ...lines.map((t) => el('p', 'intro__line', t)),
       ...(fresh ? [el('p', 'intro__new', `New today: ${fresh}.`)] : []),
@@ -698,6 +698,20 @@ function intro() {
   stages.intro ||= performance.now();
 }
 
+/** Phase 11f: the Warden's arena on the intro compass, and which way it lies from you (eight compass points). */
+function wardenAt(f: Floor) {
+  return find(f.rows, 'W')[0] ?? null;
+}
+function arenaZone(f: Floor) {
+  const w = wardenAt(f);
+  return w ? zoneOf(w, f.rows.length) : null;
+}
+/** The way to a 2×2 block from `from`: a component counts only past the block's own edge, so it doesn't flip as you close in. */
+function wayTo(from: Pos, to: Pos) {
+  const side = (d: number) => (d > 1 ? 1 : d < 0 ? -1 : 0); // the block covers offsets 0 and 1
+  return ['north-west', 'north', 'north-east', 'west', '', 'east', 'south-west', 'south', 'south-east'][side(to.x - from.x) + 1 + 3 * (side(to.y - from.y) + 1)] ?? '';
+}
+
 /**
  * The line under the HUD (aria-live): a nearby carving (no input needed), else a low torch. A torch event takes the line
  * on the turn it happens; on every other turn a nearby carving wins.
@@ -706,7 +720,7 @@ function nearby() {
   const near = shown.list.filter((g) => g.carving && reach(g) <= 1);
   const g = near[0];
   // Phase 11d: what just happened, said on the turn it happened (a torch event first, then this, then a carving).
-  if (notice && state.turn - notice.turn <= (notice.hurt ? 1 : 0) && !state.ended && (notice.hurt || !(torchTurn === state.turn && lowTorch(state.torch)))) {
+  if (notice && state.turn - notice.turn <= (notice.keep ? 1 : 0) && !state.ended && (notice.keep || !(torchTurn === state.turn && lowTorch(state.torch)))) {
     carvingLine.replaceChildren(el('span', '', notice.text));
     carvingLine.hidden = false;
     return;
@@ -716,11 +730,13 @@ function nearby() {
     const practiceFirst = !lowTorch(state.torch) && state.floor.depth === 0 && playable;
     // Phase 11e: on a Warden floor, until your first link breaks, the goal in plain words.
     if (!lowTorch(state.torch) && !state.ended && boss && !boss.killer && live && state.dealt === 0 && state.enemies.some((e) => e.kind === 'warden')) {
-      carvingLine.replaceChildren(el('span', '', 'Bump the Warden for links. Stairs any time.'));
+      const w = wardenAt(state.floor);
+      const way = w ? wayTo(state.pos, w) : '';
+      carvingLine.replaceChildren(el('span', '', `The Warden is ${way ? `to the ${way}` : 'here'}: bump it for links. Stairs any time.`));
       carvingLine.hidden = false;
       return;
     }
-    carvingLine.replaceChildren(el('span', '', practiceFirst ? (state.turn < 8 ? 'Practice first: find the stairs.' : 'Practice torch is generous: real floors give less.') : state.torch > 0 ? `Torch low: ${state.torch} turns of light left.` : 'Torch out: the dark is taking your hearts.'));
+    carvingLine.replaceChildren(el('span', '', practiceFirst ? (state.turn < 8 ? 'Practice first: find the stairs.' : 'Practice is generous: real floors give less torch, and its items stay here.') : state.torch > 0 ? `Torch low: ${state.torch} turns of light left.` : 'Torch out: the dark is taking your hearts.'));
     carvingLine.hidden = !!state.ended || (!practiceFirst && !lowTorch(state.torch));
     return;
   }
@@ -728,6 +744,21 @@ function nearby() {
   read.addEventListener('click', () => openCard(g));
   carvingLine.replaceChildren(el('span', '', `${g.name ? `u/${g.name}` : NAMELESS}: ${carvingLabel(g.carving)}${near.length > 1 ? ` (+${near.length - 1})` : ''}`), read);
   carvingLine.hidden = false;
+}
+
+/** Phase 11f: the map overview in the card overlay. Not an action: no turn passes, nothing is logged. */
+function openMap() {
+  if (!cardRoot.hidden || !end.hidden) return;
+  const back = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  const r = stage.getBoundingClientRect();
+  const close = () => {
+    cardRoot.hidden = true;
+    cardRoot.replaceChildren();
+    back?.focus();
+  };
+  cardRoot.replaceChildren(mapPlate(state, { width: Math.min(r.width, 560) - 64, height: Math.max(120, r.height - 120) }, close));
+  cardRoot.hidden = false;
+  cardRoot.querySelector<HTMLButtonElement>('.map__close')?.focus();
 }
 
 let afterCard: (() => void) | undefined;
@@ -808,7 +839,7 @@ const run = async (a: Action) => {
     store.set(logKey(live), live.log);
   }
   state = r.state;
-  notice = noticeOf(r.events, prev, state) ?? (notice?.hurt && state.turn - notice.turn <= 1 ? notice : null); // before view(); a hit stays a turn longer
+  notice = noticeOf(r.events, prev, state) ?? (notice?.keep && state.turn - notice.turn <= 1 ? notice : null); // before view(); a hit stays a turn longer
   view();
   if (r.events.some((e) => e.t === 'hurt')) stopRepeat();
   lastSound = sound.play(r.events);
@@ -830,9 +861,10 @@ const run = async (a: Action) => {
 let heldKey = '';
 addEventListener('keydown', (e) => {
   if (!cardRoot.hidden) {
-    if (e.key === 'Escape') cardRoot.querySelector<HTMLButtonElement>('.ghost-card__close')?.click();
+    if (e.key === 'Escape' || ((e.key === 'm' || e.key === 'M') && cardRoot.querySelector('.map__close'))) cardRoot.querySelector<HTMLButtonElement>('.ghost-card__close, .map__close')?.click();
     return; // reading a card never moves the hero
   }
+  if ((e.key === 'm' || e.key === 'M') && end.hidden && !e.repeat) return openMap();
   const a = KEYS[e.key];
   if (!a || !end.hidden) return;
   if (document.activeElement instanceof HTMLElement && document.activeElement.closest('#hud, #practice')) document.activeElement.blur();

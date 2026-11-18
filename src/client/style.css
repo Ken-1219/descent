@@ -498,6 +498,36 @@ h3 {
   width: 72px;
   height: 56px;
 }
+/* Phase 11f: the map sits above the item on the left thumb; it is not an action, so it never takes a turn. */
+.controls__left {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+}
+.map-btn {
+  width: 72px;
+  min-height: var(--tap);
+}
+.map {
+  display: grid;
+  justify-items: center;
+  gap: var(--gap);
+  max-width: 100%;
+}
+.map__title {
+  margin: 0;
+  font-family: var(--font-title);
+  font-size: var(--t-title);
+}
+.map__key {
+  margin: 0;
+}
+.map__canvas {
+  display: block;
+  max-width: 100%;
+  image-rendering: pixelated;
+  background: var(--ink-0);
+}
 .keyhints {
   display: none;
   margin: 0 auto;
@@ -1168,6 +1198,27 @@ body:has(#end:not([hidden])) .carving {
 .intro-compass__cell[data-danger] {
   border-color: var(--blood);
 }
+/* Phase 11f: what the compass shows, its letters as on the trap step, and the Warden's arena. */
+.intro__compass-title {
+  margin: 0;
+  font-size: var(--t-small);
+  font-family: var(--font-ui);
+  color: var(--bone);
+}
+.intro-compass__zone {
+  flex-basis: 100%;
+  font-size: var(--t-small);
+  color: var(--pale);
+}
+.intro-compass__arena {
+  color: var(--gilt);
+}
+.intro-compass__you {
+  color: var(--wisp);
+}
+.intro-compass__cell[data-arena] {
+  border-color: var(--gilt);
+}
 .intro__line,
 .intro__legend,
 .intro__new {
@@ -1365,4 +1416,11 @@ body:has(#end:not([hidden])) .carving {
 }
 .plate__boss p {
   margin: 0;
+}
+
+/* Phase 11f: the board's three words, explained once each. */
+.board__help {
+  margin: 0;
+  padding-left: 1.2em;
+  font-size: var(--t-small);
 }

@@ -227,12 +227,16 @@ export const createHud = (root: HTMLElement, lowPct: number, maxHearts: number, 
   };
 };
 
-/** D-pad on the right thumb, item on the left; key hints replace both on desktop. */
-export const controls = (root: HTMLElement) => {
+/** D-pad on the right thumb, item and map on the left; key hints replace the pad and item on desktop (the map stays). */
+export const controls = (root: HTMLElement, onMap: () => void) => {
   const item = button('Item', 'item-btn');
   item.dataset.act = 'I';
   item.setAttribute('aria-label', 'Use item');
-  root.replaceChildren(item, el('p', 'keyhints', 'Arrows move. Space waits. E uses item.'), dpad());
+  // Phase 11f: the map is not an action (no data-act): it costs no turn and is never logged.
+  const map = button('Map', 'map-btn');
+  map.setAttribute('aria-label', 'Map of what you have seen (no turn passes)');
+  map.addEventListener('click', onMap);
+  root.replaceChildren(el('div', 'controls__left', map, item), el('p', 'keyhints', 'Arrows move. Space waits. E uses item. M shows the map.'), dpad());
 };
 
 export type PanelAction = { label: string; run: () => void; disabled?: boolean };
@@ -305,7 +309,7 @@ export const trapPicker = (onChange: (zone: number | null, kind: keyof typeof TR
   grid.setAttribute('role', 'group');
   grid.setAttribute('aria-label', 'Zone');
   const cells = ZONE_NAMES.map((name, z) => {
-    const b = button(['NW', 'N', 'NE', 'W', 'C', 'E', 'SW', 'S', 'SE'][z] ?? '');
+    const b = button(ZONE_SHORT[z] ?? '');
     b.setAttribute('aria-label', name);
     b.setAttribute('aria-pressed', 'false');
     b.addEventListener('click', () => {
@@ -344,17 +348,22 @@ export const carvingsList = (ghosts: readonly Ghost[], open: (g: Ghost) => void)
  * The intro's compass: per zone, yesterday's deaths (☠) and today's danger counted from the stored floor (▲), so where
  * the crowd died and where the hazards actually went read side by side. The heaviest of each is marked by shape too.
  */
-export const introCompass = (deaths: readonly number[] | null, danger: readonly number[]) => {
+/** Compass letters for the 3×3 zones (reading order), as on the trap step and the intro. */
+export const ZONE_SHORT = ['NW', 'N', 'NE', 'W', 'C', 'E', 'SW', 'S', 'SE'] as const;
+
+/** `arena`: on a Warden day, the zone of its arena (Phase 11f), marked in its cell. */
+export const introCompass = (deaths: readonly number[] | null, danger: readonly number[], arena: number | null = null, you: number | null = null) => {
   const most = (xs: readonly number[]) => (Math.max(...xs) > 0 ? xs.indexOf(Math.max(...xs)) : -1);
   const dz = deaths ? most(deaths) : -1;
   const hz = most(danger);
   const grid = el('div', 'intro-compass');
   grid.setAttribute('role', 'img');
-  grid.setAttribute('aria-label', `Compass. ${ZONE_NAMES.map((z, i) => `${z}: ${deaths ? `${deaths[i] ?? 0} fell, ` : ''}danger ${danger[i] ?? 0}`).join('. ')}`);
+  grid.setAttribute('aria-label', `Compass. ${ZONE_NAMES.map((z, i) => `${z}: ${deaths ? `${deaths[i] ?? 0} fell, ` : ''}danger ${danger[i] ?? 0}${i === arena ? ', the Warden\'s arena' : ''}${i === you ? ', you start here' : ''}`).join('. ')}`);
   ZONE_NAMES.forEach((_, i) => {
     // An empty zone is a quiet dot, not "0": a newcomer reads only the zones that matter (the label keeps every number).
     const mark = (sym: string, n: number) => (n ? `${sym} ${n}` : '·');
-    const cell = el('div', 'intro-compass__cell', ...(deaths ? [el('span', 'intro-compass__dead', mark('☠', deaths[i] ?? 0))] : []), el('span', 'intro-compass__danger', mark('▲', danger[i] ?? 0)));
+    const cell = el('div', 'intro-compass__cell', el('span', 'intro-compass__zone', ZONE_SHORT[i] ?? ''), ...(deaths ? [el('span', 'intro-compass__dead', mark('☠', deaths[i] ?? 0))] : []), el('span', 'intro-compass__danger', mark('▲', danger[i] ?? 0)), ...(i === arena ? [el('span', 'intro-compass__arena', 'Warden')] : []), ...(i === you ? [el('span', 'intro-compass__you', 'you start')] : []));
+    if (i === arena) cell.dataset.arena = '';
     if (i === dz) cell.dataset.deadliest = '';
     if (i === hz) cell.dataset.danger = '';
     grid.append(cell);

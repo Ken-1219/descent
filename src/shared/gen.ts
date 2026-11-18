@@ -1,11 +1,11 @@
 // Floor generator (§8): BSP rooms, the tier cycle, budget spending, floor shape, crowd weights, player traps, fairness gates.
 import {
-  BUDGET, CROWD, CURSE_TIE_ORDER, CURSES, CYCLE, DARK, ENTRANCE_CLEAR, FAMILIES, FAMILY_POS, FAMILY_WEIGHT, GATE_TORCH_PCT, GOBLINS, GRID, IMPS,
+  BUDGET, CROWD, CURSE_TIE_ORDER, CURSES, CYCLE, DARK, DARK_RUN_MAX, ENTRANCE_CLEAR, FOE_CHARS, ROOM_FOE_CAP, FAMILIES, FAMILY_POS, FAMILY_WEIGHT, GATE_TORCH_PCT, GOBLINS, GRID, IMPS,
   FRESH_PER_ROOM, ITEM_RULE, ITEM_WEIGHT, MAX_TIER, MECHANISMS, PITS, PLACE_TRIES, RETRY_CAP, ROOM1_ENEMY_GAP, ROOMS, SKELETONS, SLACK, SPIKES,
-  TIERS, TILES_PER_INSTANCE, TRAP_MAX, TRAP_ZONE_MAX, TRAPS, WARDEN_POS, type Curse, type Family, type Item, type Tier,
+  TIERS, TILES_PER_INSTANCE, TRAP_MAX, TRAP_ZONE_MAX, TRAPS, WARDEN_POS, type Curse, type Family, type FoeFamily, type Item, type Tier,
 } from './content';
 import { bot } from './bot';
-import { DIRS, bfs, blocks, dist, find, isWall, same, setTile, slitLine, tileAt, width, zoneOf, type Pos } from './grid';
+import { DIRS, bfs, blocks, dist, find, isWall, nearest, same, setTile, slitLine, tileAt, width, zoneOf, type Pos } from './grid';
 import { hash, mulberry32 } from './rng';
 import { spikeStage, start, step, tierOf, type Action, type Floor, type PlacedTrap, type Rect } from './sim';
 
@@ -25,6 +25,7 @@ const ITEM_CHAR: Record<Item, string> = { potion: 'p', oil: 'l', bomb: 'b' };
 const ITEM_KINDS: readonly Item[] = ['potion', 'oil', 'bomb'];
 const TRAP_CHAR = { spikes: 'x', stairs: 'F' } as const;
 
+const isFoe = (f: Family): f is FoeFamily => f === 'goblins' || f === 'imps' || f === 'skeletons';
 const cycle = (depth: number) => ({ band: Math.floor((depth - 1) / CYCLE), pos: ((depth - 1) % CYCLE) + 1 });
 
 /** §8: in band b a family whose position has been reached is at tier b + 1, the rest at b; 0 (absent) is left out; capped at 4. */
@@ -154,6 +155,44 @@ function unstranded(t: readonly string[], entrance: Pos): boolean {
   const reach = bfs(t, entrance, walk);
   const back = bfs(t, stairs, (c) => walk(c) && c !== 'H' && c !== 'h');
   return reach.every((r, i) => r < 0 || (back[i] ?? -1) >= 0 || 'Hh'.includes(t[Math.floor(i / w)]?.[i % w] ?? ''));
+}
+
+/** Phase 11f: foes of one family inside a room (a den counts as the goblins it spawns, FOE_CHARS). */
+export function foesIn(rows: readonly string[], r: Rect, f: FoeFamily): number {
+  let n = 0;
+  for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) n += FOE_CHARS[f][tileAt(rows, x, y)] ?? 0;
+  return n;
+}
+
+/** Phase 11f: every barred gate shut at the start has a plate that opens it, reachable while every gate is shut. */
+export function platesReachable(floor: Floor): boolean {
+  const s0 = start(floor);
+  const w = width(s0.tiles);
+  const reach = bfs(s0.tiles, s0.pos, (c) => !blocks(c));
+  const plates = find(s0.tiles, '_').filter((p) => (reach[p.y * w + p.x] ?? -1) >= 0);
+  return find(s0.tiles, 'H').every((g) => plates.some((p) => {
+    const n = nearest(s0.tiles, p, 'H');
+    return !!n && same(n, g);
+  }));
+}
+
+/** Phase 11f: the most dark rooms walked through in a row along a route (corridors between them don't break the run). */
+export function darkRun(floor: Floor, rooms: readonly Rect[], log: readonly Action[]): number {
+  const dark = (r: Rect) => (floor.dark ?? []).some((d) => d.x === r.x && d.y === r.y && d.w === r.w && d.h === r.h);
+  let p = start(floor).pos;
+  let last: Rect | undefined;
+  let run = 0;
+  let best = 0;
+  for (const a of log) {
+    const d = DIRS.find((k) => k.a === a);
+    p = { x: p.x + (d?.dx ?? 0), y: p.y + (d?.dy ?? 0) };
+    const r = rooms.find((k) => inside(k, p));
+    if (!r || r === last) continue;
+    last = r;
+    run = dark(r) ? run + 1 : 0;
+    best = Math.max(best, run);
+  }
+  return best;
 }
 
 /** A cheap gate-1 precheck while placing: a route to the stairs avoiding every always-dangerous tile (timed spikes count as passable). */
@@ -426,6 +465,10 @@ function attempt(depth: number, seed: number, mods: Mods, fallback: number): Omi
     if (!tier || total + cost > budget || (spent[f] ?? 0) + cost > cap || room >= capacity(r)) return false;
     const before = rows;
     if (!place(f, tier, r)) return false;
+    if (isFoe(f) && foesIn(rows, r, f) > ROOM_FOE_CAP[f]) {
+      rows = before; // Phase 11f: a room never holds more of one family than ROOM_FOE_CAP
+      return false;
+    }
     if (!routed(rows, entrance, stairs, fixedSpikes)) {
       rows = before; // this instance would cut the only safe route: take it back
       if (f === 'dark') darkRooms.pop();
@@ -448,7 +491,7 @@ function attempt(depth: number, seed: number, mods: Mods, fallback: number): Omi
   const roomsFor = (f: Family) =>
     allowed.filter(([k, fs]) => {
       const r = rooms[k];
-      return r && (fs.includes(f) || (crowded(r) && k !== r1)) && (filled.get(r) ?? 0) < capacity(r) && (roomSpent.get(r) ?? 0) + costOf(f) <= share(r) && (!fresh.includes(f) || (freshIn.get(r) ?? 0) < freshCap(r));
+      return r && (!isFoe(f) || foesIn(rows, r, f) < ROOM_FOE_CAP[f]) && (fs.includes(f) || (crowded(r) && k !== r1)) && (filled.get(r) ?? 0) < capacity(r) && (roomSpent.get(r) ?? 0) + costOf(f) <= share(r) && (!fresh.includes(f) || (freshIn.get(r) ?? 0) < freshCap(r));
     }).map(([k]) => k);
   for (let fails = 0; fails < PLACE_TRIES; ) {
     const options = FAMILIES.filter((f) => {
@@ -517,6 +560,7 @@ function attempt(depth: number, seed: number, mods: Mods, fallback: number): Omi
   const torch = Math.max(ceilDiv(safe.burn * slack * cursePct(mods, 'torchPct'), 100 * 100), ceilDiv(safe.burn * 100, GATE_TORCH_PCT));
   const done: Floor = { ...floor, torch };
   if (safe.burn * 100 > GATE_TORCH_PCT * torch || !verified(done, safe.log) || !strandFree(done)) return null;
+  if (!platesReachable(done) || darkRun(done, rooms, safe.log) > DARK_RUN_MAX) return null; // Phase 11f fairness
   const run = bot(done, 100, seed, 'map').state; // gate 3 is a proof: the bot plays with the map
   if (run.ended?.kind !== 'won' || run.hearts < 1) return null;
   return { floor: done, rooms, showcase: fresh, bought, safe };

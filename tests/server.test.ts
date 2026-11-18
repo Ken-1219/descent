@@ -4,7 +4,7 @@ import { redis } from '@devvit/web/server';
 import { BOARD, FLOOR_0 } from '../src/shared/content';
 import { bot } from '../src/shared/bot';
 import { replay, score, start, step, type Action, type Floor } from '../src/shared/sim';
-import { carve, floorFor, ghostsOf, openFloor, placeTrap, purgeBots, resetRun, seedBots, submitRun, tally, voteCarving, voteCurse } from '../src/server/game';
+import { carve, floorFor, ghostsOf, seeHint, openFloor, placeTrap, purgeBots, resetRun, seedBots, submitRun, tally, voteCarving, voteCurse } from '../src/server/game';
 import { resolveCurse } from '../src/shared/gen';
 import { CARVINGS } from '../src/shared/content';
 import { zoneOf } from '../src/shared/grid';
@@ -420,4 +420,18 @@ test('dev reset also removes your curse vote, trap and carving votes, and what t
   expect(await redis.hGetAll('f:1:traps')).toEqual({});
   expect(await redis.hGetAll('f:1:votes')).toEqual({});
   expect(resolveCurse((await tally(1)).curseVotes)).toBeNull();
+});
+
+test('hints seen (Phase 11f): a bit per thing taught, kept per player, returned with the floor; bad bits are refused', async () => {
+  await startFirstFloor();
+  expect(await seeHint('t2_a', 2)).toBe(4);
+  expect(await seeHint('t2_a', 0)).toBe(5);
+  expect(await seeHint('t2_a', 2)).toBe(5); // seen twice is seen once
+  for (const bad of [-1, 99, 1.5, Number.NaN]) expect(await seeHint('t2_a', bad)).toBeNull();
+  expect(await seeHint('t2_b', 1)).toBe(2); // per player
+  const f = await floorFor('t2_a', null);
+  expect(f.kind === 'play' && f.hints).toBe(5);
+  expect((await submitRun('t2_a', 1, played(f.kind === 'play' ? f.floor : FLOOR_0), who)).kind).toBe('saved');
+  const p = await floorFor('t2_a', 1);
+  expect(p.kind === 'played' && p.hints).toBe(5);
 });
