@@ -17,6 +17,9 @@
     "dir": "dist/server",
     "entry": "index.cjs"
   },
+  "permissions": {
+    "journeys": true
+  },
   "menu": {
     "items": [
       {
@@ -69,6 +72,13 @@
         "endpoint": "/internal/menu/post-floor0"
       },
       {
+        "label": "Post today's floor (to pin)",
+        "description": "A post that always opens today's floor and never closes: pin it and link it",
+        "location": "subreddit",
+        "forUserType": "moderator",
+        "endpoint": "/internal/menu/post-today"
+      },
+      {
         "label": "Health",
         "description": "Today's funnel, load times, errors and failed saves",
         "location": "subreddit",
@@ -106,6 +116,9 @@
       "memorial": {
         "endpoint": "/internal/scheduler/memorial"
       },
+      "delvers": {
+        "endpoint": "/internal/scheduler/delvers"
+      },
       "sweep": {
         "endpoint": "/internal/scheduler/sweep",
         "cron": "30 15 * * *"
@@ -119,6 +132,12 @@
   },
   "settings": {
     "subreddit": {
+      "namelessDelvers": {
+        "type": "number",
+        "label": "Nameless delvers per day",
+        "helpText": "Bot ghosts added a few minutes after each new floor, so early floors don't look empty. Shown as nameless delvers; never counted in boards, the funnel or tomorrow's floor. 0 is off; at most 100.",
+        "defaultValue": 0
+      },
       "devTools": {
         "type": "boolean",
         "label": "Dev tools (reset my run, roll over now, set the Warden's links)",

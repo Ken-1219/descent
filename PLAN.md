@@ -162,6 +162,7 @@ src/client/
   screens.ts                Phase 9: the Board (tabs, your row) and the Chronicle, loaded on demand from the plate
   minimap.ts                Phase 9: a floor's rows and wisps on a 2D canvas (splash and already-played; no Phaser, no sim)
   sound.ts                  Phase 11: every sound synthesized with WebAudio; silent until the first tap in the game; mute remembered
+  journey.ts                Phase 11c: Devvit Journeys for one run (start, progress, interactions, end), in order, never after End
   assets/                   atlas.png, fonts/*.woff2, fonts/OFL.txt, icon
 src/server/
   index.ts                  Hono app, one log line per request
@@ -601,6 +602,10 @@ Each phase lists Build, Show me (what to open), Checks, and Gate.
 ### Phase 11b — Load time on Reddit (Nov 17, inserted by the owner)
 
 - **Built:** load stages in the beacon (A67), the intro before Phaser (A68), warming the game's files on intent from the splash (A69). Medians on Reddit, cold desktop: intro 3.7 → 2.0 s, first move 3.7 → 2.3 s. RELEASE.md (installing a fixed version on the players' subreddit), README.md, and submission drafts in `docs/superpowers/submission/`.
+
+### Phase 11c — Match the brief (Nov 17–18, inserted by the owner)
+
+- **Built:** Devvit Journeys over one run (A72), the splash's date, attribution and stats (A73), one result card with optional steps and a comments link (A74), a newcomer's Floor 0 straight into the intro (A75), cards that fit at 360×640 (A76), the always-today post to pin (A71), the "Nameless delvers per day" setting with its own job (A70). Files: `src/client/journey.ts` (Journeys client, new).
 
 ### Phase 12 — Seed and submit (Dec 6–8)
 

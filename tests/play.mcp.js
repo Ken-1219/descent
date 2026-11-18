@@ -27,6 +27,13 @@ async (page) => {
   const S = (p) => p.evaluate(() => window.__descent.state());
   const acts = (p, list) => p.evaluate(async (list) => { for (const a of list) await window.__descent.act(a); }, list);
   const endVisible = (p) => p.evaluate(() => !document.getElementById('end').hidden);
+  // Phase 11c: a run ends on its one result card; carving, the curse vote and the trap are optional steps opened from it.
+  const toCard = (p) => p.waitForFunction(() => /Score/.test(document.getElementById('end').innerText), null, { timeout: 12000 });
+  const toPicker = async (p) => {
+    await toCard(p);
+    await p.locator('#end .btn--primary').click();
+    await p.waitForSelector('#end select.picker');
+  };
 
   // 1. Rules in the browser (skipAnim on, mercy floor)
   {
@@ -86,14 +93,11 @@ async (page) => {
       const t = await p.evaluate(async (a) => { const t0 = performance.now(); await window.__descent.act(a); return performance.now() - t0; }, a);
       locks.push(t);
     }
-    const won = await S(p);
-    locks.sort((x, y) => x - y);
-    check('Floor 0 won by actions', won.ended && won.ended.kind === 'won' && won.turn === 18, `turn ${won.turn}`);
-    check('animation lock per turn <= 120 ms (+frame slack)', locks[locks.length - 1] <= 140, `median ${locks[9].toFixed(0)} max ${locks[locks.length - 1].toFixed(0)} ms`);
-    check('end overlay shown with one primary action', (await endVisible(p)) && (await p.locator('#end .btn--primary').count()) === 1, '');
-    await p.keyboard.press('Enter');
     const r = await S(p);
-    check('first visit: Enter on "Descend to Floor 1" after Floor 0 opens the day\'s floor at its intro', r.floor === 1 && r.turn === 0 && !r.ended && (await p.evaluate(() => document.getElementById('end').classList.contains('end--intro'))), `floor ${r.floor} turn ${r.turn}`);
+    locks.sort((x, y) => x - y);
+    check('animation lock per turn <= 120 ms (+frame slack)', locks[locks.length - 1] <= 140, `median ${locks[9].toFixed(0)} max ${locks[locks.length - 1].toFixed(0)} ms`);
+    // Phase 11c: a newcomer's first clear of Floor 0 opens the day's floor at its intro, with no panel or tap in between.
+    check('first visit: clearing Floor 0 by actions opens the day\'s floor at its intro, one primary action', r.floor === 1 && r.turn === 0 && !r.ended && (await endVisible(p)) && (await p.locator('#end .btn--primary').count()) === 1 && (await p.evaluate(() => document.getElementById('end').classList.contains('end--intro'))), `floor ${r.floor} turn ${r.turn}`);
     await p.evaluate(() => window.__descent.load(0));
     const t0 = Date.now();
     for (const a of WIN) { await p.keyboard.press(KEY[a]); await p.waitForTimeout(125); }
@@ -386,8 +390,8 @@ async (page) => {
     check('a mid-run reload resumes at the same turn, tile, torch and hearts', back.turn === mid.turn && back.pos.x === mid.pos.x && back.pos.y === mid.pos.y && back.torch === mid.torch && back.hearts === mid.hearts && !back.ended, `turn ${back.turn}/${mid.turn}`);
     await p.evaluate(() => window.__descent.skipAnim(true));
     await p.evaluate(async () => { for (let i = 0; i < 1500 && !window.__descent.state().ended; i++) await window.__descent.act('W'); });
-    await p.waitForFunction(() => /Saved/.test(document.getElementById('end').innerText), null, { timeout: 5000 });
-    check('a finished run shows Saved (no retry), with one primary action', (await p.locator('#end .btn--primary').count()) === 1 && !(await p.getByRole('button', { name: 'Retry' }).isVisible()), (await endText(p)).replace(/\n/g, ' | '));
+    await toCard(p); // saved: the full result card replaces "Saving your run…"
+    check('a finished run lands on its result card (no retry), with one primary action', (await p.locator('#end .btn--primary').count()) === 1 && !(await p.getByRole('button', { name: 'Retry' }).isVisible()), (await endText(p)).replace(/\n/g, ' | '));
     await p.reload();
     await p.waitForFunction(() => window.__descent);
     check('a second attempt shows the stored result', /Floor 1/.test(await endText(p)) && /Score \d+/.test(await endText(p)) && (await endVisible(p)), (await endText(p)).replace(/\n/g, ' | '));
@@ -425,8 +429,8 @@ async (page) => {
     await c2.p.waitForFunction(() => /Not saved/.test(document.getElementById('end').innerText), null, { timeout: 12000 });
     await c2.p.evaluate(() => window.__descent.offline(false));
     await c2.p.getByRole('button', { name: 'Retry' }).click();
-    await c2.p.waitForFunction(() => /Saved/.test(document.getElementById('end').innerText) && !/Not saved/.test(document.getElementById('end').innerText), null, { timeout: 5000 });
-    check('offline: Saving, then Not saved after 3 retries, then Retry saves', /Saving/.test(saving) && !/Retry/.test(saving), saving.replace(/\n/g, ' | '));
+    await toCard(c2.p); // the retry saved it: the full result card replaces the saving one
+    check('offline: Saving, then Not saved after 3 retries, then Retry saves and the result card arrives', /Saving/.test(saving) && !/Retry/.test(saving), saving.replace(/\n/g, ' | '));
     await c2.ctx.close();
     const c3 = await dayCtx({ q: '?loggedOut=1' });
     check('logged out: "Log in to descend" with a Log in action', /Log in to descend/.test(await endText(c3.p)) && (await c3.p.locator('#end .btn--primary').innerText()) === 'Log in', (await endText(c3.p)).replace(/\n/g, ' | '));
@@ -483,7 +487,7 @@ async (page) => {
     {
       const { ctx, p } = await ctxAt({ width: 390, height: 844 });
       await dieHere(p);
-      await p.waitForSelector('#end select.picker');
+      await toPicker(p); // the card's Carve opens the carving step
       const carveBtn = p.locator('#end .btn--primary');
       const disabledFirst = await carveBtn.isDisabled();
       await p.locator('#end select.picker').selectOption('trap-ahead');
@@ -501,8 +505,7 @@ async (page) => {
     {
       const { ctx, p } = await ctxAt({ width: 390, height: 844 });
       await dieHere(p);
-      await p.waitForSelector('#end select.picker');
-      await p.getByRole('button', { name: 'Skip' }).click();
+      await toCard(p);
       await p.waitForFunction(() => /left no carving/.test(document.getElementById('end').innerText), null, { timeout: 8000 });
       const plate = await endText(p);
       await p.locator('#end .btn--primary').click(); // Carve
@@ -513,19 +516,18 @@ async (page) => {
       await ctx.close();
     }
 
-    // Offline: the carving waits for the run, then both save once the network is back.
+    // Offline: the result card says the run is saving (then "Not saved" with Retry); once the network is back it arrives.
     {
       const { ctx, p } = await ctxAt({ width: 390, height: 844 });
       await p.evaluate(() => window.__descent.offline(true));
       await dieHere(p);
-      await p.waitForSelector('#end select.picker');
-      await p.locator('#end select.picker').selectOption('dead-end');
-      await p.locator('#end .btn--primary').click();
       const queued = await endText(p);
       await p.waitForTimeout(1200);
       await p.evaluate(() => window.__descent.offline(false));
-      await p.waitForFunction(() => /Your ghost: Dead end/.test(document.getElementById('end').innerText), null, { timeout: 12000 });
-      check('a carving made while the run is unsaved is queued and sent after the run saves', /Saving/.test(queued), flat(queued));
+      await p.waitForFunction(() => /Score/.test(document.getElementById('end').innerText) || !!document.querySelector('#end .save__retry:not([hidden])'), null, { timeout: 12000 });
+      if (await p.locator('#end .save__retry:not([hidden])').count()) await p.locator('#end .save__retry').click();
+      await toCard(p);
+      check('a run that cannot save yet shows its card saving (Retry if it fails); the full card arrives once the network is back', /You fell/.test(queued) && /Saving your run/.test(queued), flat(queued));
       await ctx.close();
     }
 
@@ -547,7 +549,7 @@ async (page) => {
         });
         bad.push(...(await layout()).map((b) => `${vp.width}x${vp.height} floor ${b}`));
         await dieHere(p);
-        await p.waitForSelector('#end select.picker');
+        await toPicker(p);
         await p.locator('#end select.picker').selectOption('stairs-way:U');
         await p.waitForTimeout(300);
         const view = await p.evaluate(() => {
@@ -605,11 +607,11 @@ async (page) => {
     {
       const { ctx, p } = await ctxAt({ width: 390, height: 844 }, '?floor=f0');
       await win(p);
-      await p.waitForSelector('#end select.picker');
+      await toPicker(p); // the card's "Vote on a curse" step
       const disabled = await p.locator('#end .btn--primary').isDisabled();
       await p.locator('#end select.picker').selectOption('deep-dark');
       await p.locator('#end .btn--primary').click();
-      await p.waitForFunction(() => /Set a trap/.test(document.getElementById('end').innerText));
+      await toPicker(p); // back on the card, its next step: "Set a trap"
       await p.getByRole('button', { name: 'South-west' }).click();
       await p.locator('#end select.picker').selectOption('stairs');
       await p.locator('#end .btn--primary').click();
@@ -622,18 +624,22 @@ async (page) => {
       await ctx.close();
     }
 
-    // Skip both steps: the plate offers the curse vote as its primary action while the floor is live.
+    // One card after a win: its primary is the curse vote; skipping it offers the trap; skipping that leaves no step.
     {
       const { ctx, p } = await ctxAt({ width: 390, height: 844 }, '?floor=f0');
       await win(p);
-      await p.waitForSelector('#end select.picker');
+      await toCard(p);
+      const p0 = await p.locator('#end .btn--primary').innerText();
+      await p.locator('#end .btn--primary').click();
       await p.getByRole('button', { name: 'Skip' }).click();
-      await p.waitForFunction(() => /Set a trap/.test(document.getElementById('end').innerText));
+      await toCard(p);
+      const p1 = await p.locator('#end .btn--primary').innerText();
+      await p.locator('#end .btn--primary').click();
       await p.getByRole('button', { name: 'Skip' }).click();
-      await p.waitForFunction(() => /Score/.test(document.getElementById('end').innerText));
+      await toCard(p);
       const t = await endText(p);
-      const primary = await p.locator('#end .btn--primary').innerText();
-      check('skip both steps: nothing stored; the plate offers "Vote on a curse"', !/Your curse vote|Your trap/.test(t) && primary === 'Vote on a curse', `${t} [${primary}]`);
+      const p2 = await p.locator('#end .btn--primary').innerText();
+      check('a win lands on one result card: Vote on a curse, then Set a trap, each optional; skipped, nothing is stored and no step remains', p0 === 'Vote on a curse' && p1 === 'Set a trap' && !/Your curse vote|Your trap/.test(t) && !/Vote on a curse|Set a trap/.test(p2) && /Streak/.test(t), `${p0} → ${p1} → ${p2}`);
       await ctx.close();
     }
 
@@ -646,8 +652,7 @@ async (page) => {
       const cardDuring = await p.locator('#card').innerText();
       await p.keyboard.press('Escape');
       await die(p);
-      await p.waitForSelector('#end select.picker');
-      await p.getByRole('button', { name: 'Skip' }).click();
+      await toCard(p);
       await p.waitForFunction(() => /Carvings \(/.test(document.getElementById('end').innerText));
       await p.locator('#end .carvings__open').click();
       await p.locator('#end .carvings__row').first().click();
@@ -690,10 +695,12 @@ async (page) => {
       for (const vp of [{ width: 320, height: 320 }, { width: 360, height: 640 }, { width: 844, height: 390 }, { width: 1280, height: 800 }]) {
         const { ctx, p } = await ctxAt(vp, '?floor=f0&ghosts=300');
         await win(p);
-        await p.waitForSelector('#end select.picker');
+        await toCard(p);
+        await layout(p, 'result card', vp);
+        await toPicker(p);
         await layout(p, 'curse step', vp);
         await p.getByRole('button', { name: 'Skip' }).click();
-        await p.waitForFunction(() => /Set a trap/.test(document.getElementById('end').innerText));
+        await toPicker(p);
         await layout(p, 'trap step', vp);
         await p.getByRole('button', { name: 'Centre' }).click();
         await p.locator('#end select.picker').selectOption('spikes');
@@ -737,16 +744,14 @@ async (page) => {
     {
       const { ctx, p } = await ctxAt({ width: 390, height: 844 }, '?floor=trap');
       await kill(p);
-      await p.waitForSelector('#end select.picker');
-      const death = await p.locator('#end').innerText();
-      await p.getByRole('button', { name: 'Skip' }).click();
-      await p.waitForFunction(() => /Score/.test(document.getElementById('end').innerText));
+      const death = await p.locator('#end').innerText(); // the card while it saves
+      await toCard(p);
       await p.reload();
       await p.waitForFunction(() => window.__descent);
       await p.waitForFunction(() => /Score/.test(document.getElementById('end').innerText));
       const plate = await p.locator('#end').innerText();
       const mine = await p.evaluate(() => window.__descent.ghosts().list.find((g) => g.mine));
-      check('a death to a player\'s trap names its owner: death panel, plate after reload, and your ghost', /The spikes set by u\/trapper took you/.test(death) && /A trap set by u\/trapper took you/.test(plate) && mine?.by === 'trapper', `${death.split('\n')[2]} | ${plate.split('\n')[2]}`);
+      check('a death to a player\'s trap names its owner: death panel, plate after reload, and your ghost', /(The spikes|A trap) set by u\/trapper took you/.test(death) && /A trap set by u\/trapper took you/.test(plate) && mine?.by === 'trapper', `${death.split('\n')[2]} | ${plate.split('\n')[2]}`);
       await ctx.close();
     }
     {
@@ -757,8 +762,7 @@ async (page) => {
       const line = await p.locator('#end').innerText();
       await p.evaluate(() => document.querySelector('#end .btn--primary').click());
       await p.evaluate(async () => { window.__descent.skipAnim(true); for (let i = 0; i < 1500 && !window.__descent.state().ended; i++) await window.__descent.act('W'); });
-      await p.waitForSelector('#end select.picker');
-      await p.getByRole('button', { name: 'Skip' }).click();
+      await toCard(p);
       await p.waitForFunction(() => /Score/.test(document.getElementById('end').innerText));
       const plate = await p.locator('#end').innerText();
       check('a trap owner sees what their trap did, on the intro and on the plate', /Your spikes hurt 2 and took 1 here\./.test(line) && /Your spikes hurt 2 and took 1 here\./.test(plate), line.replace(/\n+/g, ' | '));
@@ -787,11 +791,8 @@ async (page) => {
       for (const vp of [{ width: 320, height: 320 }, { width: 360, height: 640 }, { width: 844, height: 390 }, { width: 1280, height: 800 }]) {
         const { ctx, p } = await ctxAt(vp, '?floor=trap&curse=light-sleepers&yesterday=1&mytrap=3,2');
         await kill(p);
-        await p.waitForSelector('#end select.picker');
-        await layout(p, 'trap death', vp);
-        await p.getByRole('button', { name: 'Skip' }).click();
-        await p.waitForFunction(() => /Score/.test(document.getElementById('end').innerText));
-        await layout(p, 'plate', vp);
+        await toCard(p);
+        await layout(p, 'result card after a trap death', vp);
         await ctx.close();
       }
       check('layout 320×320 to 1280×800: cursed floor number, trap death and plate fit', bad.length === 0, bad.join(' ; '));
@@ -852,8 +853,7 @@ async (page) => {
     const toPlate = async (p) => {
       await p.evaluate(() => { const e = document.getElementById('end'); if (e.classList.contains('end--intro')) e.querySelector('.btn--primary').click(); });
       await die(p);
-      await p.waitForSelector('#end select.picker');
-      await p.getByRole('button', { name: 'Skip' }).click();
+      await toCard(p);
       await p.waitForFunction(() => /Score/.test(document.getElementById('end').innerText));
     };
     {
@@ -975,9 +975,7 @@ async (page) => {
       await p.waitForFunction(() => document.querySelector('#end:not([hidden])'));
       const endT = await text(p);
       check('the end of a Warden run says how many links you broke', /You broke 3 links\./.test(endT), endT.slice(0, 140));
-      await p.getByRole('button', { name: 'Skip' }).click();
-      if (await p.getByRole('button', { name: 'Skip' }).count()) await p.getByRole('button', { name: 'Skip' }).click();
-      await p.waitForFunction(() => /Score/.test(document.getElementById('end').innerText));
+      await toCard(p);
       const plate = await text(p);
       check('the plate shows the Warden\'s chain after your run and the links you broke', /81 of 120 links/.test(plate) && /You broke 3 links\./.test(plate), plate.slice(0, 200));
       await ctx.close();
@@ -1017,8 +1015,7 @@ async (page) => {
             await p.evaluate(async () => { window.__descent.skipAnim(true); for (const a of 'DDRRR') await window.__descent.act(a); });
             await fits(p, 'hud chain', vp);
             await p.evaluate(async () => { for (let i = 0; i < 400 && !window.__descent.state().ended; i++) await window.__descent.act('W'); });
-            await p.waitForSelector('#end select.picker');
-            await p.getByRole('button', { name: 'Skip' }).click();
+            await toCard(p);
             await p.waitForFunction(() => /Score/.test(document.getElementById('end').innerText));
             await fits(p, 'plate', vp);
           }
@@ -1059,8 +1056,7 @@ async (page) => {
       await ready(p);
       await p.locator('#end .btn--primary').click();
       await p.evaluate(async () => { window.__descent.skipAnim(true); for (let i = 0; i < 400 && !window.__descent.state().ended; i++) await window.__descent.act('W'); });
-      await p.waitForSelector('#end select.picker');
-      await p.getByRole('button', { name: 'Skip' }).click();
+      await toCard(p);
       await p.waitForFunction(() => /Score/.test(document.getElementById('end').innerText));
     };
     {
@@ -1171,7 +1167,7 @@ async (page) => {
       const s = await raw({ width: 390, height: 844 }, 'http://localhost:5190/splash.html?loggedOut=1');
       await s.p.waitForFunction(() => !document.getElementById('go').disabled);
       const st = await text(s.p, 'body');
-      check('stranger logged out: Log in to descend (game and splash), and the privacy link is on the splash', /Log in to descend/.test(t) && /Log in to descend \| Privacy/.test(st), `${t.slice(0, 80)} / ${st.slice(0, 80)}`);
+      check('stranger logged out: Log in to descend (game and splash), and the privacy link is on the splash', /Log in to descend/.test(t) && /Log in to descend \|[^|]*Privacy/.test(st), `${t.slice(0, 80)} / ${st.slice(0, 80)}`);
       await g.ctx.close();
       await s.ctx.close();
     }
@@ -1374,6 +1370,17 @@ async (page) => {
     await p.waitForFunction(() => window.__descent.state().turn >= 1, null, { timeout: 3000 }).catch(() => {});
     const turn = await p.evaluate(() => window.__descent.state().turn);
     check('the intro shows on the floor response while Phaser still loads; Descend waits for the scene, then the first move plays', /Floor \d+/.test(early.text) && /Descend/.test(early.text) && !early.hook && early.boot && waiting === 'Lighting the torch…' && turn >= 1, `intro at ${introAt} ms, ${JSON.stringify({ hook: early.hook, boot: early.boot, waiting, turn })}`);
+    await ctx.close();
+  }
+
+  // 21. Phase 11c: the splash shows the start screen's essentials: name, description, date, attribution, today's stats
+  {
+    const ctx = await browser.newContext({ viewport: { width: 320, height: 320 } });
+    const p = await ctx.newPage();
+    await p.goto('http://localhost:5190/splash.html?ghosts=20');
+    await p.waitForFunction(() => !document.getElementById('go').disabled);
+    const t = await p.evaluate(() => ({ text: document.querySelector('.splash__card').innerText, fits: document.documentElement.scrollWidth <= innerWidth && document.querySelector('.splash__foot').getBoundingClientRect().bottom <= innerHeight + 0.5 }));
+    check('splash essentials at 320×320: name, description, floor, date, attribution and today\'s stats, all on the card', /Descent/.test(t.text) && /A daily dungeon/.test(t.text) && /Floor \d+/.test(t.text) && /\d{1,2} [A-Z][a-z]{2}/.test(t.text) && /by u\//.test(t.text) && /\d+ fell here today · \d+ carved a warning/.test(t.text) && t.fits, t.text.replace(/\n+/g, ' | '));
     await ctx.close();
   }
   } catch (e) {

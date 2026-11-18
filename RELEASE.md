@@ -16,7 +16,7 @@ Commands are from the project root; `bunx devvit` is the Devvit CLI already in `
 1. You must moderate the subreddit with full permissions.
 2. Install exactly that version: `bunx devvit install r/<players> descent-game@<version>`.
 3. Check it: `bunx devvit list installs r/<players>`.
-4. **Bigger communities:** an uploaded, unpublished version is meant for small communities; Devvit's playtest subreddits must stay under 200 subscribers. If the install is refused as the subreddit grows, publish the version for review with `devvit publish` (unlisted by default, so only your subreddits can install it; review is 1–2 business days). That is the owner's step: `bun run launch` is not run by Claude.
+4. **No publishing.** The hackathon rules say not to submit the app for publishing; an uploaded, private app qualifies. Never run `devvit publish` or `bun run launch`.
 
 ## 3. Start the game there
 1. **Dev tools off:** open the subreddit's settings for the app (subreddit → Mod Tools → Apps → descent-game → Settings). Confirm "Dev tools (reset my run, roll over now, set the Warden's links)" is **off**. Its default is off.

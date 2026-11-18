@@ -744,8 +744,8 @@ body:has(#end:not([hidden])) .carving {
 /* Short inline cards (320 px tall): tighter rhythm so the line, Descend and Privacy all stay on the card. */
 @media (max-height: 400px) {
   .splash__card {
-    gap: 4px;
-    padding: var(--gap);
+    gap: 2px;
+    padding: 4px var(--gap);
   }
 }
 .splash__floor {
@@ -834,10 +834,18 @@ body:has(#end:not([hidden])) .carving {
   margin: 0 0 var(--gap);
   text-align: left;
 }
+/* Phase 11c: date · attribution · Privacy, one quiet row under Descend. */
+.splash__foot {
+  margin: 0;
+  font-size: var(--t-small);
+  line-height: 1.2;
+}
 /* Phase 10b: the privacy page, a quiet text link under Descend (A56). */
 .splash__privacy {
   border: 0;
   background: none;
+  color: inherit;
+  padding: 0;
   font: inherit;
   font-size: var(--t-small);
   text-decoration: underline;
@@ -1101,6 +1109,23 @@ body:has(#end:not([hidden])) .carving {
 .chronicle__floor {
   font-family: var(--font-title);
   font-size: var(--t-head);
+}
+/* Phase 11c: phones up to 700 px tall (360×640) keep every card whole, with no scrolling inside: half the gaps, a smaller
+   title, compact compass cells, and no mini map (the real map is right behind the card). Tap targets stay 44 px. */
+@media (max-height: 700px) {
+  .end__panel {
+    gap: 4px;
+  }
+  .end__panel .title {
+    font-size: var(--t-head);
+  }
+  .intro-compass__cell {
+    min-height: 28px;
+    padding: 0 4px;
+  }
+  .end__panel .minimap {
+    display: none;
+  }
 }
 @media (max-height: 480px) {
   .intro-compass__cell {

@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { context } from '@devvit/web/server';
+import { telemetry } from '@devvit/analytics/server/reddit';
 import type { Beacon, FlairResponse, ForgetResponse, BoardResponse, CardResponse, CarvingRequest, ChronicleResponse, PulseResponse, CarvingResponse, FloorResponse, RunRequest, RunResponse, StartRequest, TrapRequest, TrapResponse, VoteResponse } from '../../shared/api';
 import { carve, floorFor, logStart, placeTrap, setFlair, submitRun, today, voteCarving, voteCurse } from '../game';
 import { beacon, beaconNote, count } from '../health';
@@ -140,4 +141,28 @@ api.post('/forget', async (c) => {
   const r = await purge(user);
   c.set('note', `FORGET ${context.username ?? user}: ${r.floors} floors`);
   return c.json<ForgetResponse>(r);
+});
+
+// Phase 11c: Devvit Journeys, the client's telemetry calls (`@devvit/analytics/client/reddit` posts here). Hono stands in for
+// the package's Express router: the same five endpoints, validated, each logging Reddit's receipt (VALID, or why it was
+// dropped: playtest, not allowlisted yet, rate-limited).
+const str = (v: unknown, n = 64) => (typeof v === 'string' ? v.slice(0, n) : '');
+api.post('/telemetry/journey/:kind', async (c) => {
+  const kind = c.req.param('kind');
+  const b = await c.req.json<Record<string, unknown>>().catch((): Record<string, unknown> => ({}));
+  const journeyId = str(b.journeyId, 128);
+  const game = typeof b.game === 'object' && b.game !== null ? b.game : null;
+  const win = game && 'win' in game ? game.win === true : false;
+  const score = game && 'score' in game && typeof game.score === 'number' ? game.score : 0;
+  const progress = typeof b.progress === 'number' ? Math.min(1, Math.max(0, b.progress)) : 0;
+  const r =
+    kind === 'start' ? await telemetry.startJourney()
+    : kind === 'progress' ? await telemetry.journeyProgress({ journeyId, progress, action: str(b.action), actionDetails: str(b.actionDetails) })
+    : kind === 'interaction' ? await telemetry.journeyInteraction({ journeyId, action: str(b.action), actionDetails: str(b.actionDetails) })
+    : kind === 'end' ? await telemetry.endJourney({ journeyId, complete: b.complete === true, ...(game ? { game: { win, score } } : {}) })
+    : kind === 'app-ready' ? await telemetry.appReady()
+    : null;
+  if (!r) return c.json({ error: 'unknown journey event' }, 400);
+  c.set('note', `journey ${kind}${b.action ? ` ${str(b.action)}` : ''}: ${r.receipt.status}${r.receipt.message ? ` (${r.receipt.message.slice(0, 80)})` : ''}`);
+  return c.json(r);
 });

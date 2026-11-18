@@ -7,6 +7,7 @@ import type { BossView, FloorResponse, GhostView, MyTrap, RunResult } from '../s
 import { carvingLabel, type Ghost, type Vote } from '../shared/ghosts';
 import { isAction, replay, start, step, type Action, type End, type Floor, type Pos } from '../shared/sim';
 import { api, clientClass, report, submit, watchErrors, where } from './net';
+import { journey } from './journey';
 import { sound } from './sound';
 import { iconCanvas, loadPack, packIcon } from './sprites';
 import { button, carvingPicker, carvingsList, chainMeter, controls, createHud, cursePicker, el, endPanel, ghostCard, introCompass, saveLine, trapPicker, type PanelAction } from './ui';
@@ -18,6 +19,7 @@ const stages = { script: performance.now(), floor: 0, engine: 0, intro: 0 };
 /** The intro can show before the scene exists: Descend then waits for it (set once the scene is ready). */
 const boot = { up: false, descend: false };
 function descend() {
+  journey.start(); // Phase 11c: the committed action that begins a run's journey
   if (boot.up) {
     end.hidden = true;
     return;
@@ -217,17 +219,27 @@ let runSaved: Promise<boolean> = Promise.resolve(false);
 const finish = (ended: End) => {
   const title = ended.kind === 'won' ? `Floor ${state.floor.depth} cleared` : 'You fell';
   if (!live) {
-    if (state.floor.depth === 0 && !store.get(F0_KEY)) void api.start({ depth: 0 }).catch(() => undefined); // tutorial seen, on the server
+    const first = state.floor.depth === 0 && !store.get(F0_KEY);
+    if (first) void api.start({ depth: 0 }).catch(() => undefined); // tutorial seen, on the server
     store.set(F0_KEY, '1');
+    // Phase 11c: a newcomer's first clear goes straight on to the day's intro (no panel, no tap in between).
+    if (first && ended.kind === 'won' && playable && !played) return play(playable.floor, playable);
     // After Floor 0, the day's floor is the next thing (no dead ends), unless it is already played or out of reach.
     const next = playable && !played ? { label: `Descend to Floor ${playable.depth}`, run: () => play(playable.floor, playable) } : { label: 'Descend again', run: () => play(floor, null) };
     return endPanel(end, { title, line: endLine(ended, state.turn), primary: next });
   }
+  // Phase 11c: one result card. While the run saves, the card shows what happened and its save status (a failed save offers
+  // Retry here); once stored, the full card replaces it, and carving, the curse vote and the trap are optional steps from it.
+  journey.progress(1, ended.kind === 'won' ? 'won' : 'fell');
   const save = saveLine();
+  afterSave = () => void result();
   sendRun(live, save);
-  if (ended.kind === 'dead') return pickCarving(title, endLine(ended, state.turn, trapOwner()) + linksLine(state.dealt), save, live.depth);
-  pickCurse(title, endLine(ended, state.turn) + linksLine(state.dealt), save, live.depth);
+  const line = endLine(ended, state.turn, ended.kind === 'dead' ? trapOwner() : null) + linksLine(state.dealt);
+  endPanel(end, { title, line, status: save.node, clear: ended.kind === 'dead', primary: { label: 'Saving your run…', run: () => undefined, disabled: true } });
+  if (ended.kind === 'dead') keepHeroInView();
 };
+/** What happens once the run is stored (the result card), set by finish() for the run it sent; a retry keeps it. */
+let afterSave: (() => void) | null = null;
 
 /**
  * Victory, step 1 of 2: the curse vote (select, then Vote; Skip moves on). Like a carving, it waits for the run to be
@@ -246,6 +258,7 @@ function pickCurse(title: string, line: string, save: ReturnType<typeof saveLine
     if (!(await whenStored(save, () => void doVote()))) return;
     const r = await submit(() => api.vote({ depth, curse }), (st) => save.set(st, () => void doVote()));
     if (r?.kind === 'closed') return closed(depth, r.today, r.todayUrl);
+    if (r?.kind === 'voted') journey.interaction('voted');
     if (r) then();
   };
   const vote = endPanel(end, {
@@ -256,7 +269,7 @@ function pickCurse(title: string, line: string, save: ReturnType<typeof saveLine
 }
 
 /** Victory, step 2 of 2: a trap for tomorrow, zone and kind (select both, then Set trap; Skip ends). Hidden from everyone. */
-function pickTrap(save: ReturnType<typeof saveLine>, depth: number) {
+function pickTrap(save: ReturnType<typeof saveLine>, depth: number, skip: () => void = () => void runSaved.then(() => result())) {
   let pick: { zone: number; kind: keyof typeof TRAP_TEXT } | null = null;
   const picker = trapPicker((zone, kind) => {
     pick = zone !== null && kind ? { zone, kind } : null;
@@ -269,12 +282,13 @@ function pickTrap(save: ReturnType<typeof saveLine>, depth: number) {
     if (!(await whenStored(save, () => void doSet()))) return;
     const r = await submit(() => api.trap({ depth, ...t }), (st) => save.set(st, () => void doSet()));
     if (r?.kind === 'closed') return closed(depth, r.today, r.todayUrl);
+    if (r?.kind === 'placed') journey.interaction('trap_set');
     if (r) void result();
   };
   const set = endPanel(end, {
     title: 'Set a trap for tomorrow', line: 'Only you will know where.', body: [picker], status: save.node,
     primary: { label: 'Set trap', run: () => void doSet(), disabled: true },
-    secondary: { label: 'Skip', run: () => void runSaved.then(() => result()) },
+    secondary: { label: 'Skip', run: skip },
   });
 }
 
@@ -289,7 +303,12 @@ async function whenStored(save: ReturnType<typeof saveLine>, retry: () => void):
 function sendRun(l: Live, save: ReturnType<typeof saveLine>) {
   const req = { depth: l.depth, log: l.log };
   runSaved = submit(() => api.run(req), (st) => save.set(st, () => sendRun(l, save))).then((r) => {
-    if (r?.kind === 'saved') played = r.run;
+    if (r?.kind === 'saved') {
+      played = r.run;
+      const then = afterSave;
+      afterSave = null;
+      then?.();
+    }
     if (r?.kind === 'closed') closed(l.depth, r.today, r.todayUrl);
     return r?.kind === 'saved';
   });
@@ -300,7 +319,7 @@ function sendRun(l: Live, save: ReturnType<typeof saveLine>) {
  * secondary. The panel leaves the map undimmed and the camera lifts, so the tile where you fell and its neighbours stay in
  * view; the chosen glyph previews on that tile. A carving made before the run is saved waits for it.
  */
-function pickCarving(title: string, line: string, save: ReturnType<typeof saveLine>, depth: number) {
+function pickCarving(title: string, line: string, save: ReturnType<typeof saveLine>, depth: number, skip: () => void = () => void runSaved.then(() => result())) {
   let choice: string | null = null;
   const picker = carvingPicker((raw) => {
     choice = raw;
@@ -316,12 +335,13 @@ function pickCarving(title: string, line: string, save: ReturnType<typeof saveLi
     if (!(await whenStored(save, () => void doCarve()))) return;
     const r = await submit(() => api.carve({ depth, carving: raw }), (st) => save.set(st, () => void doCarve()));
     if (r?.kind === 'closed') return closed(depth, r.today, r.todayUrl);
+    if (r?.kind === 'carved') journey.interaction('carved');
     if (r) void result();
   };
   const carve = endPanel(end, {
     title, line, body: [picker], status: save.node, clear: true,
     primary: { label: 'Carve', run: () => void doCarve(), disabled: true },
-    secondary: { label: 'Skip', run: () => void runSaved.then(() => result()) },
+    secondary: { label: 'Skip', run: skip },
   });
   keepHeroInView();
 }
@@ -348,7 +368,8 @@ async function result(prefetched?: FloorResponse) {
   flushVotes(r.depth);
   const ended: End = { kind: r.run.outcome, cause: r.run.cause };
   const title = r.run.outcome === 'won' ? `Floor ${r.depth} cleared` : `You fell on Floor ${r.depth}`;
-  const line = `Score ${r.run.score}. ${endLine(ended, r.run.turns, r.run.outcome === 'dead' ? (mine?.by ? `A trap set by u/${mine.by}` : null) : null)}${boss ? '' : linksLine(r.run.dealt)}`;
+  const what = endLine(ended, r.run.turns, r.run.outcome === 'dead' ? (mine?.by ? `A trap set by u/${mine.by}` : null) : null);
+  const line = `Score ${r.run.score}. ${what}${boss ? '' : linksLine(r.run.dealt)}`;
   const c = r.choices;
   const body: Node[] = [
     ...(r.myTrap ? [el('p', 'own-ghost', trapNews(r.myTrap))] : []),
@@ -390,21 +411,35 @@ async function result(prefetched?: FloorResponse) {
   });
   links.querySelector('.flair__toggle')?.setAttribute('aria-pressed', String(flairOn));
   link('Something broke?', 'report__open', () => go(reportUrl('result plate')));
+  // Phase 11c: the post's comments, one tap from the card (the crowd talks there).
+  const comments = context?.postId ? `https://www.reddit.com/comments/${context.postId.replace(/^t3_/, '')}` : null;
+  if (comments) link('Comments', 'comments__open', () => go(comments));
   body.push(links);
   // While the floor is live, the next unfinished choice is the plate's one primary action.
   const won = r.run.outcome === 'won';
+  // Phase 11c: each is an optional step from the card; a step skipped this visit leaves the order, so the next one comes up.
+  const skipTo = (step: string) => () => {
+    skipped.add(step);
+    void result();
+  };
   const next: PanelAction | null = !r.live ? null
-    : won && !c.curse ? { label: 'Vote on a curse', run: () => pickCurse(title, line, saveLine(), r.depth, () => void result()) }
-    : won && !c.trap ? { label: 'Set a trap', run: () => pickTrap(saveLine(), r.depth) }
-    : mine && !mine.carving ? { label: 'Carve', run: () => pickCarving(title, line, saveLine(), r.depth) }
+    : won && !c.curse && !skipped.has('curse') ? { label: 'Vote on a curse', run: () => pickCurse(title, what, saveLine(), r.depth, skipTo('curse')) }
+    : won && !c.trap && !skipped.has('trap') ? { label: 'Set a trap', run: () => pickTrap(saveLine(), r.depth, skipTo('trap')) }
+    : mine && !mine.carving && !skipped.has('carve') ? { label: 'Carve', run: () => pickCarving(title, what, saveLine(), r.depth, skipTo('carve')) }
     : null;
   // An old floor's plate points on to today's (A61); a live one offers its next choice, then practice.
   const onward: PanelAction | null = r.todayUrl ? { label: `Go to Floor ${r.today}`, run: () => go(r.todayUrl ?? null) } : null;
-  const first = next ?? onward ?? practice;
+  // With nothing left to choose, the next step is the conversation: the comments become the primary (and leave the links).
+  const talk: PanelAction | null = comments ? { label: 'See the comments', run: () => go(comments) } : null;
+  const first = next ?? onward ?? talk ?? practice;
+  if (first === talk) links.querySelector('.comments__open')?.remove();
   endPanel(end, { title, line, body, primary: first, ...(first !== practice ? { secondary: practice } : {}) });
+  if (!next) journey.end(r.run.outcome === 'won', r.run.score); // Phase 11c: the run's journey closes once no choice is left
   watch(r.depth, r.nextAt, fellNow, clock, bossNow); // after the plate is in the page: the clock stops once it leaves
 }
 let plate: (FloorResponse & { kind: 'played' }) | null = null;
+/** Steps skipped from the result card on this visit (they stop being offered as its next step). */
+const skipped = new Set<string>();
 
 /**
  * The plate's live parts: the countdown to the next floor (each second) and the ghost count, polled every BOARD.pollMs
@@ -636,7 +671,14 @@ function keepHeroInView() {
   void scene.ready.then(() => requestAnimationFrame(() => {
     const panel = end.querySelector('.end__panel')?.getBoundingClientRect();
     const hero = scene.screenOf(state.pos);
-    if (panel && hero) scene.lift(Math.max(0, hero.bottom + hero.size - panel.top + 4));
+    if (!panel || !hero) return;
+    // Measured with any earlier lift applied (the saving card's), so both sums add it back. The tile below the hero clears
+    // the panel; a 4 px margin only where the tile above can still clear the HUD.
+    const was = scene.lifted();
+    const need = hero.bottom + hero.size - panel.top + was;
+    const ceiling = Math.max($('hud').getBoundingClientRect().bottom, stage.querySelector('canvas')?.getBoundingClientRect().top ?? 0);
+    const room = hero.top - hero.size - ceiling + was;
+    scene.lift(Math.max(0, Math.min(need + 4, Math.max(need, room))));
   }));
 }
 
@@ -656,7 +698,11 @@ const run = async (a: Action) => {
   const r = step(state, a);
   // Only actions that change state are logged: a free bump would make a log unbounded, and the server rejects one.
   if (live && r.state !== state) {
-    if (!live.log) void api.start({ depth: live.depth }).catch(() => undefined);
+    if (!live.log) {
+      void api.start({ depth: live.depth }).catch(() => undefined);
+      journey.start(); // a resumed or intro-less run starts its journey on its first move
+      journey.progress(0.1, 'run_started');
+    }
     live.log += a;
     store.set(logKey(live), live.log);
   }
@@ -767,6 +813,7 @@ void scene.ready.then(() => {
   document.getElementById('boot')?.setAttribute('hidden', ''); // A64: the flame gives way to the floor
   boot.up = true;
   if (boot.descend) end.hidden = true; // Descend was tapped while the scene loaded
+  journey.ready();
   performance.mark('descent:interactive');
   const ms = Math.round(performance.now());
   stages.intro ||= ms; // no intro on this visit (a plate, Floor 0): the first panel is the game itself

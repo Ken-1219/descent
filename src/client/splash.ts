@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 // The feed card: floor number, Descend, played state. No Phaser and no sim: one request, a few DOM writes (§15.3).
 import { context, navigateTo, requestExpandedMode, showLoginPrompt } from '@devvit/web/client';
-import { CURSE_TEXT, PALETTE, PRIVACY } from '../shared/content';
+import { ATTRIBUTION, CURSE_TEXT, PALETTE, PRIVACY } from '../shared/content';
 import type { Floor } from '../shared/sim';
 import { miniMap } from './minimap';
 import { api, report } from './net';
@@ -21,6 +21,14 @@ if (!(go instanceof HTMLButtonElement)) throw new Error('#go must be a button');
 const depth = context?.postData?.depth;
 if (typeof depth === 'number') floor.textContent = `Floor ${depth}`;
 
+// Phase 11c: the start screen's essentials. The date is the floor's day: a floor opens at 15:00 UTC, so before then it is
+// still yesterday's. The attribution sits beside it, Privacy last.
+$('when').textContent = new Date(Date.now() - 15 * 3_600_000).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+$('by').textContent = ATTRIBUTION;
+const stats = (g: { fell: number; list: readonly { carving: unknown }[] }) => {
+  const carved = g.list.filter((x) => x.carving).length;
+  return g.fell ? `${g.fell} fell here today${carved ? ` · ${carved} carved a warning` : ''}.` : 'Nobody has fallen here yet. Be the first ghost.';
+};
 const expand = (e: MouseEvent) => (import.meta.env.DEV ? location.assign(`game.html${location.search}`) : requestExpandedMode(e, 'game'));
 // Phase 11b: on a sign of intent to descend (a hover, focus or press on the button, never a mere feed impression), warm the
 // game's largest files into the HTTP cache the game shares with this card, so its load starts ahead. Names match the build
@@ -113,7 +121,7 @@ void api.floor().then(
     // Boss day (§7 splash states): the Warden and its chain, or that it has fallen.
     const boss = (r.kind === 'play' || r.kind === 'played') && r.boss ? (r.boss.killer ? 'The Warden has fallen.' : `The Warden: ${r.boss.hp} of ${r.boss.pool} links.`) : '';
     if ('depth' in r && typeof r.depth === 'number') step('splash', r.depth);
-    if (r.kind === 'play') set(`Floor ${r.depth}${curse ? ` · ${CURSE_TEXT[curse].name}` : ''}`, boss || (r.ghosts.fell ? `${r.ghosts.fell} fell here today.` : 'Nobody has fallen here yet. Be the first ghost.'), 'Descend', (e) => {
+    if (r.kind === 'play') set(`Floor ${r.depth}${curse ? ` · ${CURSE_TEXT[curse].name}` : ''}`, boss || stats(r.ghosts), 'Descend', (e) => {
       step('descend', r.depth);
       expand(e);
     });

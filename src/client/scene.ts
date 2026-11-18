@@ -193,11 +193,15 @@ export class DescentScene extends Phaser.Scene {
   }
 
   /** Lifts the camera `px` screen px so the hero's tile stays visible above a panel covering the bottom of the map. */
+  private zoom = () => this.game.canvas.getBoundingClientRect().width / this.game.canvas.width || 1;
+  /** The current lift in page pixels (what lift() was last given, after rounding). */
+  lifted() {
+    return this.liftPx * this.zoom();
+  }
+
   lift(px: number) {
     if (!this.hero) return;
-    const rect = this.game.canvas.getBoundingClientRect();
-    const zoom = rect.width / this.game.canvas.width || 1;
-    this.liftPx = Math.max(0, Math.round(px / zoom));
+    this.liftPx = Math.max(0, Math.round(px / this.zoom()));
     this.frame();
     this.cameras.main.setFollowOffset(0, -this.liftPx);
   }

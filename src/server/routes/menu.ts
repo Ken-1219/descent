@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import type { UiResponse } from '@devvit/web/shared';
 import { context, settings } from '@devvit/web/server';
 import { postUrl, purgeBots, resetRun, today } from '../game';
-import { postFloor0, rollNow, startFirstFloor } from '../rollover';
+import { postFloor0, postToday, rollNow, startFirstFloor } from '../rollover';
 import { health, secs } from '../health';
 import { writePrivacyPage } from '../privacy';
 import { CLIENTS, FUNNEL } from '../../shared/content';
@@ -104,4 +104,11 @@ menu.post('/privacy-page', async (c) => {
   const url = await writePrivacyPage();
   c.set('note', `privacy page written: ${url}`);
   return c.json<UiResponse>({ showToast: 'Privacy page written to the wiki' });
+});
+
+// Phase 11c: the always-today post, the link to pin and submit: it never closes.
+menu.post('/post-today', async (c) => {
+  const p = await postToday();
+  c.set('note', `posted the always-today floor ${p.id}`);
+  return c.json<UiResponse>({ navigateTo: postUrl(p.id) ?? '' });
 });

@@ -309,7 +309,9 @@ export const introCompass = (deaths: readonly number[] | null, danger: readonly 
   grid.setAttribute('role', 'img');
   grid.setAttribute('aria-label', `Compass. ${ZONE_NAMES.map((z, i) => `${z}: ${deaths ? `${deaths[i] ?? 0} fell, ` : ''}danger ${danger[i] ?? 0}`).join('. ')}`);
   ZONE_NAMES.forEach((_, i) => {
-    const cell = el('div', 'intro-compass__cell', ...(deaths ? [el('span', 'intro-compass__dead', `☠ ${deaths[i] ?? 0}`)] : []), el('span', 'intro-compass__danger', `▲ ${danger[i] ?? 0}`));
+    // An empty zone is a quiet dot, not "0": a newcomer reads only the zones that matter (the label keeps every number).
+    const mark = (sym: string, n: number) => (n ? `${sym} ${n}` : '·');
+    const cell = el('div', 'intro-compass__cell', ...(deaths ? [el('span', 'intro-compass__dead', mark('☠', deaths[i] ?? 0))] : []), el('span', 'intro-compass__danger', mark('▲', danger[i] ?? 0)));
     if (i === dz) cell.dataset.deadliest = '';
     if (i === hz) cell.dataset.danger = '';
     grid.append(cell);

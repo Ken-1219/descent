@@ -1,13 +1,13 @@
 // Daily rollover (Phase 8): today's tally becomes tomorrow's floor through crowd.ts's ladder, then the post, a summary
 // comment, flair (bounded, with a follow-up job) and a Chronicle record. Bounded work: a few reads whatever the crowd.
-import { context, reddit, redis, scheduler } from '@devvit/web/server';
+import { context, reddit, redis, scheduler, settings } from '@devvit/web/server';
 import { CURSE_TEXT, FLAIR, ZONE_NAMES } from '../shared/content';
 import { EMPTY_TALLY, rolloverFloor, targetPct, type Rolled } from '../shared/crowd';
 import { isWardenFloor, showcaseFamilies } from '../shared/gen';
 import type { Floor } from '../shared/sim';
 import { bossDay, openBoss } from './boss';
 import { health, healthLine } from './health';
-import { dayStats, drainFlair, floorSeed, openFloor, realResult, tally, today, type FlairRun } from './game';
+import { dayStats, drainFlair, floorSeed, openFloor, realResult, seedBots, tally, today, type FlairRun } from './game';
 
 /** Store, post and publish floor `depth`; `game` moves to it only after the post exists. */
 async function post(depth: number, made?: Parameters<typeof openFloor>[1]) {
@@ -62,7 +62,26 @@ async function advance(day: number, why: string): Promise<{ posted: number | nul
   const { deaths: _, ...ledger } = yesterday;
   await redis.hSet('chronicle', { [String(day)]: JSON.stringify({ ...ledger, predicted: before?.predicted?.win ?? null, players: real, ...(ended ? { warden: { hp: ended.hp, pool: ended.pool, killed: ended.killed, ...ended.stats } } : {}) }) });
   await flair(day);
+  await scheduleNameless(next);
   return { posted: next };
+}
+
+/**
+ * Phase 11c: the "Nameless delvers per day" setting. Its bot ghosts are added by their own job a little after the post, never
+ * inside the rollover; they stay labelled and excluded exactly like any seeded bot (boards, funnel, tally, real counts).
+ */
+async function scheduleNameless(depth: number) {
+  const n = Number((await settings.get<number>('namelessDelvers')) ?? 0);
+  if (!(n > 0)) return;
+  await scheduler.runJob({ name: 'delvers', runAt: new Date(Date.now() + 120_000), data: { depth } }).catch((e: unknown) => console.error(`nameless delvers not scheduled: ${String(e)}`));
+}
+/** The job: today's floor only (a late job never seeds an older floor). */
+export async function nameless(depth: number): Promise<{ ghosts: number; runs: number } | null> {
+  const n = Number((await settings.get<number>('namelessDelvers')) ?? 0);
+  if (!(n > 0) || (await today()).day !== depth) return null;
+  const r = await seedBots(n);
+  console.log(`NAMELESS floor ${depth}: ${r.ghosts} bot ghosts from ${r.runs} runs`);
+  return r;
 }
 
 /** Flair for yesterday's players, FLAIR.perRun per run; the rest continue in a follow-up scheduled job (§15.3). */
@@ -113,3 +132,18 @@ export async function postFloor0() {
   });
 }
 
+
+/**
+ * Phase 11c: mod menu "Post today's floor (to pin)": a post with no depth, so it always opens today's floor (floorFor treats
+ * no depth as today) and never shows a closed state. It is the one link to pin and to submit.
+ */
+export async function postToday() {
+  const p = await reddit.submitCustomPost({
+    subredditName: context.subredditName,
+    title: "Descent: today's floor",
+    postData: { today: true },
+    textFallback: { text: "Descent: today's floor of a daily dungeon built by the community's deaths. Open on new Reddit or the app to play." },
+  });
+  await redis.hSet('game', { todayPost: p.id });
+  return p;
+}

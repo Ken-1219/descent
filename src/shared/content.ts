@@ -358,6 +358,8 @@ export type ClientClass = (typeof CLIENTS)[number];
 export const LOAD = { bucketMs: 250, maxMs: 15_000 };
 /** Error beacons: per player per floor, per page load, the shared logged-out budget per floor, message length. */
 export const BEACON = { errorsPerUser: 5, errorsPerLoad: 3, anonErrors: 50, msgChars: 120 };
+/** Phase 11c: the splash's attribution line (the start screen's essentials). Edit to the credit you want shown. */
+export const ATTRIBUTION = 'by u/Clean_Position8332';
 /**
  * What Descent stores and why (A56). Shown in the game (the splash and the Board) from these blocks; the subreddit wiki page
  * `page` is the public copy, written from the same blocks by the mod tool "Write the privacy page".

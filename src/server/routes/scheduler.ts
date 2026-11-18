@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { memorial } from '../boss';
-import { flair, flairNote, rollover } from '../rollover';
+import { flair, flairNote, nameless, rollover } from '../rollover';
 import { sweep } from '../privacy';
 import type { Env } from '../index';
 
@@ -36,4 +36,13 @@ scheduler.post('/sweep', async (c) => {
   const r = await sweep();
   c.set('note', `SWEEP checked ${r.checked}, purged ${r.purged}`);
   return c.json({ status: 'ok', ...r });
+});
+
+// Phase 11c: the day's nameless delvers (the setting), a little after the post, never inside the rollover.
+scheduler.post('/delvers', async (c) => {
+  const body = await c.req.json<{ data?: { depth?: unknown } }>().catch((): { data?: { depth?: unknown } } => ({}));
+  const depth = Number(body.data?.depth);
+  const r = Number.isInteger(depth) && depth > 0 ? await nameless(depth) : null;
+  c.set('note', r ? `nameless delvers floor ${depth}: ${r.ghosts} ghosts` : `nameless delvers floor ${depth}: none (off or not today)`);
+  return c.json({ status: 'ok', ...(r ?? {}) });
 });
