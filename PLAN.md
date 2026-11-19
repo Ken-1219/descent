@@ -629,6 +629,10 @@ Each phase lists Build, Show me (what to open), Checks, and Gate.
 
 - **Built:** a two-line log under the HUD, the older line dimmed and out of the live region (A111); a broken stone threshold into an unlit dark room (A112); a ragged pit and lowered spikes that read as a trap (A113); torch burned beside the turns on the result card (A114); an unlit brazier's ember seen from a distance (A115); a pale wash and bone edge on a dark room's lit walls, with the contrast measured (A116); screenshots kept inside the repo (A117); nameless delvers that carve the floor's truth, one in four lying on purpose (`BOT_LIE_IN`), tested against `carvingTrue` (A118); a local crowd harness, `?world=NAME&day=9|10`, that rolls day 10 over from day 9's tally with the shared rollover (A119); the fifth blind playtest, with a crowd, and its wording fixes (A120). No new files. The last blind-playtest phase unless something breaks: real players next.
 
+### Phase 11i — The rollover keeps what players chose; your mark on today; the release (Nov 19, inserted by the owner)
+
+- **Built:** a reordered ladder (A121): the system's choices go first, then the base floor is rerolled, then traps move within their zones, and only then are the fewest traps dropped. The crowd's curse is part of the base floor and never weighs against the band. Measured on 448 crowd rollovers: traps set aside 35.3% → 1.1%, the curse 6.5% → 0%, max 3.1 s. Set-aside is counted from what landed (A122). "Your mark" on the intro: up to three of your own facts from the day before, from the server (A123). The intro fits at 360×640. A sixth crowd playtest. No new files.
+
 ### Phase 12 — Seed and submit (Dec 6–8)
 
 - Bug fixes only.

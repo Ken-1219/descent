@@ -383,6 +383,12 @@ export const ZONE_NAMES: readonly string[] = ['North-west', 'North', 'North-east
 /** No difficulty spiral: a floor with crowd mods may lose at most `maxDropPct` win-rate points (skill-60 bot, `seeds` runs) against that day's plain floor. */
 export const BAND = { seeds: 16, maxDropPct: 20, skillPct: 60 };
 /**
+ * Phase 11i (A121): the ladder's reach before it gives up a player's choice. `rerolls`: further base floors inside the
+ * plain band; `trapMoves`: shifts of every trap within its zone; `maxFloors`: floors one rollover may generate and score
+ * after the plain band (the time budget); past it the remaining traps go and the cursed plain floor posts.
+ */
+export const LADDER_REACH = { rerolls: 3, trapMoves: 3, maxFloors: 40 };
+/**
  * The plain floor's own difficulty: rerolled until its win rate (skill-60 bot, `runs` runs) sits within `below`/`above`
  * points of §8's target line (startPct at depth 1 falling to endPct at depth 28), clamped to floorPct–ceilPct. Measured
  * on 30 floors × 32 runs per depth: plain floors ran 0–100% (bimodal), so one day could be hopeless and the next empty.

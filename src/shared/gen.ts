@@ -10,7 +10,8 @@ import { hash, mulberry32 } from './rng';
 import { spikeStage, start, step, tierOf, type Action, type Floor, type PlacedTrap, type Rect } from './sim';
 
 /** A survivor's trap for tomorrow: a compass zone and a kind; `owner` and `name` say whose it is (souls, death panels). */
-export type Trap = { zone: number; kind: 'spikes' | 'dart' | 'stairs'; owner?: string; name?: string | null };
+/** `slot` (Phase 11i, A121): the rollover moves a trap to its zone's next candidate tile before dropping it. */
+export type Trap = { zone: number; kind: 'spikes' | 'dart' | 'stairs'; owner?: string; name?: string | null; slot?: number };
 /** Yesterday's crowd: deaths per compass zone (0..8, row-major), the top-killing family, survivors' traps, active curses. */
 export type Mods = { curses: readonly Curse[]; deaths: readonly number[]; topFamily: Family | null; traps: readonly Trap[] };
 export const NO_MODS: Mods = { curses: [], deaths: [0, 0, 0, 0, 0, 0, 0, 0, 0], topFamily: null, traps: [] };
@@ -540,7 +541,7 @@ function attempt(depth: number, seed: number, mods: Mods, fallback: number): Omi
         const line = slitLine(rows, p, TRAPS.dart.range);
         return line.length >= 2 && line.every((q) => !same(q, stairs) && dist(q, entrance) > ENTRANCE_CLEAR && !inside(room1, q));
       }));
-      const slit = walls[int(walls.length)];
+      const slit = walls[(int(walls.length) + (t.slot ?? 0)) % Math.max(1, walls.length)]; // the pick stays one draw, whatever the slot
       if (slit) {
         put(slit, 'Z');
         mark(slit, t);
@@ -548,7 +549,7 @@ function attempt(depth: number, seed: number, mods: Mods, fallback: number): Omi
       continue;
     }
     const spots = nearest(t.zone, later.flatMap((r) => cells(r)).filter(free));
-    const p = spots[int(spots.length)];
+    const p = spots[(int(spots.length) + (t.slot ?? 0)) % Math.max(1, spots.length)];
     if (p) {
       put(p, TRAP_CHAR[t.kind]);
       mark(p, t);

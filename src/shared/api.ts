@@ -10,12 +10,24 @@ export type Standings = [Curse, number][];
 /** A winner's choices on the played plate: their curse vote (and the standings once they voted), their own trap. */
 export type Choices = { curse: Curse | null; standings: Standings | null; trap: Trap | null };
 /** Your trap on this floor (set yesterday) and what it has done here so far. */
+/**
+ * Phase 11i (A123): your own facts from the day before, for "Your mark" on the intro; only the ones that exist. `fell`:
+ * the zone you fell in yesterday. `vote`: your curse vote, the standings, and whether it won (and was set aside). `trap`:
+ * the trap you set, waiting today or set aside. `caught`: what your trap on yesterday's floor did. `carving`: its votes.
+ */
+export type Yours = {
+  fell?: { zone: number };
+  vote?: { curse: Curse; standings: [Curse, number][]; won: boolean; setAside: boolean };
+  trap?: { kind: Trap['kind']; zone: number; waits: boolean };
+  caught?: { kind: Trap['kind']; hurt: number; killed: number; souls: number };
+  carving?: { carving: string; trust: number; liar: number };
+};
 export type MyTrap = { kind: Trap['kind']; x: number; y: number; hurt: number; killed: number } | null;
 
 /** GET /api/floor. The depth is the post's own (postData), so an old post shows its floor as closed. */
 export type FloorResponse =
   /** `attempt`: how often the mod reset tool cleared this player's run here (keys the client's saved log). */
-  | { kind: 'play'; depth: number; seed: number; floor: Floor; ghosts: GhostView; attempt: number; tutorial: boolean; myTrap: MyTrap; boss?: BossView; hints?: number }
+  | { kind: 'play'; depth: number; seed: number; floor: Floor; ghosts: GhostView; attempt: number; tutorial: boolean; myTrap: MyTrap; boss?: BossView; hints?: number; yours?: Yours }
   | { kind: 'played'; depth: number; seed: number; floor: Floor; run: RunResult; ghosts: GhostView; live: boolean; attempt: number; choices: Choices; myTrap: MyTrap; streak: number; nextAt: number; flair?: boolean; today?: number; todayUrl?: string | null; boss?: BossView; hints?: number }
   /** A "Post Floor 0" post: the tutorial, never stored or submitted. */
   | { kind: 'practice' }

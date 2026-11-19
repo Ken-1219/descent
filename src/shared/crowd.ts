@@ -1,7 +1,7 @@
 // The crowd's day as tomorrow's floor (Phase 8): a tally becomes mods, mods become a floor through a fallback ladder that
 // always ends in a floor, and a band keeps the crowd from spiralling difficulty. Server and Lab share it; the sim never
 // reads it. Trap souls are derived here from the victim's replay.
-import { BAND, CROWD, FAMILIES, KILL_FAMILY, PLAIN_BAND, TRAPS, type Curse, type Family } from './content';
+import { BAND, CROWD, FAMILIES, KILL_FAMILY, LADDER_REACH, PLAIN_BAND, TRAPS, type Curse, type Family } from './content';
 import { bot } from './bot';
 import { generate, NO_MODS, resolveCurse, safePath, type Generated, type Mods, type Trap } from './gen';
 import { slitLine } from './grid';
@@ -32,14 +32,17 @@ export const modsFrom = (t: Tally): Mods => {
 /** Phase 11h: what the band set aside from a tally (the voted curse, the players' traps), so the intro can say so. */
 export function setAside(t: Tally, r: Rolled): { curse: Curse | null; traps: number } {
   const voted = resolveCurse(t.curseVotes);
-  return { curse: voted && !r.mods.curses.includes(voted) ? voted : null, traps: Math.max(0, t.traps.length - r.mods.traps.length) };
+  const landed = (r.floor.traps ?? []).filter((p) => t.traps.some((x) => x.owner === p.owner)).length; // A122: what landed, not what was asked
+  return { curse: voted && !(r.floor.curses ?? []).includes(voted) ? voted : null, traps: Math.max(0, t.traps.length - landed) };
 }
 
-/** The ladder (A26): full mods, then no traps, then no crowd modifiers (the curse stays), then the plain floor. */
-export const LADDER = ['full', 'no traps', 'no crowd', 'plain'] as const;
+/**
+ * The ladder (A26, reordered in Phase 11i, A121): every mod; then without what the system derives (zone weights, the
+ * top killer); then the players' choices on another base floor; then their traps moved within their zones; then the
+ * fewest traps dropped; the plain floor last. The crowd's curse is never weighed against the relative band.
+ */
+export const LADDER = ['full', 'no crowd', 'reroll', 'moved traps', 'fewer traps', 'plain'] as const;
 export type Step = (typeof LADDER)[number];
-const atStep = (m: Mods, s: Step): Mods =>
-  s === 'full' ? m : s === 'no traps' ? { ...m, traps: [] } : s === 'no crowd' ? { ...NO_MODS, curses: m.curses } : NO_MODS;
 
 /** Skill-60 blind bot win rate on a floor over `runs` runs (BAND.seeds by default), in percent. */
 export const winPct = (floor: Floor, runs: number = BAND.seeds) => {
@@ -61,13 +64,14 @@ export function plainBand(depth: number): [number, number] {
 /**
  * fairSeed: reroll the seed (seed, seed + 1, …) until the plain floor sits inside plainBand(depth), at most
  * PLAIN_BAND.maxTries; past that the closest one is used. Runs at rollover, not inside generate(), so generate()'s budget
- * is untouched. Crowd mods are then applied to this seed, and the relative band (BAND) still holds on top.
+ * is untouched. Crowd mods are then applied to this seed, and the relative band (BAND) still holds on top. With the
+ * crowd's curse (A121) the band is held by choosing a base floor that is fair with the curse on it.
  */
-export function fairSeed(depth: number, seed: number, gen: Gen = generate): { seed: number; plain: Generated; win: number; tries: number } {
+export function fairSeed(depth: number, seed: number, gen: Gen = generate, curses: readonly Curse[] = []): { seed: number; plain: Generated; win: number; tries: number } {
   const [lo, hi] = plainBand(depth);
   let best: { seed: number; plain: Generated; win: number; tries: number; off: number } | null = null;
   for (let k = 0; k < PLAIN_BAND.maxTries; k++) {
-    const plain = gen(depth, seed + k, NO_MODS);
+    const plain = gen(depth, seed + k, curses.length ? { ...NO_MODS, curses } : NO_MODS); // A121: the crowd's curse is part of the base floor
     const win = winPct(plain.floor, PLAIN_BAND.runs);
     const off = win < lo ? lo - win : win > hi ? win - hi : 0;
     if (!best || off < best.off) best = { seed: seed + k, plain, win, tries: k + 1, off };
@@ -81,38 +85,68 @@ export type Rolled = { floor: Floor; mods: Mods; step: Step; tried: { step: Step
 type Gen = (depth: number, seed: number, mods: Mods) => Generated;
 
 /**
- * rolloverFloor: tomorrow's floor from today's tally. Each step is accepted when generation needed no fallback, gate 1
- * holds, and the floor is within BAND of that day's plain floor (no spiral). The plain floor always posts.
- * `gen` is generate(); tests pass one that fails to walk the ladder.
+ * rolloverFloor: tomorrow's floor from today's tally, down the LADDER. A step is accepted when generation needed no
+ * fallback, a safe path exists, and its win rate is within BAND of the same base floor with only the crowd's curse on it.
+ * The plain floor always posts. `gen` is generate(); tests pass one that fails to walk the ladder.
  */
 export function rolloverFloor(depth: number, seed0: number, tally: Tally, gen: Gen = generate): Rolled {
-  const fair = fairSeed(depth, seed0, gen);
-  const seed = fair.seed;
-  const plain = fair.plain;
-  const plainWin = winPct(plain.floor);
-  const meta = { seed, rerolls: fair.tries - 1, plainBandWin: fair.win };
   const full = modsFrom(tally);
+  const players: Mods = { ...NO_MODS, curses: full.curses, traps: full.traps };
   const tried: { step: Step; why: string }[] = [];
-  for (const s of LADDER) {
-    const mods = atStep(full, s);
-    if (s === 'plain') return { floor: plain.floor, mods, step: s, tried, win: plainWin, plainWin, ...meta };
+  let fair = fairSeed(depth, seed0, gen, full.curses);
+  let ref = winPct(fair.plain.floor);
+  let budget = LADDER_REACH.maxFloors;
+  // One floor tried: null when it can't be used at all, else its win rate and whether it sits within BAND of `against`.
+  const score = (step: Step, seed: number, mods: Mods, against: number) => {
+    budget--;
     const g = gen(depth, seed, mods);
-    if (g.fallback) {
-      tried.push({ step: s, why: `generator fallback ${g.fallback}` });
-      continue;
-    }
-    if (!safePath(g.floor)) {
-      tried.push({ step: s, why: 'no safe path' });
-      continue;
-    }
+    const why = g.fallback ? `generator fallback ${g.fallback}` : !safePath(g.floor) ? 'no safe path' : '';
+    if (why) return (tried.push({ step, why }), null);
     const win = winPct(g.floor);
-    if (win < plainWin - BAND.maxDropPct) {
-      tried.push({ step: s, why: `win ${win}% < plain ${plainWin}% - ${BAND.maxDropPct}` });
-      continue;
-    }
-    return { floor: g.floor, mods, step: s, tried, win, plainWin, ...meta };
+    const fits = win >= against - BAND.maxDropPct;
+    if (!fits) tried.push({ step, why: `win ${win}% < plain ${against}% - ${BAND.maxDropPct}` });
+    return { floor: g.floor, win, fits };
+  };
+  const done = (step: Step, mods: Mods, r: { floor: Floor; win: number }): Rolled =>
+    ({ floor: r.floor, mods, step, tried, win: r.win, seed: fair.seed, rerolls: fair.tries - 1, plainBandWin: fair.win, plainWin: ref });
+  for (const [step, mods] of [['full', full], ['no crowd', players]] as const) {
+    const r = score(step, fair.seed, mods, ref);
+    if (r?.fits) return done(step, mods, r);
   }
-  return { floor: plain.floor, mods: NO_MODS, step: 'plain', tried, win: plainWin, plainWin, ...meta };
+  if (players.traps.length) {
+    for (let k = 0, next = fair.seed + 1; k < LADDER_REACH.rerolls && budget > 0; k++) {
+      const alt = fairSeed(depth, next, gen, full.curses);
+      const altRef = winPct(alt.plain.floor);
+      next = alt.seed + 1;
+      const r = score('reroll', alt.seed, players, altRef);
+      if (r?.fits) {
+        [fair, ref] = [alt, altRef];
+        return done('reroll', players, r);
+      }
+    }
+    for (let slot = 1; slot <= LADDER_REACH.trapMoves && budget > 0; slot++) {
+      const mods = { ...players, traps: players.traps.map((t) => ({ ...t, slot })) };
+      const r = score('moved traps', fair.seed, mods, ref);
+      if (r?.fits) return done('moved traps', mods, r);
+    }
+    // The fewest traps go: drop the one whose absence helps most, again and again, until the floor fits.
+    let keep = [...players.traps];
+    while (keep.length > 1 && budget > 0) {
+      let next = keep.slice(1);
+      let bestWin = -1;
+      for (let i = 0; i < keep.length && budget > 0; i++) {
+        const traps = keep.filter((_, j) => j !== i);
+        const r = score('fewer traps', fair.seed, { ...players, traps }, ref);
+        if (r?.fits) return done('fewer traps', { ...players, traps }, r);
+        if (r && r.win > bestWin) [next, bestWin] = [traps, r.win];
+      }
+      keep = next;
+    }
+    // No traps left: the base floor with only the crowd's curse is the reference itself, so it fits.
+    if (!fair.plain.fallback && safePath(fair.plain.floor)) return done('fewer traps', { ...NO_MODS, curses: full.curses }, { floor: fair.plain.floor, win: ref });
+  }
+  const plain = gen(depth, fair.seed, NO_MODS);
+  return done('plain', NO_MODS, { floor: plain.floor, win: winPct(plain.floor) });
 }
 
 /**

@@ -16,7 +16,7 @@ import { bot } from '../shared/bot';
 import { rolloverFloor, setAside, type Tally } from '../shared/crowd';
 import { zoneOf } from '../shared/grid';
 import { CURSES, FLOOR_0, floorName, TRAP_TEXT, type Curse } from '../shared/content';
-import type { BoardRows, BossView, MyTrap } from '../shared/api';
+import type { BoardRows, BossView, MyTrap, Yours } from '../shared/api';
 import type { Trap } from '../shared/gen';
 import { botCarving, carvingOf, fixtureGhosts, ghostView, type GhostRecord, type GhostView, type Vote } from '../shared/ghosts';
 import { hash, mulberry32 } from '../shared/rng';
@@ -95,7 +95,8 @@ export const local: Api = {
       return { kind: 'played', depth: d, seed: floor.seed ?? 0, floor, run, ghosts: withVotes(d, ghostsOf(d)), live: d === day(), attempt: 0, choices: choicesOf(d), myTrap: myTrap(), streak: crowd ? crowdStreak(d) : (read<number>('streak') ?? 1), nextAt: nextRollover(), flair: read<boolean>('flair') ?? false, hints: read<number>('hints') ?? 0, ...(d === day() ? {} : { today: day(), todayUrl: `${location.pathname}?post=${day()}` }), ...(boss ? { boss } : {}) };
     }
     if (d < day()) return { kind: 'closed', depth: d, today: day(), todayUrl: `${location.pathname}?post=${day()}` };
-    return { kind: 'play', depth: d, seed: floor.seed ?? 0, floor, ghosts: ghostsOf(d), attempt: 0, tutorial: !!read('tutorial'), myTrap: myTrap(), hints: read<number>('hints') ?? 0, ...(boss ? { boss } : {}) };
+    const yours = crowd ? yoursOf(d, floor) : undefined;
+    return { kind: 'play', depth: d, seed: floor.seed ?? 0, floor, ghosts: ghostsOf(d), attempt: 0, tutorial: !!read('tutorial'), myTrap: myTrap(), hints: read<number>('hints') ?? 0, ...(boss ? { boss } : {}), ...(yours ? { yours } : {}) };
   },
   run: async ({ depth, log }) => {
     net();
@@ -217,11 +218,12 @@ const myTrap = (): MyTrap => {
 /** Fixture totals (a few votes each, seeded by position in the list) plus this profile's own votes. */
 const withVotes = (d: number, view: GhostView): GhostView => {
   const mine = read<Record<string, Vote>>(`votes:${d}`) ?? {};
+  const base = (i: number) => (crowd ? { trust: 0, liar: 0 } : { trust: i % 5, liar: i % 3 }); // a crowd world's only voter is you (bots never vote)
   return {
     ...view,
     list: view.list.map((g, i) => {
       const my = mine[g.id];
-      return { ...g, votes: { trust: (i % 5) + (my === 'trust' ? 1 : 0), liar: (i % 3) + (my === 'liar' ? 1 : 0) }, ...(my ? { myVote: my } : {}) };
+      return { ...g, votes: { trust: base(i).trust + (my === 'trust' ? 1 : 0), liar: base(i).liar + (my === 'liar' ? 1 : 0) }, ...(my ? { myVote: my } : {}) };
     }),
   };
 };
@@ -309,3 +311,20 @@ const crowdChronicle = () =>
     const y = read<Floor>(`floor:${d + 1}`)?.yesterday;
     return y ? [{ depth: d, name: floorName(read<Floor>(`floor:${d}`)?.seed ?? d), fell: y.fell, cleared: y.cleared, curse: y.curse, zone: y.zone, killer: y.killer ?? null }] : [];
   });
+/** Your mark (A123) in a crowd world: the server's yoursFor() over local storage. Nobody votes on your carving here. */
+function yoursOf(d: number, today: Floor): Yours | undefined {
+  const y = d - 1;
+  const prev = read<Floor>(`floor:${y}`);
+  const ghost = read<GhostRecord>(`ghost:${y}`);
+  const vote = read<Curse>(`curse:${y}`);
+  const trap = read<Trap>(`trap:${y}`);
+  const carving = read<string>(`carving:${y}`);
+  const placed = today.traps?.find((t) => t.owner === ME);
+  const out: Yours = {
+    ...(ghost && prev ? { fell: { zone: zoneOf(ghost, prev.rows.length) } } : {}),
+    ...(vote ? { vote: { curse: vote, standings: [[vote, 1]], won: true, setAside: !(today.curses ?? []).includes(vote) } } : {}),
+    ...(trap ? { trap: { kind: trap.kind, zone: placed ? zoneOf(placed, today.rows.length) : trap.zone, waits: !!placed } } : {}),
+    ...(carving ? { carving: { carving, trust: 0, liar: 0 } } : {}),
+  };
+  return Object.keys(out).length ? out : undefined;
+}

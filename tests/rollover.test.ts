@@ -2,9 +2,9 @@
 import { expect } from 'vitest';
 import { createDevvitTest } from '@devvit/test/server/vitest';
 import { redis } from '@devvit/web/server';
-import { BAND, FLOOR_0, PLAIN_BAND, TRAP_MAX, TRAP_ZONE_MAX } from '../src/shared/content';
+import { BAND, FLOOR_0, LADDER_REACH, type Curse, PLAIN_BAND, TRAP_MAX, TRAP_ZONE_MAX } from '../src/shared/content';
 import { EMPTY_TALLY, fairSeed, setAside, modsFrom, plainBand, rolloverFloor, topFamily, winPct, type Tally } from '../src/shared/crowd';
-import { generate, NO_MODS, safePath, zoneWeights, type Trap } from '../src/shared/gen';
+import { generate, NO_MODS, safePath, zoneWeights, type Mods, type Trap } from '../src/shared/gen';
 import { zoneOf } from '../src/shared/grid';
 import { start, step, type Floor } from '../src/shared/sim';
 import { floorFor, floorSeed, logStart, openFloor, placeTrap, resetRun, seedBots, submitRun, voteCurse } from '../src/server/game';
@@ -56,36 +56,56 @@ test('trap selection: 5 survivors all placed; 1,000 survivors cap at 12 and 3 pe
   expect(Math.max(...perZone.values())).toBeLessThanOrEqual(TRAP_ZONE_MAX);
 });
 
-test('the ladder: full, then no traps, then no crowd, then plain; each step is taken when the one before fails', { timeout: 30_000 }, () => {
-  const tally: Tally = { deaths: [0, 0, 0, 0, 9, 0, 0, 0, 0], kills: { goblin: 5 }, curseVotes: { frail: 2 }, traps: [{ zone: 4, kind: 'spikes', owner: 't2_o', name: 'olga' }] };
+test('the ladder (A121): full, no crowd, reroll, moved traps, fewer traps, plain; each taken when the one before fails', { timeout: 60_000 }, () => {
+  const traps: Trap[] = [{ zone: 4, kind: 'spikes', owner: 't2_o', name: 'olga' }, { zone: 2, kind: 'stairs', owner: 't2_p', name: 'pia' }];
+  const tally: Tally = { deaths: [0, 0, 0, 0, 9, 0, 0, 0, 0], kills: { goblin: 5 }, curseVotes: { frail: 2 }, traps };
+  // The base floor (no traps, no crowd weights) is the plain floor itself, so the band always holds; the first n floors
+  // that carry players' traps or crowd weights report a generator fallback.
   const failing = (n: number) => {
     let calls = 0;
-    // Mod floors are the plain floor itself (so the band always holds); the first n of them report a fallback.
-    return (d: number, s: number, m: typeof NO_MODS) => {
+    return (d: number, s: number, m: Mods) => {
       const g = generate(d, s, NO_MODS);
-      if (m === NO_MODS) return g;
-      return calls++ < n ? { ...g, fallback: 1 } : g;
+      return !m.traps.length && m.deaths.every((x) => !x) && !m.topFamily ? g : calls++ < n ? { ...g, fallback: 1 } : g;
     };
   };
   expect(rolloverFloor(5, 11, tally, failing(0)).step).toBe('full');
-  const r1 = rolloverFloor(5, 11, tally, failing(1));
-  expect(r1.step).toBe('no traps');
-  expect(r1.mods.traps).toEqual([]);
-  expect(r1.mods.curses).toEqual(['frail']);
-  const r2 = rolloverFloor(5, 11, tally, failing(2));
-  expect(r2).toMatchObject({ step: 'no crowd', mods: { curses: ['frail'], topFamily: null, traps: [] } });
-  const r3 = rolloverFloor(5, 11, tally, failing(3));
-  expect(r3).toMatchObject({ step: 'plain', mods: NO_MODS });
-  expect(r3.tried.map((t) => t.step)).toEqual(['full', 'no traps', 'no crowd']);
-  // The band: a floor far deadlier than the day's plain floor is refused (a torch too short to reach the stairs).
-  const deadly = (d: number, s: number, m: typeof NO_MODS) => {
-    const plain = { ...generate(1, 3).floor, depth: d };
-    return m === NO_MODS ? { ...generate(1, 3), floor: plain } : { ...generate(1, 3), floor: { ...plain, torch: 2 } };
+  expect(rolloverFloor(5, 11, tally, failing(1))).toMatchObject({ step: 'no crowd', mods: { curses: ['frail'], topFamily: null, traps } });
+  const re = rolloverFloor(5, 11, tally, failing(2));
+  expect(re.step).toBe('reroll');
+  expect(re.seed).toBeGreaterThan(rolloverFloor(5, 11, tally, failing(0)).seed);
+  const moved = rolloverFloor(5, 11, tally, failing(2 + LADDER_REACH.rerolls));
+  expect(moved.step).toBe('moved traps');
+  expect(moved.mods.traps.map((t) => t.slot)).toEqual([1, 1]);
+  const fewer = rolloverFloor(5, 11, tally, failing(2 + LADDER_REACH.rerolls + LADDER_REACH.trapMoves));
+  expect(fewer.step).toBe('fewer traps');
+  expect(fewer.mods.traps).toHaveLength(1); // one trap dropped, not both
+  expect(fewer.mods.curses).toEqual(['frail']);
+  const none = rolloverFloor(5, 11, tally, failing(99));
+  expect(none).toMatchObject({ step: 'fewer traps', mods: { curses: ['frail'], traps: [] } }); // the curse outlives every trap
+  // The plain floor only when the cursed base floor can't be made at all.
+  const broken = (d: number, s: number, m: Mods) => ({ ...generate(d, s, NO_MODS), fallback: m === NO_MODS ? 0 : 1 });
+  expect(rolloverFloor(5, 11, tally, broken)).toMatchObject({ step: 'plain', mods: NO_MODS });
+});
+
+test('the curse is the crowd\'s to make the day harder (A121): its own cost never counts against the band; a deadly trap still does', { timeout: 60_000 }, () => {
+  const tally: Tally = { deaths: NO_MODS.deaths, kills: {}, curseVotes: { frail: 1 }, traps: [{ zone: 4, kind: 'spikes', owner: 't2_o', name: 'olga' }] };
+  const base = (d: number, s: number) => generate(d, s, NO_MODS);
+  // A curse that alone leaves 2 turns of torch (deadly), and a trap that changes nothing.
+  const cursedDeadly = (d: number, s: number, m: Mods) => {
+    const g = base(d, s);
+    return m.curses.length ? { ...g, floor: { ...g.floor, torch: 2 } } : g;
   };
-  const band = rolloverFloor(1, 3, tally, deadly);
-  expect(band.step).toBe('plain');
-  expect(band.tried[0]?.why).toMatch(/plain/);
-  expect(band.win).toBe(band.plainWin);
+  const kept = rolloverFloor(5, 11, tally, cursedDeadly);
+  expect(kept.step).toBe('full');
+  expect(kept.mods.curses).toEqual(['frail']);
+  // A trap that makes the floor deadly is refused and goes, while the curse stays.
+  const trapDeadly = (d: number, s: number, m: Mods) => {
+    const g = base(d, s);
+    return m.traps.length ? { ...g, floor: { ...g.floor, torch: 2 } } : g;
+  };
+  const r = rolloverFloor(5, 11, tally, trapDeadly);
+  expect(r).toMatchObject({ step: 'fewer traps', mods: { curses: ['frail'], traps: [] } });
+  expect(r.tried[0]?.why).toMatch(/plain/);
 });
 
 test('rollover turns the tally into tomorrow: curse, heat, owned traps and yesterday are in the stored floor', async () => {
@@ -217,12 +237,12 @@ test('plain floor band: around the §8 target line, clamped; the reroll lands in
   }
 });
 
-test('what the band set aside (Phase 11h): the voted curse and the players\' traps a lower ladder step dropped, none at full', () => {
+test('what the band set aside (Phase 11h, counted from what landed in 11i): the voted curse and the players\' traps missing from the floor', () => {
   const t: Tally = { deaths: [1, 2, 0, 1, 2, 6, 0, 1, 4], kills: {}, curseVotes: { 'light-sleepers': 1 }, traps: [{ zone: 8, kind: 'stairs', owner: 'local', name: 'me' }] };
   const r = rolloverFloor(10, 1, t);
-  const fake = (step: (typeof r)['step'], curses: typeof r.mods.curses, traps: typeof r.mods.traps) => ({ ...r, step, mods: { ...r.mods, curses, traps } });
-  expect(setAside(t, fake('full', ['light-sleepers'], t.traps))).toEqual({ curse: null, traps: 0 });
-  expect(setAside(t, fake('no traps', ['light-sleepers'], []))).toEqual({ curse: null, traps: 1 });
-  expect(setAside(t, fake('plain', [], []))).toEqual({ curse: 'light-sleepers', traps: 1 });
-  expect(setAside(EMPTY_TALLY, fake('plain', [], []))).toEqual({ curse: null, traps: 0 });
+  const fake = (curses: Curse[], owners: string[]) => ({ ...r, floor: { ...r.floor, curses, traps: owners.map((owner) => ({ x: 1, y: 1, kind: 'stairs' as const, owner, name: null })) } });
+  expect(setAside(t, fake(['light-sleepers'], ['local']))).toEqual({ curse: null, traps: 0 });
+  expect(setAside(t, fake(['light-sleepers'], []))).toEqual({ curse: null, traps: 1 });
+  expect(setAside(t, fake([], []))).toEqual({ curse: 'light-sleepers', traps: 1 });
+  expect(setAside(EMPTY_TALLY, fake([], []))).toEqual({ curse: null, traps: 0 });
 });

@@ -1814,6 +1814,31 @@ async (page) => {
       check('day 10 is rolled over from day 9\'s tally', /20 fell on Floor 9/.test(two), two.slice(0, 200));
       await ctx.close();
     }
+    // 28. Phase 11i: your mark on today. Fall on a crowd world's day 9; day 10's intro says where, and still fits at 360×640.
+    {
+      const { ctx, p } = await fresh({ width: 360, height: 640 }, '?world=mark&day=9');
+      await p.waitForSelector('#end.end--intro');
+      await p.locator('#end .btn--primary').click();
+      await p.evaluate(async () => {
+        const d = window.__descent;
+        d.skipAnim(true);
+        for (let i = 0; i < 400 && !d.state().ended; i++) await d.act('W');
+      });
+      await p.waitForFunction(() => /Score/.test(document.getElementById('end').innerText), null, { timeout: 15000 });
+      await p.goto(`${URL}?world=mark&day=10`);
+      await p.waitForSelector('#end.end--intro');
+      const intro = await p.evaluate(() => {
+        const panel = document.querySelector('#end .end__panel');
+        return { text: document.getElementById('end').innerText, marks: [...document.querySelectorAll('#end .intro__mark')].map((m) => m.textContent), inner: panel.scrollHeight - panel.clientHeight };
+      });
+      check('your mark: the day after you fell, the intro says where, with that zone\'s danger today', intro.marks.length === 1 && intro.marks[0].replace('Your mark: ', '').split('. ').length <= 3 && /You fell in the [a-z-]+ yesterday; it has ▲\d+ today\./.test(intro.marks.join(' ')), JSON.stringify(intro.marks));
+      check('at 360×640 the intro with your mark does not scroll inside itself', intro.inner <= 1, `overflow ${intro.inner}px`);
+      await ctx.close();
+      const s2 = await fresh({ width: 360, height: 640 }, '?world=stranger&day=10');
+      await s2.p.waitForSelector('#end.end--intro');
+      check('a player who wasn\'t there yesterday sees no "Your mark"', (await s2.p.locator('#end .intro__mark').count()) === 0, '');
+      await s2.ctx.close();
+    }
   }
   } catch (e) {
     // A step that throws (a timeout) is recorded after the last check that ran, so the rest of the report survives.

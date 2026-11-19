@@ -6,7 +6,8 @@ import { redis } from '@devvit/web/server';
 import { BOARD, floorName } from '../src/shared/content';
 import { start, step, type Floor } from '../src/shared/sim';
 import { bot } from '../src/shared/bot';
-import { carve, floorFor, openFloor, resetRun, seedBots, submitRun, voteCarving } from '../src/server/game';
+import { carve, floorFor, openFloor, placeTrap, resetRun, seedBots, submitRun, voteCarving, voteCurse } from '../src/server/game';
+import { purge } from '../src/server/privacy';
 import { boardsFor, cardFor, chronicle, nextRollover, pulse } from '../src/server/boards';
 import { rollNow, startFirstFloor } from '../src/server/rollover';
 
@@ -185,4 +186,31 @@ test('seeded nameless delvers carve only what a floor can make true or false the
     expect(JSON.parse(ghosts[user] ?? '{}').bot).toBe(true);
   }
   expect(f1.depth).toBe(1);
+});
+
+test('your mark on today (A123): your own facts from the day before, only those that exist, and none after "Delete my data"', { timeout: 60_000 }, async () => {
+  await startFirstFloor();
+  const f1 = await openFloor(1);
+  await submitRun('t2_a', 1, dies(f1), { name: 'ana' });
+  await carve('t2_a', 1, 'dead-end');
+  await submitRun('t2_b', 1, wins(f1), { name: 'bea' });
+  await voteCurse('t2_b', 1, 'frail');
+  await placeTrap('t2_b', 1, 4, 'spikes', 'bea');
+  await voteCarving('t2_b', 1, 't2_a', 'trust');
+  await rollNow();
+  const f2 = await openFloor(2);
+  const a = await floorFor('t2_a', 2);
+  const b = await floorFor('t2_b', 2);
+  if (a.kind !== 'play' || b.kind !== 'play') throw new Error('expected play');
+  expect(a.yours?.fell?.zone).toBeGreaterThanOrEqual(0);
+  expect(a.yours?.carving).toEqual({ carving: 'dead-end', trust: 1, liar: 0 });
+  expect(a.yours?.vote).toBeUndefined();
+  expect(b.yours?.vote).toMatchObject({ curse: 'frail', won: true, standings: [['frail', 1]] });
+  expect(b.yours?.trap).toMatchObject({ kind: 'spikes', waits: !!f2.traps?.some((t) => t.owner === 't2_b') });
+  expect(b.yours?.fell).toBeUndefined();
+  const stranger = await floorFor('t2_new', 2);
+  expect(stranger.kind === 'play' && stranger.yours).toBeFalsy();
+  await purge('t2_a');
+  const gone = await floorFor('t2_a', 2);
+  expect(gone.kind === 'play' && gone.yours).toBeFalsy();
 });

@@ -4,13 +4,13 @@ import { BOARD, CURSES, GHOSTS, NAMELESS, TEACH, TRAP_TEXT, type Curse } from '.
 import { trapHits, trapSouls, type Tally } from '../shared/crowd';
 import { nextRollover } from './boards';
 import { bossView, fallen, strike, unstrike } from './boss';
-import { generate, isWardenFloor, NO_MODS, type Mods, type Trap } from '../shared/gen';
+import { generate, isWardenFloor, NO_MODS, resolveCurse, type Mods, type Trap } from '../shared/gen';
 import { zoneOf } from '../shared/grid';
 import { botCarving, carvingOf, ghostView, type GhostRecord, type GhostView, type Vote } from '../shared/ghosts';
 import { bot } from '../shared/bot';
 import { hash, mulberry32 } from '../shared/rng';
 import { judge, start, step, type Action, type Floor, type RunResult } from '../shared/sim';
-import type { PracticeResponse, CarvingResponse, Choices, FloorResponse, RunResponse, Standings, TrapResponse, VoteResponse } from '../shared/api';
+import type { PracticeResponse, CarvingResponse, Choices, FloorResponse, RunResponse, Standings, TrapResponse, VoteResponse, Yours } from '../shared/api';
 
 type StoredMods = Mods & { seed: number };
 /** `trapSouls`: what this run's replay gave trap owners (so the reset tool can take it back). */
@@ -103,7 +103,46 @@ export async function floorFor(user: string | undefined, depth: number | null): 
     return { kind: 'played', depth: d, seed: floor.seed ?? 0, floor, run: result(JSON.parse(mine)), ghosts, live: d === t.day, attempt, choices: await choicesOf(d, user), myTrap: trapped, streak, nextAt: nextRollover(Date.now()), flair: !!flairOn, hints, ...(d === t.day ? {} : { today: t.day, todayUrl: postUrl(t.postId) }), ...(boss ? { boss } : {}) };
   }
   if (d < t.day) return { kind: 'closed', depth: d, today: t.day, todayUrl: postUrl(t.postId) };
-  return { kind: 'play', depth: d, seed: floor.seed ?? 0, floor, ghosts: await ghostsOf(d, user), attempt, tutorial: !!tutorial, myTrap: trapped, hints, ...(boss ? { boss } : {}) };
+  const yours = await yoursFor(d, user, floor);
+  return { kind: 'play', depth: d, seed: floor.seed ?? 0, floor, ghosts: await ghostsOf(d, user), attempt, tutorial: !!tutorial, myTrap: trapped, hints, ...(boss ? { boss } : {}), ...(yours ? { yours } : {}) };
+}
+
+/**
+ * Phase 11i (A123): your own facts from the floor before this one, read from what the server already keeps (so "Delete
+ * my data" and the sweep remove them with everything else). Undefined when there are none.
+ */
+export async function yoursFor(d: number, user: string, today: Floor): Promise<Yours | undefined> {
+  const y = d - 1;
+  if (y < 1) return undefined;
+  const [ghost, vote, trap, carving, prev] = await Promise.all([
+    redis.hGet(key(y, 'ghosts'), user),
+    redis.hGet(key(y, 'votes'), `${user}>curse`),
+    redis.hGet(key(y, 'traps'), user),
+    redis.hGet(key(y, 'carvings'), user),
+    storedFloor(y),
+  ]);
+  const out: Yours = {};
+  if (ghost && prev) out.fell = { zone: zoneOf(JSON.parse(ghost), prev.rows.length) };
+  if (isCurse(vote)) {
+    const st = await standings(y);
+    const won = resolveCurse(Object.fromEntries(st)) === vote;
+    out.vote = { curse: vote, standings: st, won, setAside: won && !(today.curses ?? []).includes(vote) };
+  }
+  if (trap) {
+    const t = JSON.parse(trap);
+    const placed = today.traps?.find((p) => p.owner === user);
+    if (isTrapKind(t.kind)) out.trap = { kind: t.kind, zone: placed ? zoneOf(placed, today.rows.length) : t.zone, waits: !!placed };
+  }
+  const old = prev?.traps?.find((p) => p.owner === user);
+  if (old) {
+    const [hurt = 0, killed = 0] = (await redis.hMGet(key(y, 'trapped'), [`${user}:hurt`, `${user}:killed`])).map((n) => Math.max(0, Number(n ?? 0)));
+    out.caught = { kind: old.kind, hurt, killed, souls: trapSouls({ hurt, killed }) };
+  }
+  if (carving) {
+    const [trust, liar] = await Promise.all([redis.zScore(key(y, 'cv'), `${user}:trust`), redis.zScore(key(y, 'cv'), `${user}:liar`)]);
+    out.carving = { carving, trust: trust ?? 0, liar: liar ?? 0 };
+  }
+  return Object.keys(out).length ? out : undefined;
 }
 
 /** Your trap on this floor (set yesterday) and what it has done so far: hurt and killed (A28). */

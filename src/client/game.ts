@@ -3,7 +3,8 @@
 import { BOARD, CURSE_TEXT, floorName, WARDEN, FLOOR_0, FLOOR_0_GHOSTS, HEARTS, ITEMS, KILL_FAMILY, LOG_TURNS, NAMELESS, PALETTE, TILE, TEACH_TEXT, TORCH_LOW_PCT, TRAPS, TRAP_TEXT, ZONE_NAMES, type Curse } from '../shared/content';
 import { find, slitLine, zoneOf } from '../shared/grid';
 import { context, navigateTo, showLoginPrompt } from '@devvit/web/client';
-import type { BossView, FloorResponse, GhostView, MyTrap, RunResult } from '../shared/api';
+import type { BossView, FloorResponse, GhostView, MyTrap, RunResult, Yours } from '../shared/api';
+import type { Trap } from '../shared/gen';
 import { carvingLabel, type Ghost, type Vote } from '../shared/ghosts';
 import { isAction, replay, start, step, type Action, type End, type Event, type Floor, type Pos, type Tell } from '../shared/sim';
 import { api, clientClass, report, submit, watchErrors, where } from './net';
@@ -262,11 +263,30 @@ function trapOwner(): string | null {
   return t ? `The ${TRAP_TEXT[t.kind].toLowerCase()} set by ${t.name ? `u/${t.name}` : NAMELESS}` : null;
 }
 /** What your trap (set yesterday) has done on this floor: shown before your run and on your plate. */
+/**
+ * Phase 11i (A123): "Your mark" on the intro, at most three lines of your own facts from the day before, from the server:
+ * your trap (waiting or set aside), your curse vote and how it ended, where you fell, what your trap caught, your carving's
+ * votes. Nothing when you weren't there.
+ */
+function markLines(y: Yours | undefined, danger: readonly number[]): string[] {
+  if (!y) return [];
+  const trapName = (k: Trap['kind']) => TRAP_TEXT[k].toLowerCase();
+  const plural = (k: Trap['kind']) => k !== 'dart'; // "spikes" and "false stairs" are plural, a dart slit is one
+  const tally = (st: readonly [Curse, number][]) => st.map(([c, n]) => `${CURSE_TEXT[c].name} ${n}`).join(' · ');
+  const v = y.vote;
+  return [
+    y.trap && (y.trap.waits ? `Your ${trapName(y.trap.kind)} ${plural(y.trap.kind) ? 'wait' : 'waits'} in the ${zoneName(y.trap.zone)}.` : `Your ${trapName(y.trap.kind)} ${plural(y.trap.kind) ? 'were' : 'was'} set aside: today would have been too deadly.`),
+    v && (!v.won ? `Your vote for ${CURSE_TEXT[v.curse].name} lost: ${tally(v.standings)}.` : v.setAside ? `Your vote for ${CURSE_TEXT[v.curse].name} won (${tally(v.standings)}) but was set aside.` : `Your vote won: ${tally(v.standings)}.`),
+    y.fell && `You fell in the ${zoneName(y.fell.zone)} yesterday; it has ▲${danger[y.fell.zone] ?? 0} today.`,
+    y.caught && (y.caught.hurt || y.caught.killed ? `Your ${trapName(y.caught.kind)} yesterday hurt ${y.caught.hurt} and took ${y.caught.killed}: ${y.caught.souls} souls.` : `Your ${trapName(y.caught.kind)} yesterday caught nobody.`),
+    y.carving && `Your carving "${carvingLabel(y.carving.carving)}": ${y.carving.trust} trust, ${y.carving.liar} liar.`,
+  ].filter((l): l is string => !!l).slice(0, 3);
+}
 function trapNews(t: MyTrap) {
   if (!t) return '';
   const name = TRAP_TEXT[t.kind].toLowerCase();
   const one = t.kind === 'dart'; // "spikes" and "false stairs" are plural, a dart slit is one
-  return t.hurt || t.killed ? `Your ${name} hurt ${t.hurt} and took ${t.killed} here.` : `Your ${name} ${one ? 'waits' : 'wait'} here; nobody has stepped on ${one ? 'it' : 'them'} yet.`;
+  return t.hurt || t.killed ? `Your ${name} hurt ${t.hurt} and took ${t.killed} here.` : `Your ${name} ${one ? 'waits' : 'wait'} here; nobody has stepped on ${one ? 'it' : 'them'} yet (your own trap never fires on you).`;
 }
 const practice: PanelAction = { label: 'Practice Floor 0', run: () => play(FLOOR_0, null) };
 
@@ -705,8 +725,9 @@ function intro() {
     const what = kept.join(' and ');
     lines.push(`${what[0]?.toUpperCase()}${what.slice(1)} ${many ? 'were' : 'was'} set aside: with ${many ? 'them' : 'it'}, today would have been too deadly.`);
   }
+  const mark = markLines(playable?.yours, danger);
   const news = trapNews(playable?.myTrap ?? null);
-  if (news) lines.push(news);
+  if (news && !playable?.yours?.trap) lines.push(news); // "Your mark" says where your trap waits
   const fresh = f.showcase?.[0];
   const curse = f.curses?.[0];
   // Phase 10: on the Warden's floor its chain leads the intro: alive (and whether it came back wounded), or fallen.
@@ -723,11 +744,12 @@ function intro() {
     line: curse ? `Cursed: ${CURSE_TEXT[curse].name}, ${CURSE_TEXT[curse].effect}.` : 'No curse today.',
     body: [
       ...warden,
+      ...(mark.length ? [el('p', 'intro__line intro__mark', el('strong', 'intro__mark-title', 'Your mark: '), mark.join(' '))] : []),
       el('h2', 'intro__compass-title', 'Danger on this floor, by area'),
       introCompass(deaths, danger, boss && !boss.killer ? arenaZone(f) : null, zoneOf(state.pos, f.rows.length)),
-      el('p', 'intro__legend muted', `${deaths ? '☠ fell yesterday · dashed: most fell · ' : ''}▲ danger today · red frame: most danger`),
-      ...lines.map((t) => el('p', 'intro__line', t)),
-      ...(fresh ? [el('p', 'intro__new', `New today: ${fresh}.`)] : []),
+      el('p', 'intro__legend muted', `${deaths ? '☠ fell yesterday (dashed: most) · ' : ''}▲ danger today (red: most)`),
+      // One paragraph, with today's new family in gilt at its end: separate lines cost the 360×640 intro a scroll (Phase 11i).
+      el('p', 'intro__line', lines.join(' '), ...(fresh ? [' ', el('span', 'intro__new', `New today: ${fresh}.`)] : [])),
     ],
     primary: { label: 'Descend', run: descend },
   });

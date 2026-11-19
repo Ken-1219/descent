@@ -1123,6 +1123,26 @@ body:has(#end:not([hidden])) .carving {
   flex: 1;
   align-self: center;
 }
+/* Phase 11i: on a phone-height screen (360×640) the intro, with "Your mark", fits without scrolling inside itself:
+   tighter gaps, and each compass cell keeps its letters on the same row as its counts. */
+@media (max-height: 740px) {
+  .end--intro .end__panel {
+    gap: 4px;
+  }
+  .end--intro .intro-compass__cell {
+    min-height: 24px;
+    padding: 0 6px;
+  }
+  .end--intro .intro-compass__zone {
+    flex-basis: auto;
+  }
+}
+/* At phone height the legend under the compass names its symbols, so the heading over it goes. */
+@media (max-height: 680px) {
+  .end--intro .intro__compass-title {
+    display: none;
+  }
+}
 /* Short screens: steps and lists pack tighter so the panel fits 320 px of height. */
 @media (max-height: 480px) {
   .end:not(.end--clear) {
@@ -1234,6 +1254,12 @@ body:has(#end:not([hidden])) .carving {
 }
 .intro__new {
   color: var(--gilt);
+}
+/* Phase 11i (A123): "Your mark" leads its paragraph in the heading's face. */
+.intro__mark-title {
+  font-family: var(--font-ui);
+  font-weight: normal;
+  color: var(--bone);
 }
 .minimap {
   display: block;
