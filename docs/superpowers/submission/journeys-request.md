@@ -13,10 +13,10 @@
 
 Hi Devvit team,
 
-Please review the journey map below and allowlist **descent-game** for Journey telemetry. The events are already wired (Devvit Web, `@devvit/analytics` 0.15.3, `permissions.journeys: true`), and every receipt so far has been valid but denied as playtest.
+Please review the journey map below and allowlist **descent-game** for Journey telemetry. The events are already wired (Devvit Web, `@devvit/analytics` 0.15.3, `permissions.journeys: true`), and until Nov 19 every receipt was denied as playtest. Version 0.0.2 is an uploaded version, so its receipts should read `JOURNEY_RECEIPT_DENIED_NOT_ALLOWLISTED` until the allowlist.
 
 - **App:** descent-game (Devvit Web)
-- **Installed on:** r/<players subreddit>, version <uploaded version>
+- **Installed on:** r/descent_game_dev, version 0.0.2 (uploaded with `devvit upload`, installed with `devvit install`, Nov 19 2026)
 - **Developer:** u/Clean_Position8332
 
 **What the game is:** a daily roguelike. One floor a day; everyone plays the same floor once. Where players die reshapes tomorrow's floor.

@@ -81,3 +81,32 @@ Keeping the players' choices makes the posted floors slightly easier and slightl
 - Your trap's line says your own trap never fires on you.
 - **Local harness only:** a crowd world's carvings start with no votes, because bots never vote.
 - Results: `bun run check` 168/168 (goldens identical when re-recorded), lint clean; e2e 147/147 including section 28 (your mark, the intro at 360×640), the timed 18-move run (2.5 s) and layouts from 320×320 to 1280×800; input to motion 3.8 ms, animation lock median 99 ms, max 108 ms.
+
+## The release (D), on r/descent_game_dev as the owner chose
+- **Version:** the playtest (`bun run dev`) was stopped, `bun run deploy` uploaded **0.0.2**, and `devvit install r/descent_game_dev descent-game@0.0.2` installed exactly that version (it replaced playtest 0.0.1.599).
+- **Settings:** Nameless delvers per day 12. Dev tools stay **on** by the owner's word.
+- **Wiki:** it was disabled, and is now "mod editing". The privacy page is written: "Privacy page written to the wiki", revision by descent-game.
+- **Not restarted at Floor 1,** by the owner's word.
+- **The always-today post:** https://www.reddit.com/r/descent_game_dev/comments/1y08v17/descent_todays_floor/. An earlier one from Phase 11c also exists (1xyj612).
+- **The first unattended rollover on 0.0.2** ran at 15:00 UTC on Nov 19: Floor 11 → Floor 12 ("The Hungry Galleries"). The 12 nameless delvers followed ("12 fell here today · 7 carved a warning").
+- **Phone-size visit (390×844):**
+  - The always-today post's splash shows Floor 12.
+  - Descend opens the intro, with "Your mark: Your spikes yesterday caught nobody."
+  - Health for Floor 12 shows "splash 1 > descend 1" and one mweb load (intro p50 1.0 s).
+  - No move was made.
+- **journeys-request.md** names r/descent_game_dev and 0.0.2.
+
+## The absolute band and the 27-point spread (owner's question)
+On the same 448 crowd rollovers:
+- **Base floors:** 65 of 448 cursed base floors (14.5%) sit outside the plain band after `fairSeed`'s 12 tries: 31 too hard, 34 too easy. Against the target line: mean −4.2, sd 17.2.
+- **Posted crowd floors:** 280 of 448 (62.5%) land outside the absolute band. 58 (12.9%) are below it, too hard, and 222 (49.6%) are above it, too easy.
+
+Why the posted spread is 27.5 points (sd against the line):
+1. **The absolute band only ever judges the base floor.** The crowd floor is held only by the relative band, which is one-sided: it refuses a floor more than 20 points harder than its base and never one that is easier. Half the posted floors run above the band for that reason.
+2. **A crowd floor is a new draw, not the base floor with additions.** Crowd mods change where the budget goes and how many random draws the generator makes, so the hazards are laid out again. Its win rate against its base: mean +15.3, sd 24.8, from −19 to +75. That is most of the raw generator's spread (bimodal, sd 38.8), cut off only at the bottom.
+3. **Measurement noise:** a win rate from 16 bot runs has an sd of about 12 points near 50%, and the plain band's own check uses 24 runs (about 10).
+4. **The plain band itself is 40 points wide** (target −25 to +15), and 14.5% of base floors miss it.
+
+Together, the base floors' sd of 17 and the crowd-versus-base sd of 25 give the posted 27.5. Point 1 dominates.
+
+**Proposal (a rule change, not made):** hold the posted crowd floor to the absolute band as well. Above the band, reroll the crowd floor's own draws, which are never the players' choices, and keep the closest of a few. Optionally make the relative band two-sided. The cost is more rollover time (still well under 10 s at current maxima). It needs both bands and the 28-day test re-measured.
