@@ -1,5 +1,6 @@
 import { CARVINGS, CURSE_TEXT, NAMELESS, TRAP_EFFECT, TRAP_TEXT, ZONE_NAMES, type Curse, type Item } from '../shared/content';
 import { CARVING_CHOICES, carvingLabel, type Ghost, type Vote } from '../shared/ghosts';
+import { zoneOf } from '../shared/grid';
 import { iconCanvas } from './sprites';
 
 type Kids = (Node | string)[];
@@ -332,11 +333,12 @@ export const trapPicker = (onChange: (zone: number | null, kind: keyof typeof TR
 };
 
 /** Carved ghosts on this floor as rows; a row opens the ghost card (Trust/Liar live there). */
-export const carvingsList = (ghosts: readonly Ghost[], open: (g: Ghost) => void) => {
+// `side`: the floor's height, for each carving's compass zone (Phase 11h: a tester couldn't match rows to the ghosts passed).
+export const carvingsList = (ghosts: readonly Ghost[], open: (g: Ghost) => void, side: number) => {
   const list = el('ul', 'carvings');
   for (const g of ghosts) {
     if (!g.carving) continue;
-    const row = button(el('span', '', `${g.name ? `u/${g.name}` : NAMELESS}: ${carvingLabel(g.carving)}`), 'carvings__row');
+    const row = button(el('span', '', `${ZONE_SHORT[zoneOf(g, side)]} · ${g.name ? `u/${g.name}` : NAMELESS}: ${carvingLabel(g.carving)}`), 'carvings__row');
     if (g.votes) row.append(el('span', 'muted', `${g.votes.trust} trust · ${g.votes.liar} liar`));
     row.addEventListener('click', () => open(g));
     list.append(el('li', '', row));

@@ -645,6 +645,14 @@ body:has(#end:not([hidden])) .carving {
 .carving span {
   min-width: 0; /* wraps: a hint cut off by an ellipsis hid its instruction (Phase 11e playtest) */
 }
+/* Phase 11h (A111): the two-line log; the older line dimmed above the newest. */
+.carving__lines {
+  display: grid;
+}
+.carving__old {
+  opacity: 0.6;
+  font-size: var(--t-small);
+}
 
 /* The ghost card: tap a wisp or press Read. Reading is not an action, so it sits over the game without stopping it. */
 .card {

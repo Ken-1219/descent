@@ -325,6 +325,13 @@ export const CARVINGS: Readonly<Record<string, { text: string; kind: CarvingKind
 
 /** `list`: ghost records per floor response (carved first, then newest), matching the 60 wisps drawn at most. `seedMax`: bot ghosts per menu call. */
 export const GHOSTS = { list: 60, seedMax: 100, seedRunsPer: 6 };
+/** Phase 11h (A118): one bot carving in BOT_LIE_IN lies on purpose; a "Trap ahead" is true within TRAP_NEAR steps of a hazard. */
+export const BOT_LIE_IN = 4;
+export const TRAP_NEAR = 2;
+/** Phase 11h (A111): turns a line stays under the HUD after it last showed (the two-line log). */
+export const LOG_TURNS = 3;
+/** Phase 11h (A115): an unlit brazier's ember shows above the dark within this many tiles, in line of sight. */
+export const BRAZIER_EMBER_RANGE = 8;
 /** A bot ghost's display name (it has no snoovatar). */
 export const NAMELESS = 'a nameless delver';
 
@@ -354,7 +361,7 @@ export const TRAP_EFFECT: Readonly<Record<keyof typeof TRAP_TEXT, string>> = { s
  * Phase 11f: each thing a player meets is explained once, the first time (one line under the HUD). The bit is the
  * index: the server keeps a bitmask per player (`hints`), so the order here is a stored format: append, never reorder.
  */
-export const TEACH = ['imp', 'spikes', 'skeleton', 'dark', 'gate', 'bomb', 'lamp', 'warden', 'dart'] as const;
+export const TEACH = ['imp', 'spikes', 'skeleton', 'dark', 'gate', 'bomb', 'lamp', 'warden', 'dart', 'pit'] as const;
 export type Teach = (typeof TEACH)[number];
 export const TEACH_TEXT: Readonly<Record<Teach, string>> = {
   imp: 'An orange frame on a tile: a foe strikes there next turn. Step off it.',
@@ -366,6 +373,8 @@ export const TEACH_TEXT: Readonly<Record<Teach, string>> = {
   lamp: 'Lamp oil: press Item to feed your torch.',
   warden: 'Red tiles: where the Warden slams next. The number counts the turns.',
   dart: 'Red dots in a line: a dart flies along it. A blue plate on the floor, or a step near the slit, fires it.',
+  // Phase 11h (fifth playtest): a tester took a pit for a brazier and walked in.
+  pit: 'A round black hole: a pit. Step in and you fall, a heart lost.',
 };
 export const ZONE_NAMES: readonly string[] = ['North-west', 'North', 'North-east', 'West', 'Centre', 'East', 'South-west', 'South', 'South-east'];
 

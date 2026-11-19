@@ -3,7 +3,7 @@ import { expect } from 'vitest';
 import { createDevvitTest } from '@devvit/test/server/vitest';
 import { redis } from '@devvit/web/server';
 import { BAND, FLOOR_0, PLAIN_BAND, TRAP_MAX, TRAP_ZONE_MAX } from '../src/shared/content';
-import { EMPTY_TALLY, fairSeed, modsFrom, plainBand, rolloverFloor, topFamily, winPct, type Tally } from '../src/shared/crowd';
+import { EMPTY_TALLY, fairSeed, setAside, modsFrom, plainBand, rolloverFloor, topFamily, winPct, type Tally } from '../src/shared/crowd';
 import { generate, NO_MODS, safePath, zoneWeights, type Trap } from '../src/shared/gen';
 import { zoneOf } from '../src/shared/grid';
 import { start, step, type Floor } from '../src/shared/sim';
@@ -215,4 +215,14 @@ test('plain floor band: around the §8 target line, clamped; the reroll lands in
     if (a.tries < PLAIN_BAND.maxTries) expect(a.win).toBeGreaterThanOrEqual(lo);
     if (a.tries < PLAIN_BAND.maxTries) expect(a.win).toBeLessThanOrEqual(hi);
   }
+});
+
+test('what the band set aside (Phase 11h): the voted curse and the players\' traps a lower ladder step dropped, none at full', () => {
+  const t: Tally = { deaths: [1, 2, 0, 1, 2, 6, 0, 1, 4], kills: {}, curseVotes: { 'light-sleepers': 1 }, traps: [{ zone: 8, kind: 'stairs', owner: 'local', name: 'me' }] };
+  const r = rolloverFloor(10, 1, t);
+  const fake = (step: (typeof r)['step'], curses: typeof r.mods.curses, traps: typeof r.mods.traps) => ({ ...r, step, mods: { ...r.mods, curses, traps } });
+  expect(setAside(t, fake('full', ['light-sleepers'], t.traps))).toEqual({ curse: null, traps: 0 });
+  expect(setAside(t, fake('no traps', ['light-sleepers'], []))).toEqual({ curse: null, traps: 1 });
+  expect(setAside(t, fake('plain', [], []))).toEqual({ curse: 'light-sleepers', traps: 1 });
+  expect(setAside(EMPTY_TALLY, fake('plain', [], []))).toEqual({ curse: null, traps: 0 });
 });

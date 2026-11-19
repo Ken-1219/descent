@@ -99,6 +99,7 @@ export async function boardPanel(end: HTMLElement, depth: number, back: PanelAct
   const help = el('ul', 'board__help muted',
     el('li', '', 'Honour: Trust votes on your carvings (the warning you may carve where you fall), given by players after their run.'),
     el('li', '', 'Liar votes: the same players calling a carving false.'),
+    el('li', '', 'Nameless delvers are bots: their ghosts and carvings are on the floor, never on a board.'),
     el('li', '', 'Streak: floors in a row you played, cleared or fell.'));
   endPanel(end, { title: 'Board', line: plates || `Floor ${depth}: ${b.today.total} on the board today.`, body: [bar, view, help, dataLinks(end, () => void boardPanel(end, depth, back))], primary: back });
 }

@@ -355,7 +355,7 @@ export function tileLook(s: State, x: number, y: number): Prop[] {
   switch (c) {
     case '^': {
       const st = spikeStage(s, x, y);
-      return [flat(P(st === 2 ? 'spikes' : st === 1 ? 'spikes-2' : 'spikes-0'))];
+      return st === 2 ? [flat(P('spikes'))] : [flat(P(st === 1 ? 'spikes-2' : 'spikes-0')), flat(O('spikes-down'))]; // Phase 11h: down still reads as a trap
     }
     case 'x': return [flat(P('spikes')), flat(O('trap-mark'))];
     case 'O': return [flat(O('pit'))];

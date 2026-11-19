@@ -12,7 +12,7 @@ export const NAMES = [
   'hero', 'hero-flicker', 'wisp', 'wisp-b', 'ghost', 'ghost-b', 'torch-0', 'torch-1', 'torch-2',
   'death-1', 'death-2', 'death-3', 'death-4', 'death-5', 'death-6', 'death-7', 'death-8', 'death-9',
   'heart', 'heart-lost', 'key', 'flame', 'arrow-up', 'arrow-left',
-  'slit', 'missing-step', 'steps', 'pit', 'crack', 'mortar', 'bars', 'chain', 'chain-crack', 'crumble', 'den', 'brazier', 'brazier-lit',
+  'slit', 'missing-step', 'steps', 'pit', 'spikes-down', 'crack', 'mortar', 'bars', 'chain', 'chain-crack', 'crumble', 'den', 'brazier', 'brazier-lit',
   'mark-aim', 'mark-line', 'mark-glint', 'mark-hungry', 'mark-eyes', 'trap-mark', 'digit-1', 'digit-2', 'digit-3', 'digit-4',
   'glyph-warning', 'glyph-treasure', 'glyph-U', 'glyph-D', 'glyph-L', 'glyph-R',
 ] as const;
@@ -234,8 +234,29 @@ const STEP_C = ['............www.', '............w...', '............w...'];
 const STEPS = tile('', '', '', ...STEP_A, ...STEP_B, ...STEP_C);
 // The missing step is a black gap where its edge should be.
 const MISSING_STEP = tile('', '', '', ...STEP_A, '........ooooooo.', '........ooooooo.', '........oo......', ...STEP_C);
-// Open pit: black, with only its far wall catching light. No brick rim, so a row of pits reads as a chasm, not a wall.
-const PIT = tile('.oooooooooooooo.', 'onnnnnnnnnnnnnno', 'okkkkkkkkkkkkkko', 'okkkknkkkkkkknko', ...Array.from({ length: 11 }, () => 'oooooooooooooooo'), '.oooooooooooooo.');
+// Open pit (Phase 11h, A113): a ragged black hole, floor showing at its corners, the far wall in shadow and the near lip
+// catching light. No straight edges: the old square pit with a lit far wall read as stairs from a distance.
+const PIT = tile(
+  '.....oooooo.....',
+  '...oonnnnnnoo...',
+  '..onnkkkkkknno..',
+  '.onkkkkkkkkkkno.',
+  '.okkooooooookko.',
+  'ookoooooooooooko',
+  'oooooooooooooooo',
+  'oooooooooooooooo',
+  '.ooooooooooooooo',
+  '.oooooooooooooo.',
+  'ooooooooooooooo.',
+  '.oooooooooooooo.',
+  '.soooooooooooos.',
+  '..ssooooooooss..',
+  '...sssooooss....',
+  '......ssss......',
+);
+// Lowered spikes (A113): four bone tips standing in their ink holes, over the pack's flat frame, so a lowered row reads
+// as a trap that is down, not as cobbles.
+const SPIKES_DOWN = tile('', '', '', '...w......w.....', '..owo....owo....', '..ooo....ooo....', '', '', '', '....w......w....', '...owo....owo...', '...ooo....ooo...');
 // Buried spikes: a hairline crack with four pin-pricks where the tips wait.
 // An X of hairline cracks joining the four holes where the spike tips wait (pale glints).
 const CRACK = tile('', '', '', '....o......o....', '...opo....opo...', '....oo....oo....', '.....o....o.....', '......oooo......', '.....o....o.....', '....oo....oo....', '...opo....opo...', '....o......o....');
@@ -414,6 +435,7 @@ export const SPRITES: Record<SpriteName, SpriteDef> = {
   'missing-step': { map: MISSING_STEP, key: ART },
   steps: { map: STEPS, key: ART },
   pit: { map: PIT, key: ART },
+  'spikes-down': { map: SPIKES_DOWN, key: ART },
   crack: { map: CRACK, key: ART },
   mortar: { map: MORTAR, key: ART },
   bars: { map: BARS, key: ART },

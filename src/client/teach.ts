@@ -34,6 +34,7 @@ function met(s: State, events: readonly Event[]): Teach[] {
   s.tiles.forEach((row, y) => {
     for (let x = 0; x < row.length; x++) {
       if (row[x] === 'u' && lit(x, y)) out.push('spikes');
+      if (row[x] === 'O' && lit(x, y)) out.push('pit');
       if (row[x] === 'H' && lit(x, y)) out.push('gate');
     }
   });

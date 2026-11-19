@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 // Boot, input router, HUD wiring and the dev hook. Rules live in src/shared/sim.ts; this file only sends actions.
-import { BOARD, CURSE_TEXT, floorName, WARDEN, FLOOR_0, FLOOR_0_GHOSTS, HEARTS, ITEMS, KILL_FAMILY, NAMELESS, PALETTE, TILE, TEACH_TEXT, TORCH_LOW_PCT, TRAPS, TRAP_TEXT, ZONE_NAMES, type Curse } from '../shared/content';
+import { BOARD, CURSE_TEXT, floorName, WARDEN, FLOOR_0, FLOOR_0_GHOSTS, HEARTS, ITEMS, KILL_FAMILY, LOG_TURNS, NAMELESS, PALETTE, TILE, TEACH_TEXT, TORCH_LOW_PCT, TRAPS, TRAP_TEXT, ZONE_NAMES, type Curse } from '../shared/content';
 import { find, slitLine, zoneOf } from '../shared/grid';
 import { context, navigateTo, showLoginPrompt } from '@devvit/web/client';
 import type { BossView, FloorResponse, GhostView, MyTrap, RunResult } from '../shared/api';
@@ -102,7 +102,18 @@ if (day !== 'error' && (day.kind === 'play' || day.kind === 'played')) taught(da
 if (playable && (store.get(F0_KEY) || playable.tutorial)) live = liveOf(playable);
 let floor: Floor = devFloor ?? live?.floor ?? FLOOR_0;
 // Resume: the saved log replays with animations skipped (it is the same fold the server runs).
-const begin = () => (live ? replay(floor, [...live.log].filter(isAction)) : start(floor));
+/** Phase 11h (A114): torch burned over a log, replayed (oil fed in is not counted against it); kept up per move below. */
+function burnedOver(f: Floor, log: string) {
+  let s = start(f), n = 0;
+  for (const a of [...log].filter(isAction)) {
+    const t = step(s, a).state;
+    n += Math.max(0, s.torch - t.torch);
+    s = t;
+  }
+  return n;
+}
+let burnt = 0;
+const begin = () => ((burnt = live ? burnedOver(floor, live.log) : 0), live ? replay(floor, [...live.log].filter(isAction)) : start(floor));
 let state = begin();
 // Ghosts (7a): the crowd's on the day's floor, scripted ones on Floor 0; declared before the first view() reads them.
 const NONE: GhostView = { fell: 0, tiles: [], list: [] };
@@ -123,6 +134,7 @@ let lastTorch = Infinity;
  */
 // `keep`: a hit or a lesson stays a turn longer and beats a torch notice.
 let notice: { turn: number; text: string; keep?: true } | null = null;
+let said: { turn: number; text: string }[] = []; // Phase 11h (A111): the two-line log, see say()
 const ITEM_WORD: Record<string, string> = { potion: 'potion', oil: 'lamp oil', bomb: 'bomb' };
 const HURT_BY: Record<string, string> = { gate: 'A closing gate', trap: 'A trap', spikes: 'Spikes', dart: 'A dart', arrow: 'An arrow', dark: 'The dark', pit: 'The fall', warden: 'The Warden', goblin: 'A goblin', imp: 'An imp', skeleton: 'A skeleton', bomb: 'The blast' };
 // Phase 11e (second blind playtest): what your own action did, so a kill, a bomb or an item is never silent.
@@ -237,8 +249,11 @@ const settle = () => {
 const CAUSES: Record<string, string> = { trap: 'trap', pit: 'fall', warden: 'Warden' };
 /** Phase 10: the links a run broke, said at its end (none said when it broke none). */
 const linksLine = (n: number) => (n ? ` You broke ${n} link${n === 1 ? '' : 's'}.` : '');
-const endLine = (ended: End, turns: number, by: string | null = null) =>
-  ended.kind === 'won' ? `${turns} turns. The stairs go down.` : by ? `${by} took you on turn ${turns}.` : `The ${CAUSES[ended.cause] ?? ended.cause} took you on turn ${turns}.`;
+// `burn`: off for the carve picker, whose panel must leave the death tile in view at 320×320.
+const endLine = (ended: End, turns: number, by: string | null = null, burn = true) => {
+  const burned = burn && burnt ? `, ${burnt} torch burned` : ''; // Phase 11h (A114): beside the turns; 0 = no log on this device
+  return ended.kind === 'won' ? `${turns} turns${burned}. The stairs go down.` : `${by ?? `The ${CAUSES[ended.cause] ?? ended.cause}`} took you on turn ${turns}${burned}.`;
+};
 /** A player's trap that took you: found from the floor alone (its placed traps), so it names its owner (Phase 8). */
 function trapOwner(): string | null {
   if (state.ended?.cause !== 'trap') return null;
@@ -446,6 +461,7 @@ async function result(prefetched?: FloorResponse) {
     live = null;
     const log = store.get(logKey(r));
     state = log ? replay(floor, [...log].filter(isAction)) : start(floor);
+    burnt = log ? burnedOver(floor, log) : 0;
     if (mine && !log) state = { ...state, pos: { x: mine.x, y: mine.y } };
     scene.reset(state);
     refit();
@@ -455,7 +471,8 @@ async function result(prefetched?: FloorResponse) {
   flushVotes(r.depth);
   const ended: End = { kind: r.run.outcome, cause: r.run.cause };
   const title = r.run.outcome === 'won' ? `Floor ${r.depth} cleared` : `You fell on Floor ${r.depth}`;
-  const what = endLine(ended, r.run.turns, r.run.outcome === 'dead' ? (mine?.by ? `A trap set by u/${mine.by}` : null) : null);
+  const by = r.run.outcome === 'dead' && mine?.by ? `A trap set by u/${mine.by}` : null;
+  const what = endLine(ended, r.run.turns, by);
   const line = `Score ${r.run.score}. ${what}${boss ? '' : linksLine(r.run.dealt)}`;
   const c = r.choices;
   const body: Node[] = [
@@ -518,7 +535,7 @@ async function result(prefetched?: FloorResponse) {
   const next: PanelAction | null = !r.live ? null
     : won && !c.curse && !skipped.has('curse') ? { label: 'Vote on a curse', run: () => pickCurse(title, what, saveLine(), r.depth, skipTo('curse')) }
     : won && !c.trap && !skipped.has('trap') ? { label: 'Set a trap', run: () => pickTrap(saveLine(), r.depth, skipTo('trap')) }
-    : mine && !mine.carving && !skipped.has('carve') ? { label: 'Carve', run: () => pickCarving(title, what, saveLine(), r.depth, skipTo('carve')) }
+    : mine && !mine.carving && !skipped.has('carve') ? { label: 'Carve', run: () => pickCarving(title, endLine(ended, r.run.turns, by, false), saveLine(), r.depth, skipTo('carve')) }
     : null;
   // An old floor's plate points on to today's (A61); a live one offers its next choice, then practice.
   const onward: PanelAction | null = r.todayUrl ? { label: `Go to Floor ${r.today}`, run: () => go(r.todayUrl ?? null) } : null;
@@ -566,7 +583,7 @@ function watch(depth: number, nextAt: number, fell: HTMLElement, clock: HTMLElem
 
 /** After your run: the floor's carvings, each opening its card with Trust and Liar. */
 function carvingsPanel(depth: number) {
-  const list = carvingsList(shown.list.filter((g) => !g.mine), (g) => openCard(g, () => carvingsPanel(depth)));
+  const list = carvingsList(shown.list.filter((g) => !g.mine), (g) => openCard(g, () => carvingsPanel(depth)), state.floor.rows.length);
   endPanel(end, { title: `Carvings on Floor ${depth}`, line: 'Trust them, or call out a liar. Votes are final.', body: [list], primary: { label: 'Back', run: () => void result(plate ?? undefined) } });
 }
 
@@ -672,7 +689,7 @@ function intro() {
   else if (fell === 0) lines.push(`Nobody fell on Floor ${y.depth}, so nothing moved.`);
   else if (fell < 3) lines.push(`Only ${fell} fell on Floor ${y.depth}: too few to move anything.`);
   else {
-    lines.push(`${y.fell} fell on Floor ${y.depth}${y.zone === null ? '' : `, most in the ${zoneName(y.zone)}`}; ${y.cleared} cleared it.`);
+    lines.push(`${y.fell} fell on Floor ${y.depth}${y.zone === null ? '' : `, most in the ${zoneName(y.zone)}`}. ${y.cleared} cleared it.`);
     if (y.zone !== null && Math.max(...danger) > 0 && hz !== y.zone) lines.push(`Today's danger gathered in the ${zoneName(hz)}.`);
     if (y.killer) lines.push(`Top killer: ${killerName(y.killer)}.`);
   }
@@ -680,6 +697,14 @@ function intro() {
   lines.unshift(`Torch: ${state.torch} turns of light today${store.get(F0_KEY) ? ` (practice gave ${FLOOR_0.torch})` : ''}.`);
   const traps = f.traps?.length ?? 0;
   if (traps) lines.push(`Survivors set ${traps} trap${traps === 1 ? '' : 's'} here.`);
+  // Phase 11h (fifth playtest): what the crowd chose but the band kept off today's floor, so a vote or a trap never just vanishes.
+  const aside = y?.setAside;
+  const kept = [aside?.curse ? `the vote for ${CURSE_TEXT[aside.curse].name}` : '', aside?.traps ? `${aside.traps} survivor${aside.traps === 1 ? "'s trap" : "s' traps"}` : ''].filter(Boolean);
+  if (kept.length) {
+    const many = kept.length > 1 || (aside?.traps ?? 0) > 1;
+    const what = kept.join(' and ');
+    lines.push(`${what[0]?.toUpperCase()}${what.slice(1)} ${many ? 'were' : 'was'} set aside: with ${many ? 'them' : 'it'}, today would have been too deadly.`);
+  }
   const news = trapNews(playable?.myTrap ?? null);
   if (news) lines.push(news);
   const fresh = f.showcase?.[0];
@@ -700,7 +725,7 @@ function intro() {
       ...warden,
       el('h2', 'intro__compass-title', 'Danger on this floor, by area'),
       introCompass(deaths, danger, boss && !boss.killer ? arenaZone(f) : null, zoneOf(state.pos, f.rows.length)),
-      el('p', 'intro__legend muted', `${deaths ? '☠ fell yesterday · ' : ''}▲ danger today · red frame: most danger`),
+      el('p', 'intro__legend muted', `${deaths ? '☠ fell yesterday · dashed: most fell · ' : ''}▲ danger today · red frame: most danger`),
       ...lines.map((t) => el('p', 'intro__line', t)),
       ...(fresh ? [el('p', 'intro__new', `New today: ${fresh}.`)] : []),
     ],
@@ -736,17 +761,9 @@ function nearby() {
   const near = shown.list.filter((g) => g.carving && reach(g) <= 1);
   const g = near[0];
   // Phase 11g: standing on a Warden mark beats every other line (two blind testers were hit by marks they didn't notice).
-  if (!state.ended && shownTells(state).some((t) => onYou(t) && t.cause === 'warden')) {
-    carvingLine.replaceChildren(el('span', '', 'The Warden strikes this tile next turn: step off it.'));
-    carvingLine.hidden = false;
-    return;
-  }
+  if (!state.ended && shownTells(state).some((t) => onYou(t) && t.cause === 'warden')) return say('The Warden strikes this tile next turn: step off it.');
   // Phase 11d: what just happened, said on the turn it happened (a torch event first, then this, then a carving).
-  if (notice && state.turn - notice.turn <= (notice.keep ? 1 : 0) && !state.ended && (notice.keep || !(torchTurn === state.turn && lowTorch(state.torch)))) {
-    carvingLine.replaceChildren(el('span', '', notice.text));
-    carvingLine.hidden = false;
-    return;
-  }
+  if (notice && state.turn - notice.turn <= (notice.keep ? 1 : 0) && !state.ended && (notice.keep || !(torchTurn === state.turn && lowTorch(state.torch)))) return say(notice.text);
   if (!g?.carving || (torchTurn === state.turn && lowTorch(state.torch))) {
     // Phase 10b (A61): a newcomer's Floor 0 says it is practice, and what it opens, so the day's post doesn't look skipped.
     const practiceFirst = !lowTorch(state.torch) && state.floor.depth === 0 && playable;
@@ -754,19 +771,28 @@ function nearby() {
     if (!lowTorch(state.torch) && !state.ended && boss && !boss.killer && live && state.dealt === 0 && state.enemies.some((e) => e.kind === 'warden')) {
       const w = wardenAt(state.floor);
       const way = w ? wayTo(state.pos, w) : '';
-      carvingLine.replaceChildren(el('span', '', `The Warden is ${way ? `to the ${way}` : 'right beside you'}: bump it for links. Stairs any time.`));
-      carvingLine.hidden = false;
-      return;
+      return say(`The Warden is ${way ? `to the ${way}` : 'right beside you'}: bump it for links. Stairs any time.`);
     }
     const burn = Math.max(1, state.torch - step(state, 'W').state.torch); // Phase 11g: count turns, not torch, in a dark room
-    carvingLine.replaceChildren(el('span', '', practiceFirst ? (state.turn < 8 ? 'Practice first: find the stairs.' : 'Practice is generous: real floors give less torch, and its items stay here.') : state.torch > 0 ? `Torch low: ${Math.ceil(state.torch / burn)} turns of light left${burn > 1 ? ` (this room burns ${burn} a turn)` : ''}.` : 'Torch out: the dark is taking your hearts.'));
-    carvingLine.hidden = !!state.ended || (!practiceFirst && !lowTorch(state.torch));
-    return;
+    if (state.ended || (!practiceFirst && !lowTorch(state.torch))) return say(null);
+    return say(practiceFirst ? (state.turn < 8 ? 'Practice first: find the stairs.' : 'Practice is generous: real floors give less torch, and its items stay here.') : state.torch > 0 ? `Torch low: ${Math.ceil(state.torch / burn)} turns of light left${burn > 1 ? ` (this room burns ${burn} a turn)` : ''}.` : 'Torch out: the dark is taking your hearts.');
   }
   const read = button('Read');
   read.addEventListener('click', () => openCard(g));
-  carvingLine.replaceChildren(el('span', '', `${g.name ? `u/${g.name}` : NAMELESS}: ${carvingLabel(g.carving)}${near.length > 1 ? ` (+${near.length - 1})` : ''}`), read);
-  carvingLine.hidden = false;
+  say(`${g.name ? `u/${g.name}` : NAMELESS}: ${carvingLabel(g.carving)}${near.length > 1 ? ` (+${near.length - 1} more carvings near)` : ''}`, read);
+}
+/**
+ * Phase 11h (A111): the line keeps the last two things it said, the older one dimmed above. A line stays LOG_TURNS turns
+ * after it last showed, so a hurt line outlives the next move. The older one is aria-hidden: each line is announced once.
+ */
+function say(text: string | null, ...extra: Node[]) {
+  if (text) said = said.at(-1)?.text === text ? [...said.slice(0, -1), { turn: state.turn, text }] : [...said, { turn: state.turn, text }].slice(-2);
+  said = state.ended ? [] : said.filter((l) => l.turn <= state.turn && state.turn - l.turn <= LOG_TURNS); // a new run starts at turn 0
+  const [older, newest] = said.length === 2 ? said : [undefined, said[0]];
+  const old = older ? el('span', 'carving__old', older.text) : null;
+  old?.setAttribute('aria-hidden', 'true');
+  carvingLine.replaceChildren(el('span', 'carving__lines', ...(old ? [old] : []), el('span', '', newest?.text ?? '')), ...(text ? extra : []));
+  carvingLine.hidden = !newest;
 }
 
 /** Phase 11f: the map overview in the card overlay. Not an action: no turn passes, nothing is logged. */
@@ -861,6 +887,7 @@ const run = async (a: Action) => {
     live.log += a;
     store.set(logKey(live), live.log);
   }
+  burnt += Math.max(0, state.torch - r.state.torch);
   state = r.state;
   notice = noticeOf(r.events, prev, state) ?? (notice?.keep && state.turn - notice.turn <= 1 ? notice : null); // before view(); a hit stays a turn longer
   view();

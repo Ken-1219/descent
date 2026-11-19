@@ -29,7 +29,7 @@ It is a short turn-based roguelike (a run takes a few minutes) built for Reddit 
 3. Run **Start Floor 1** from the same menu. After that the app posts a floor every day at 15:00 UTC on its own, with a summary comment of yesterday.
 4. **Health** in the same menu shows today's numbers: how many people got from the post to a finished run, load times by kind of device, errors and failed saves.
 5. **"Post today's floor (to pin)"** in the same menu makes a post that always opens today's floor and never closes. Pin it: it is the link to share.
-6. **"Nameless delvers per day"** (a setting, default 0) adds that many bot delvers a couple of minutes after each new floor, so an early floor doesn't look empty. They are bots: their ghosts show as "a nameless delver", and they never count on boards, in Health, in a floor's real-player numbers or in what shapes tomorrow's floor. 0 turns them off.
+6. **"Nameless delvers per day"** (a setting, default 0) adds that many bot delvers a couple of minutes after each new floor, so an early floor doesn't look empty. Every other one carves what the floor makes true where it died ("Trap ahead" beside a real trap, "Dead end" in a real dead end, "Stairs this way" along the real route), and one carving in four lies on purpose, so a carving is worth reading and worth doubting. They are bots: their ghosts show as "a nameless delver", and they never count on boards, in Health, in a floor's real-player numbers or in what shapes tomorrow's floor. 0 turns them off.
 7. **The "Dev tools" setting** (reset a run, roll over now, set the Warden's links) is for testing only. Leave it off on a players' subreddit.
 
 ## Privacy

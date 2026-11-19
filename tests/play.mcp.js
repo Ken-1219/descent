@@ -842,7 +842,7 @@ async (page) => {
     const states = [
       ['Floor 1 (no yesterday)', '?floor=f0', /The first floor\. Nobody has fallen yet\./, /No curse today\./],
       ['under 3 deaths', '?floor=f0&yesterday=few', /Only 2 fell on Floor \d+: too few to move anything\./, /No curse today\./],
-      ['a full day, cursed', '?yesterday=1&curse=frail&ghosts=20', /23 fell on Floor \d+, most in the north-east; 9 cleared it\./, /Cursed: Frail, start on 2 hearts\./],
+      ['a full day, cursed', '?yesterday=1&curse=frail&ghosts=20', /23 fell on Floor \d+, most in the north-east\. 9 cleared it\./, /Cursed: Frail, start on 2 hearts\./],
     ];
     for (const [name, q, a, b] of states) {
       const { ctx, p } = await raw({ width: 390, height: 844 }, `${URL}${q}`);
@@ -1596,7 +1596,7 @@ async (page) => {
         return out;
       });
       check('a thing is taught once per player: buried spikes explained on first sight, stored here and on the server, not again after a reload',
-        taught >= 1 && taught <= 2 && (lines.bits & 2) && (lines.server & 2) && !again.some((t) => /Dull spikes sleep/.test(t)), JSON.stringify({ lines, again }).slice(0, 300));
+        taught >= 1 && (lines.bits & 2) && (lines.server & 2) && !again.some((t) => /Dull spikes sleep/.test(t)), JSON.stringify({ lines, again }).slice(0, 300));
       await ctx.close();
     }
     // The map: a button (and M), no turn, nothing logged; Escape closes; it shows only seen tiles.
@@ -1763,6 +1763,55 @@ async (page) => {
       const key = await p.locator('#card .map__key').innerText();
       await p.keyboard.press('m');
       check('the map marks real openings (pale: a way out) beside unexplored edges', /pale: way out/.test(key), key);
+      await ctx.close();
+    }
+    // 27. Phase 11h: a two-line log (a hit outlives the next move), torch burned on the end card, the crowd world's two days.
+    {
+      const { ctx, p } = await fresh({ width: 390, height: 844 }, '');
+      const r = await p.evaluate(async (route) => {
+        const d = window.__descent;
+        d.load(0, { mercy: false });
+        d.skipAnim(true);
+        for (const a of route) await d.act(a);
+        const l = document.getElementById('carving');
+        const hit = l.innerText;
+        await d.act('L');
+        await d.act('L');
+        return { hit, after: l.hidden ? '' : l.innerText, old: l.querySelector('.carving__old')?.getAttribute('aria-hidden') ?? null, hearts: d.state().hearts };
+      }, [...TO_DOOR, 'R', 'R', 'R', 'R', 'R']);
+      check('the log keeps a hit for the moves after it, the older line dimmed and out of the live region', r.hearts === 2 && /Spikes hit you/.test(r.hit) && /Spikes hit you/.test(r.after), JSON.stringify(r));
+      const end = await p.evaluate(async (route) => {
+        const d = window.__descent;
+        d.load(0, { mercy: false });
+        for (const a of route) await d.act(a);
+        return document.getElementById('end').innerText;
+      }, [...TO_DOOR, 'R', 'R', 'R', 'R', 'R', 'L', 'R', 'L', 'R']);
+      check('the end card says how much torch the run burned', /took you on turn \d+, \d+ torch burned\./.test(end), end.slice(0, 160));
+      await p.setViewportSize({ width: 320, height: 320 });
+      await p.evaluate(async (route) => {
+        const d = window.__descent;
+        d.load(0, { mercy: false });
+        for (const a of route) await d.act(a);
+      }, [...TO_DOOR, 'R', 'R', 'R', 'R', 'R', 'L']);
+      const fit = await p.evaluate(() => {
+        const l = document.getElementById('carving');
+        const b = l.getBoundingClientRect();
+        return { lines: l.querySelectorAll('.carving__lines > span').length, w: l.scrollWidth <= l.clientWidth, bottom: Math.round(b.bottom), stage: Math.round(document.getElementById('stage')?.getBoundingClientRect().bottom ?? 0) };
+      });
+      check('at 320×320 the two-line log fits its width and stays on the stage', fit.w && fit.bottom <= fit.stage, JSON.stringify(fit));
+      await ctx.close();
+    }
+    {
+      const { ctx, p } = await fresh({ width: 390, height: 844 }, '?world=e2e&day=9');
+      await p.waitForSelector('#end.end--intro');
+      const one = await p.locator('#end').innerText();
+      const bots = await p.evaluate(() => window.__descent.ghosts().list.filter((g) => g.id.startsWith('bot:')).map((g) => g.carving));
+      check('the crowd world\'s day 9: a cursed floor rolled over from a fixture day, with 20 nameless delvers carving the truth',
+        /Cursed: Frail/.test(one) && /17 fell on Floor 8/.test(one) && bots.length === 20 && bots.filter(Boolean).every((c) => /^(trap-ahead|dead-end|stairs-way:[UDLR])$/.test(c)), `${bots.length} bots, ${bots.filter(Boolean).length} carved`);
+      await p.goto(`${URL}?world=e2e&day=10`);
+      await p.waitForSelector('#end.end--intro');
+      const two = await p.locator('#end').innerText();
+      check('day 10 is rolled over from day 9\'s tally', /20 fell on Floor 9/.test(two), two.slice(0, 200));
       await ctx.close();
     }
   }

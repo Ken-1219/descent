@@ -2,7 +2,7 @@
 // comment, flair (bounded, with a follow-up job) and a Chronicle record. Bounded work: a few reads whatever the crowd.
 import { context, reddit, redis, scheduler, settings } from '@devvit/web/server';
 import { CURSE_TEXT, FLAIR, ZONE_NAMES } from '../shared/content';
-import { EMPTY_TALLY, rolloverFloor, targetPct, type Rolled } from '../shared/crowd';
+import { EMPTY_TALLY, rolloverFloor, setAside, targetPct, type Rolled } from '../shared/crowd';
 import { isWardenFloor, showcaseFamilies } from '../shared/gen';
 import type { Floor } from '../shared/sim';
 import { bossDay, openBoss } from './boss';
@@ -49,7 +49,7 @@ async function advance(day: number, why: string): Promise<{ posted: number | nul
   const curse = rolled.mods.curses[0] ?? null;
   const killer = Object.entries(t.kills).sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))[0]?.[0] ?? null;
   // The intro reads all of this from the floor itself: yesterday's deaths per zone, the top killer, today's new family.
-  const yesterday = { depth: day, fell: stats.fell, cleared: Math.max(0, stats.runs - stats.fell), zone: stats.zone, curse, deaths: [...t.deaths], killer };
+  const yesterday = { depth: day, fell: stats.fell, cleared: Math.max(0, stats.runs - stats.fell), zone: stats.zone, curse, deaths: [...t.deaths], killer, setAside: setAside(t, rolled) };
   const floor: Floor = { ...rolled.floor, yesterday, showcase: showcaseFamilies(next), predicted: predicted(next, rolled) };
   // Phase 10: the Warden's day that just ended (killed, or what it carries), and the pool of a Warden posted now. Neither
   // may fail the rollover: an error is logged and the floor posts anyway.

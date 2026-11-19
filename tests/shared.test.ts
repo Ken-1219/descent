@@ -459,3 +459,50 @@ test('judge rejects forged logs: unknown action, a free bump, unfinished, action
   expect(judge(FLOOR_0, 'W'.repeat(RUN.maxActions + 1))).toEqual({ ok: false, reason: 'length' });
   expect(judge(FLOOR_0, '')).toEqual({ ok: false, reason: 'length' });
 });
+
+// ---- Phase 11h (A118): nameless delvers carve from the floor's truth, one in BOT_LIE_IN on purpose false ----
+import { BOT_LIE_IN } from '../src/shared/content';
+import { botCarving, carvingTrue, floorTiles } from '../src/shared/ghosts';
+import { generate } from '../src/shared/gen';
+
+test('carvingTrue judges a trap near, a pocket and a shortest step to the stairs', () => {
+  const f: Floor = { depth: 1, mercy: false, seed: 1, torch: 50, rows: [
+    '#########',
+    '#@.....>#',
+    '#.#####.#',
+    '#.#^....#',
+    '###.#####',
+    '###.#####',
+    '#########',
+  ] };
+  expect(carvingTrue(f, { x: 3, y: 5 }, 'trap-ahead')).toBe(true); // spikes two steps up
+  expect(carvingTrue(f, { x: 4, y: 1 }, 'trap-ahead')).toBe(false);
+  expect(carvingTrue(f, { x: 3, y: 5 }, 'dead-end')).toBe(true); // the spur below the spikes leads nowhere
+  expect(carvingTrue(f, { x: 1, y: 3 }, 'dead-end')).toBe(true);
+  expect(carvingTrue(f, { x: 4, y: 1 }, 'dead-end')).toBe(false); // on the way from the entrance to the stairs
+  expect(carvingTrue(f, { x: 4, y: 1 }, 'stairs-way:R')).toBe(true);
+  expect(carvingTrue(f, { x: 4, y: 1 }, 'stairs-way:L')).toBe(false);
+  expect(carvingTrue(f, { x: 7, y: 3 }, 'stairs-way:U')).toBe(true);
+});
+
+test('bot carvings: true at the floor, a lie one time in BOT_LIE_IN, deterministic by seed', () => {
+  let lies = 0, all = 0;
+  for (let s = 1; s <= 24; s++) {
+    const f = generate(5 + (s % 20), s).floor;
+    const tiles = floorTiles(f);
+    for (let i = 0; i < tiles.length; i += 4) {
+      const at = tiles[i];
+      if (!at) continue;
+      const c = botCarving(f, at, mulberry32(hash(`bot:${s}:${i}`)));
+      if (!c) continue; // no phrase is true here (behind shut bars): the bot carves nothing
+      expect(c).toBe(botCarving(f, at, mulberry32(hash(`bot:${s}:${i}`))));
+      const lie = mulberry32(hash(`bot:${s}:${i}`))() % BOT_LIE_IN === 0;
+      expect(carvingTrue(f, at, c)).toBe(!lie);
+      all++;
+      if (lie) lies++;
+    }
+  }
+  expect(all).toBeGreaterThan(400);
+  expect(lies / all).toBeGreaterThan(0.2);
+  expect(lies / all).toBeLessThan(0.3);
+});

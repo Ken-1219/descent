@@ -29,6 +29,12 @@ export const modsFrom = (t: Tally): Mods => {
   return { curses: curse ? [curse] : [], deaths: [...t.deaths], topFamily: topFamily(t.kills), traps: [...t.traps] };
 };
 
+/** Phase 11h: what the band set aside from a tally (the voted curse, the players' traps), so the intro can say so. */
+export function setAside(t: Tally, r: Rolled): { curse: Curse | null; traps: number } {
+  const voted = resolveCurse(t.curseVotes);
+  return { curse: voted && !r.mods.curses.includes(voted) ? voted : null, traps: Math.max(0, t.traps.length - r.mods.traps.length) };
+}
+
 /** The ladder (A26): full mods, then no traps, then no crowd modifiers (the curse stays), then the plain floor. */
 export const LADDER = ['full', 'no traps', 'no crowd', 'plain'] as const;
 export type Step = (typeof LADDER)[number];

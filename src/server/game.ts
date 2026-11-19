@@ -6,7 +6,7 @@ import { nextRollover } from './boards';
 import { bossView, fallen, strike, unstrike } from './boss';
 import { generate, isWardenFloor, NO_MODS, type Mods, type Trap } from '../shared/gen';
 import { zoneOf } from '../shared/grid';
-import { CARVING_CHOICES, carvingOf, ghostView, type GhostRecord, type GhostView, type Vote } from '../shared/ghosts';
+import { botCarving, carvingOf, ghostView, type GhostRecord, type GhostView, type Vote } from '../shared/ghosts';
 import { bot } from '../shared/bot';
 import { hash, mulberry32 } from '../shared/rng';
 import { judge, start, step, type Action, type Floor, type RunResult } from '../shared/sim';
@@ -218,7 +218,8 @@ const clientLog = (floor: Floor, actions: readonly Action[]) => {
 
 /**
  * Mod tool: bot runs on the live floor through submitRun, the same validation as a real run, until `n` have died (at
- * most GHOSTS.seedRunsPer·n runs). Skill varies per bot so the deaths spread; every other bot ghost carves at random.
+ * most GHOSTS.seedRunsPer·n runs). Skill varies per bot so the deaths spread; every other bot ghost carves what the floor makes true there, one in
+ * BOT_LIE_IN a lie (A118).
  */
 export async function seedBots(n: number): Promise<{ depth: number; runs: number; ghosts: number }> {
   const { day } = await today();
@@ -235,7 +236,8 @@ export async function seedBots(n: number): Promise<{ depth: number; runs: number
     const r = await submitRun(user, day, clientLog(floor, played.log), { name: null, bot: true });
     if (r.kind !== 'saved' || r.run.outcome !== 'dead') continue;
     ghosts++;
-    if (k % 2 === 0) await carve(user, day, CARVING_CHOICES[rnd() % CARVING_CHOICES.length] ?? 'trap-ahead');
+    const carving = k % 2 === 0 ? botCarving(floor, r.run.tile, rnd) : null; // A118: from the floor's truth, sometimes a lie
+    if (carving) await carve(user, day, carving);
   }
   return { depth: day, runs, ghosts };
 }

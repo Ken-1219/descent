@@ -17,7 +17,8 @@ export const isWall = (c: string): boolean => '#TSsZz'.includes(c);
 export const blocks = (c: string): boolean => isWall(c) || 'DHYy'.includes(c);
 export const blocksSight = (c: string): boolean => isWall(c) || c === 'D' || c === 'H';
 /** Ground hazards walkers avoid. */
-export const hazard = (c: string): boolean => '^uxO,;oF'.includes(c);
+export const HAZARDS = '^uxO,;oF';
+export const hazard = (c: string): boolean => HAZARDS.includes(c);
 export const isPit = (c: string): boolean => 'O,;o'.includes(c);
 export const same = (a: Pos, b: Pos): boolean => a.x === b.x && a.y === b.y;
 export const dist = (a: Pos, b: Pos): number => Math.abs(a.x - b.x) + Math.abs(a.y - b.y);

@@ -625,6 +625,10 @@ Each phase lists Build, Show me (what to open), Checks, and Gate.
 
 - **Built:** a rule change on purpose: at most one heart lost per turn, and a potion at full hearts kept (A101), with the simulation goldens re-recorded deliberately (the 10 runs identical, one double-hit run added) and both bands and the rollover re-measured; the wind-up frame on your tile made exact by a one-turn lookahead, the Warden mark said in words, and warnings drawn above the light after a heart-by-heart audit (A102–A104); remembered walls lighter than floor, and real openings marked in the scene and on the Map (A105); one-tile notches and wall torches beside openings gone from the generator, with its goldens re-recorded on purpose (A106); a floor name by seed and a stone tint per seven-floor cycle (A107–A108); the boot line out of the page once unused (A109); wording fixes from the fourth blind playtest (A110). No new files.
 
+### Phase 11h — A two-line log, readable dark rooms, truthful nameless delvers, the crowd playtest (Nov 19, inserted by the owner)
+
+- **Built:** a two-line log under the HUD, the older line dimmed and out of the live region (A111); a broken stone threshold into an unlit dark room (A112); a ragged pit and lowered spikes that read as a trap (A113); torch burned beside the turns on the result card (A114); an unlit brazier's ember seen from a distance (A115); a pale wash and bone edge on a dark room's lit walls, with the contrast measured (A116); screenshots kept inside the repo (A117); nameless delvers that carve the floor's truth, one in four lying on purpose (`BOT_LIE_IN`), tested against `carvingTrue` (A118); a local crowd harness, `?world=NAME&day=9|10`, that rolls day 10 over from day 9's tally with the shared rollover (A119); the fifth blind playtest, with a crowd, and its wording fixes (A120). No new files. The last blind-playtest phase unless something breaks: real players next.
+
 ### Phase 12 — Seed and submit (Dec 6–8)
 
 - Bug fixes only.

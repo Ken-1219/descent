@@ -1,8 +1,9 @@
 // The one Phaser scene. It draws `State` and plays the events `step()` returns; it decides no rule.
 import * as Phaser from 'phaser';
-import { PALETTE, stoneTint, TILE, type Token } from '../shared/content';
+import { BRAZIER_EMBER_RANGE, PALETTE, stoneTint, TILE, type Token } from '../shared/content';
 import { carvingOf, type Ghost } from '../shared/ghosts';
-import { blockTiles, lightRadius, visibility, type Event, type Pos, type State } from '../shared/sim';
+import { blockTiles, darkRoom, lightRadius, visibility, type Event, type Pos, type State } from '../shared/sim';
+import { dist, find, lineOfSight } from '../shared/grid';
 import { FONT_3X5, type SpriteName } from './art';
 import { opening } from './map';
 import {
@@ -21,6 +22,11 @@ const REMEMBERED_ALPHA = 0.6; // Phase 11f: explored tiles stay readable (0.7 hi
 const REMEMBERED_WALL_ALPHA = 0.4;
 /** Phase 11g: warnings draw above the light (it never dims a mark at the rim of a dark room's small light), under the fog. */
 const WARN_DEPTH = 1999.5;
+/** Phase 11h (A112): the dash of a threshold into an unlit dark room. */
+const DASH_PX = 3;
+/** Phase 11h (A116): a lit wall beside a dark room's lit floor: washed pale, with a bone edge on the floor's side. */
+const DARK_WALL_WASH = 0.4;
+const EDGE_PX = 2;
 /** A real opening's threshold: a pale strip on the room side of the gap. */
 const THRESHOLD_PX = 2;
 const EDGE_TILES = 2;
@@ -94,6 +100,11 @@ export class DescentScene extends Phaser.Scene {
   private streakGfx: Phaser.GameObjects.Graphics | null = null;
   private linkGfx: Phaser.GameObjects.Graphics | null = null;
   private fog: Phaser.GameObjects.Graphics | null = null;
+  /** Phase 11h: thresholds (solid pale, or broken stone into an unlit dark room), dark-room walls, brazier embers. */
+  private sills: Phaser.GameObjects.Graphics | null = null;
+  private openings: { x: number; y: number; o: Pos }[] = [];
+  private edgeGfx: Phaser.GameObjects.Graphics | null = null;
+  private emberGfx: Phaser.GameObjects.Graphics | null = null;
   private glow: Phaser.Textures.CanvasTexture | null = null;
   private glowAt = '';
   private torchLights: Light[] = [];
@@ -184,15 +195,13 @@ export class DescentScene extends Phaser.Scene {
     this.streakGfx = this.add.graphics().setDepth(2001); // a dart or arrow shows even through the dark (Phase 11e)
     this.linkGfx = this.add.graphics().setDepth(1997);
     this.tellGfx = this.add.graphics().setDepth(WARN_DEPTH);
-    const sills = this.add.graphics().setDepth(0.5).fillStyle(color('pale'), 0.8);
-    state.tiles.forEach((row, y) => {
-      for (let x = 0; x < row.length; x++) {
-        const o = opening(state.tiles, x, y);
-        if (!o) continue;
-        const [x0, y0] = [x * TILE + (o.x > 0 ? TILE - THRESHOLD_PX : 0), y * TILE + (o.y > 0 ? TILE - THRESHOLD_PX : 0)];
-        sills.fillRect(x0, y0, o.x ? THRESHOLD_PX : TILE, o.y ? THRESHOLD_PX : TILE);
-      }
-    });
+    this.sills = this.add.graphics().setDepth(0.5);
+    this.openings = state.tiles.flatMap((row, y) => [...row].flatMap((_, x) => {
+      const o = opening(state.tiles, x, y);
+      return o ? [{ x, y, o }] : [];
+    }));
+    this.edgeGfx = this.add.graphics().setDepth(WARN_DEPTH);
+    this.emberGfx = this.add.graphics().setDepth(2001);
     this.fog = this.add.graphics().setDepth(2000);
     if (this.textures.exists('glow')) this.textures.remove('glow');
     this.glow = this.textures.createCanvas('glow', w * TILE, state.tiles.length * TILE);
@@ -390,6 +399,7 @@ export class DescentScene extends Phaser.Scene {
         fog.fillRect((i % w) * TILE, Math.floor(i / w) * TILE, TILE, TILE);
       });
     }
+    this.drawDark(state, vis, w);
     for (const e of state.enemies) {
       let a = this.enemies.get(e.id);
       if (!a) {
@@ -592,6 +602,38 @@ export class DescentScene extends Phaser.Scene {
       a.img.setVisible(a.lit || revealed);
       if (revealed) a.img.setDepth(2002); // above the fog for the turn it struck from the dark; the next sync restores it
     }
+  }
+
+  /**
+   * Phase 11h: what a dark room shows before and inside it. An opening into an unlit dark room is sealed in ink (A112);
+   * an unlit brazier in sight within BRAZIER_EMBER_RANGE shows a faint ember over the dark (A115); a lit wall beside a
+   * dark room's lit floor is washed pale with a bone edge facing it, so wall and floor part at the rim of the light (A116).
+   */
+  private drawDark(state: State, vis: readonly number[], w: number) {
+    const s = this.sills?.clear();
+    for (const { x, y, o } of this.openings) {
+      const dark = !!darkRoom(state, { x: x + o.x, y: y + o.y });
+      const t = dark ? 2 * THRESHOLD_PX : THRESHOLD_PX;
+      const [x0, y0] = [x * TILE + (o.x > 0 ? TILE - t : 0), y * TILE + (o.y > 0 ? TILE - t : 0)];
+      s?.fillStyle(color(dark ? 'stone' : 'pale'), dark ? 1 : 0.8);
+      if (!dark) s?.fillRect(x0, y0, o.x ? t : TILE, o.y ? t : TILE);
+      // Into the dark: a broken line, so it can't pass for the solid one at any other way through.
+      else for (let k = 0; k < TILE; k += 2 * DASH_PX) s?.fillRect(x0 + (o.x ? 0 : k), y0 + (o.x ? k : 0), o.x ? t : DASH_PX, o.x ? DASH_PX : t);
+    }
+    const e = this.edgeGfx?.clear();
+    vis.forEach((v, i) => {
+      const [x, y] = [i % w, Math.floor(i / w)];
+      if (v !== 2 || !isWall(state.tiles[y]?.[x] ?? '#')) return;
+      const faces = ([[0, 1], [0, -1], [1, 0], [-1, 0]] as const).filter(([dx, dy]) => {
+        const q = { x: x + dx, y: y + dy };
+        return vis[q.y * w + q.x] === 2 && !isWall(state.tiles[q.y]?.[q.x] ?? '#') && !!darkRoom(state, q);
+      });
+      if (faces.length) e?.fillStyle(color('pale'), DARK_WALL_WASH).fillRect(x * TILE, y * TILE, TILE, TILE);
+      for (const [dx, dy] of faces) e?.fillStyle(color('bone'), 1).fillRect(x * TILE + (dx > 0 ? TILE - EDGE_PX : 0), y * TILE + (dy > 0 ? TILE - EDGE_PX : 0), dx ? EDGE_PX : TILE, dy ? EDGE_PX : TILE);
+    });
+    const g = this.emberGfx?.clear().fillStyle(color('ember'), 0.7);
+    for (const b of find(state.tiles, 'Y'))
+      if (dist(b, state.pos) <= BRAZIER_EMBER_RANGE && lineOfSight(state.tiles, state.pos, b)) g?.fillRect(b.x * TILE + 6, b.y * TILE + 6, 4, 2);
   }
 
   private drawGlow() {

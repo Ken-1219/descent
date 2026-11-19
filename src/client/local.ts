@@ -8,22 +8,31 @@
 // ?boss=alive|carried|killed sets its shared pool (killed serves the floor without it, as the server does).
 // Phase 11e: ?day=N&seed=S makes today Floor N, generated from seed S (the floor the rollover would post with no crowd
 // changes is generate(N, fairSeed(N, …).seed)); a Warden day takes &boss=alive.
+// Phase 11h (A119): ?world=NAME&day=9 is one tester's crowd world, in its own storage: day 9 is the server's rollover of a
+// fixture day (three players' traps, a curse vote) with 20 nameless delvers dead on it; ?world=NAME&day=10 is rolled over
+// from day 9's tally as the server builds it (every death, the kills, this profile's curse vote and trap), with its own 20.
 import { generate, showcaseFamilies } from '../shared/gen';
+import { bot } from '../shared/bot';
+import { rolloverFloor, setAside, type Tally } from '../shared/crowd';
+import { zoneOf } from '../shared/grid';
 import { CURSES, FLOOR_0, floorName, TRAP_TEXT, type Curse } from '../shared/content';
 import type { BoardRows, BossView, MyTrap } from '../shared/api';
 import type { Trap } from '../shared/gen';
-import { carvingOf, fixtureGhosts, ghostView, type GhostRecord, type GhostView, type Vote } from '../shared/ghosts';
-import { hash } from '../shared/rng';
+import { botCarving, carvingOf, fixtureGhosts, ghostView, type GhostRecord, type GhostView, type Vote } from '../shared/ghosts';
+import { hash, mulberry32 } from '../shared/rng';
 import { judge, type Floor, type RunResult } from '../shared/sim';
 import type { Api } from './net';
 
-const K = 'descent:local:';
+const params = new URLSearchParams(location.search);
+const crowd = params.get('world');
+const K = `descent:local:${crowd ? `crowd:${crowd}:` : ''}`;
 const read = <T>(k: string): T | null => JSON.parse(localStorage.getItem(K + k) ?? 'null');
 const write = (k: string, v: unknown) => localStorage.setItem(K + k, JSON.stringify(v));
 const day = () => Number(new URLSearchParams(location.search).get('day')) || (read<number>('day') ?? 1);
 const floorOf = (d: number): Floor => {
   const stored = read<Floor>(`floor:${d}`);
   if (stored) return stored;
+  if (crowd) return crowdDay(d);
   const q = new URLSearchParams(location.search);
   const base: Floor = q.get('floor') === 'f0' ? { ...FLOOR_0, depth: d, mercy: false, seed: d }
     : q.get('floor') === 'warden' ? { depth: d, mercy: false, seed: d, torch: 90, rows: ARENA }
@@ -60,11 +69,10 @@ const served = (d: number): Floor => {
   return bossOf(d)?.killer ? { ...f, rows: f.rows.map((r) => r.replace(/W/g, '.')) } : f;
 };
 const runOf = (d: number) => read<RunResult & { log: string }>(`run:${d}`);
-const params = new URLSearchParams(location.search);
 const ME = 'local';
 /** This profile's ghost and carving per floor, plus the fixture crowd: the same view the server builds. */
 const ghostsOf = (d: number) => {
-  const crowd = fixtureGhosts(floorOf(d), Number(params.get('ghosts') ?? 0), d);
+  const crowd = read<Crowd>(`crowd:${d}`) ?? fixtureGhosts(floorOf(d), Number(params.get('ghosts') ?? 0), d);
   const mine = read<GhostRecord>(`ghost:${d}`);
   const carved = read<string>(`carving:${d}`);
   return ghostView({ ...crowd.records, ...(mine ? { [ME]: mine } : {}) }, { ...crowd.carvings, ...(carved ? { [ME]: carved } : {}) }, ME);
@@ -84,7 +92,7 @@ export const local: Api = {
     const mine = runOf(d);
     if (mine) {
       const { log: _, ...run } = mine;
-      return { kind: 'played', depth: d, seed: floor.seed ?? 0, floor, run, ghosts: withVotes(d, ghostsOf(d)), live: d === day(), attempt: 0, choices: choicesOf(d), myTrap: myTrap(), streak: read<number>('streak') ?? 1, nextAt: nextRollover(), flair: read<boolean>('flair') ?? false, hints: read<number>('hints') ?? 0, ...(d === day() ? {} : { today: day(), todayUrl: `${location.pathname}?post=${day()}` }), ...(boss ? { boss } : {}) };
+      return { kind: 'played', depth: d, seed: floor.seed ?? 0, floor, run, ghosts: withVotes(d, ghostsOf(d)), live: d === day(), attempt: 0, choices: choicesOf(d), myTrap: myTrap(), streak: crowd ? crowdStreak(d) : (read<number>('streak') ?? 1), nextAt: nextRollover(), flair: read<boolean>('flair') ?? false, hints: read<number>('hints') ?? 0, ...(d === day() ? {} : { today: day(), todayUrl: `${location.pathname}?post=${day()}` }), ...(boss ? { boss } : {}) };
     }
     if (d < day()) return { kind: 'closed', depth: d, today: day(), todayUrl: `${location.pathname}?post=${day()}` };
     return { kind: 'play', depth: d, seed: floor.seed ?? 0, floor, ghosts: ghostsOf(d), attempt: 0, tutorial: !!read('tutorial'), myTrap: myTrap(), hints: read<number>('hints') ?? 0, ...(boss ? { boss } : {}) };
@@ -127,7 +135,7 @@ export const local: Api = {
     const boss = bossOf(depth);
     return { fell: ghostsOf(depth).fell, carved: 0, ...(boss ? { boss } : {}) };
   },
-  chronicle: async () => ({ rows: Array.from({ length: day() - 1 }, (_, i) => ({ depth: day() - 1 - i, name: floorName(day() - 1 - i), fell: 10 + i, cleared: 3, curse: i % 2 ? 'frail' : null, zone: i % 9, killer: 'goblin' })) }),
+  chronicle: async () => (crowd ? { rows: crowdChronicle() } : { rows: Array.from({ length: day() - 1 }, (_, i) => ({ depth: day() - 1 - i, name: floorName(day() - 1 - i), fell: 10 + i, cleared: 3, curse: i % 2 ? 'frail' : null, zone: i % 9, killer: 'goblin' })) }),
   board: async (depth) => {
     net();
     // A fixture crowd of N players, plus this profile's own run (if any) ranked among them; same tie rule as the server.
@@ -140,6 +148,11 @@ export const local: Api = {
       const ranked = list.map((r, i) => ({ rank: i + 1, name: r.name, value: r.value, ...(r.you ? { you: true as const } : {}) }));
       return { rows: ranked.slice(0, 10), me: ranked.find((r) => r.you) ?? null, total: ranked.length };
     };
+    // A crowd world shows only what this profile did (bots never reach a board, as on the server).
+    if (crowd) {
+      const deepest = Math.max(0, ...Array.from({ length: depth + 1 }, (_, d) => (runOf(d)?.outcome === 'won' ? d : 0)));
+      return { depth, today: rows(all), deepest: rows(deepest ? [{ name: 'local_delver', value: deepest, you: true }] : []), souls: rows([]), honour: rows([]), trapsetter: null, liar: null };
+    }
     const life = rows(all.map((r) => ({ ...r, value: Math.max(1, Math.floor(r.value / 100)) })));
     return { depth, today: rows(all), deepest: life, souls: life, honour: life, trapsetter: { rank: 1, name: 'delver_3', value: 9 }, liar: { rank: 1, name: 'delver_7', value: 5 } };
   },
@@ -195,6 +208,8 @@ export const local: Api = {
 };
 
 const myTrap = (): MyTrap => {
+  const own = crowd ? floorOf(day()).traps?.find((t) => t.owner === ME) : undefined; // set yesterday; bots never trip it
+  if (own) return { kind: own.kind, x: own.x, y: own.y, hurt: 0, killed: 0 };
   const m = params.get('mytrap')?.split(',').map(Number);
   return m ? { kind: 'spikes', x: 10, y: 3, hurt: m[0] ?? 0, killed: m[1] ?? 0 } : null;
 };
@@ -220,3 +235,77 @@ const choicesOf = (d: number) => {
 export const advanceDay = () => write('day', day() + 1);
 /** Make every fake request fail like a dropped connection (tests the retry and "Not saved" states). */
 export const setOffline = (on: boolean) => (offline = on);
+
+// ---- Phase 11h (A119): the crowd harness ----
+type Crowd = { records: Record<string, GhostRecord>; carvings: Record<string, string>; runs: number };
+const FIRST_CROWD_DAY = 9;
+/** Yesterday for the first crowd day: three players' traps and their curse vote, a crowd that died mostly in the east. */
+const FIXTURE_TALLY: Tally = {
+  deaths: [1, 2, 0, 1, 2, 6, 0, 1, 4],
+  kills: { goblin: 6, spikes: 4, dark: 5 },
+  curseVotes: { frail: 3, 'short-wick': 1 },
+  traps: [
+    { owner: 't2_fx_morrow', name: 'Morrow_Hale', zone: 4, kind: 'spikes' },
+    { owner: 't2_fx_ivy', name: 'ivy_underhill', zone: 2, kind: 'dart' },
+    { owner: 't2_fx_okoro', name: 'Okoro_Delves', zone: 7, kind: 'stairs' },
+  ],
+};
+/** Day d's tally as the server's tally() builds it: every death per zone and cause, this profile's curse vote and trap. */
+function tallyOf(d: number): Tally {
+  const f = floorOf(d);
+  const ghosts = Object.values(ghostsRecords(d));
+  const deaths = Array.from({ length: 9 }, () => 0);
+  const kills: Record<string, number> = {};
+  for (const g of ghosts) {
+    deaths[zoneOf(g, f.rows.length)] = (deaths[zoneOf(g, f.rows.length)] ?? 0) + 1;
+    kills[g.cause] = (kills[g.cause] ?? 0) + 1;
+  }
+  const curse = read<Curse>(`curse:${d}`);
+  const trap = read<Trap>(`trap:${d}`);
+  return { deaths, kills, curseVotes: curse ? { [curse]: 1 } : {}, traps: trap ? [{ ...trap, owner: ME, name: 'local_delver' }] : [] };
+}
+const ghostsRecords = (d: number): Record<string, GhostRecord> => {
+  const mine = read<GhostRecord>(`ghost:${d}`);
+  return { ...(read<Crowd>(`crowd:${d}`)?.records ?? {}), ...(mine ? { [ME]: mine } : {}) };
+};
+/** A crowd day: rolled over like the server's advance(), then 20 nameless delvers die on it, every other one carving (A118). */
+function crowdDay(d: number): Floor {
+  const prev = d > FIRST_CROWD_DAY ? d - 1 : null;
+  const t = prev ? tallyOf(prev) : FIXTURE_TALLY;
+  const rolled = rolloverFloor(d, hash(`crowd:${crowd}:${d}`), t);
+  // The fixture day's own line: 17 fell (the tally's deaths), 6 cleared.
+  let yesterday: Floor['yesterday'] = prev ? undefined : { depth: d - 1, fell: 17, cleared: 6, zone: 5, curse: rolled.mods.curses[0] ?? null, deaths: [...t.deaths], killer: 'goblin' };
+  if (prev) {
+    const fell = Object.keys(ghostsRecords(prev)).length;
+    const runs = (read<Crowd>(`crowd:${prev}`)?.runs ?? 0) + (runOf(prev) ? 1 : 0);
+    const zone = t.deaths.reduce<number | null>((z, n, i) => (n > (z === null ? 0 : (t.deaths[z] ?? 0)) ? i : z), null);
+    const killer = Object.entries(t.kills).sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))[0]?.[0] ?? null;
+    yesterday = { depth: prev, fell, cleared: Math.max(0, runs - fell), zone, curse: rolled.mods.curses[0] ?? null, deaths: [...t.deaths], killer, setAside: setAside(t, rolled) };
+  }
+  const f: Floor = { ...rolled.floor, showcase: showcaseFamilies(d), ...(yesterday ? { yesterday } : {}) };
+  write(`floor:${d}`, f);
+  const c: Crowd = { records: {}, carvings: {}, runs: 0 };
+  for (let k = 1; Object.keys(c.records).length < 20 && c.runs < 120; k++) {
+    const rnd = mulberry32(hash(`bot:${k}:${d}:${crowd}`));
+    const end = bot(f, rnd() % 61, k).state;
+    c.runs++;
+    if (end.ended?.kind !== 'dead') continue;
+    c.records[`bot:${k}`] = { name: null, x: end.pos.x, y: end.pos.y, cause: end.ended.cause, at: k, bot: true };
+    const carving = k % 2 === 0 ? botCarving(f, end.pos, rnd) : null;
+    if (carving) c.carvings[`bot:${k}`] = carving;
+  }
+  write(`crowd:${d}`, c);
+  return f;
+}
+/** Floors played in a row up to d, as the server's streak (played, cleared or fell). */
+const crowdStreak = (d: number) => {
+  let n = 0;
+  while (runOf(d - n)) n++;
+  return Math.max(1, n);
+};
+/** The Chronicle of a crowd world: its fixture day, then each crowd day already rolled over, newest first. */
+const crowdChronicle = () =>
+  Array.from({ length: day() - FIRST_CROWD_DAY + 1 }, (_, i) => day() - 1 - i).flatMap((d) => {
+    const y = read<Floor>(`floor:${d + 1}`)?.yesterday;
+    return y ? [{ depth: d, name: floorName(read<Floor>(`floor:${d}`)?.seed ?? d), fell: y.fell, cleared: y.cleared, curse: y.curse, zone: y.zone, killer: y.killer ?? null }] : [];
+  });

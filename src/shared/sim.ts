@@ -51,7 +51,7 @@ export type Floor = {
   /** Phase 8: what yesterday's floor left: how many fell and cleared, the deadliest compass zone, today's curse. */
   /** Difficulty data (A39): the bot's predicted win rate for this floor, the plain floor's, and the target line, in %. */
   predicted?: { win: number; plain: number; target: number };
-  yesterday?: { depth: number; fell: number; cleared: number; zone: number | null; curse: Curse | null; deaths?: readonly number[]; killer?: string | null };
+  yesterday?: { depth: number; fell: number; cleared: number; zone: number | null; curse: Curse | null; deaths?: readonly number[]; killer?: string | null; setAside?: { curse: Curse | null; traps: number } };
   /** Phase 9: the family introduced or raised today (the intro's "new today" line). */
   showcase?: readonly Family[];
 };
@@ -156,7 +156,7 @@ export function spikeStage(s: State, x: number, y: number, turn = s.turn): 0 | 1
 }
 
 /** The unlit dark room the position is in, if any. A lit brazier ends its room's darkness. */
-function darkRoom(s: State, p: Pos): Rect | undefined {
+export function darkRoom(s: State, p: Pos): Rect | undefined {
   return s.floor.dark?.find((r) => inside(r, p) && !find(s.tiles, 'y').some((b) => inside(r, b)));
 }
 

@@ -171,3 +171,18 @@ test('difficulty data (A39): each floor stores its predicted win rate; the Chron
   expect(row).toMatchObject({ depth: 1, predicted: f1.predicted?.win, players: { cleared: 1, fell: 1 } });
   expect((await stored(2)).predicted?.target).toBe(79);
 });
+
+test('seeded nameless delvers carve only what a floor can make true or false there (A118)', async () => {
+  await startFirstFloor();
+  const f1 = await openFloor(1);
+  await seedBots(12);
+  const carvings = Object.entries(await redis.hGetAll('f:1:carvings'));
+  const ghosts = await redis.hGetAll('f:1:ghosts');
+  expect(carvings.length).toBeGreaterThan(0);
+  for (const [user, c] of carvings) {
+    expect(user.startsWith('bot:')).toBe(true);
+    expect(c).toMatch(/^(trap-ahead|dead-end|stairs-way:[UDLR])$/);
+    expect(JSON.parse(ghosts[user] ?? '{}').bot).toBe(true);
+  }
+  expect(f1.depth).toBe(1);
+});

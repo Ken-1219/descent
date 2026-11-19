@@ -1,6 +1,7 @@
 // Ghosts and carvings: what a death leaves on a floor. Never read by the simulation; the server derives every field
 // from the replay and the Devvit context, then shapes them for the wire here so server and local mode agree.
-import { CARVINGS, GHOSTS, type CarvingKind } from './content';
+import { BOT_LIE_IN, CARVINGS, GHOSTS, TRAP_NEAR, type CarvingKind } from './content';
+import { bfs, blocks, DIRS as STEPS, dist, find, HAZARDS, width } from './grid';
 import { mulberry32 } from './rng';
 import type { Floor, Pos } from './sim';
 
@@ -85,7 +86,42 @@ export function fixtureGhosts(f: Floor, n: number, seed = 1): { records: Record<
     if (!t) continue;
     const key = `fixture:${i}`;
     records[key] = { name: i % 4 ? `delver_${i}` : null, x: t.x, y: t.y, cause: ['spikes', 'goblin', 'dark', 'imp'][rnd() % 4] ?? 'dark', at: i, ...(i % 4 ? {} : { bot: true as const }) };
-    if (rnd() % 3 === 0) carvings[key] = CARVING_CHOICES[rnd() % CARVING_CHOICES.length] ?? 'trap-ahead';
+    const c = rnd() % 3 === 0 ? botCarving(f, t, rnd) : null;
+    if (c) carvings[key] = c;
   }
   return { records, carvings };
+}
+
+/**
+ * Phase 11h (A118): what a floor makes true at a tile, for the three phrases a nameless delver carves. "Trap ahead": a
+ * hazard or a player's trap within TRAP_NEAR steps. "Dead end": cut the tile's first step towards the stairs and neither
+ * the stairs nor the entrance can be reached. "Stairs this way": the arrow is a first step of a shortest walk to them.
+ */
+export function carvingTrue(f: Floor, at: Pos, raw: string): boolean {
+  const c = carvingOf(raw);
+  const pass = (ch: string) => !blocks(ch);
+  const w = width(f.rows);
+  if (c?.id === 'trap-ahead') return [...find(f.rows, HAZARDS), ...(f.traps ?? [])].some((p) => dist(p, at) <= TRAP_NEAR);
+  const s0 = find(f.rows, '>')[0];
+  const d = s0 ? bfs(f.rows, s0, pass) : [];
+  const here = d[at.y * w + at.x] ?? -1;
+  const onward = (s: (typeof STEPS)[number]) => here > 0 && d[(at.y + s.dy) * w + at.x + s.dx] === here - 1;
+  if (c?.id === 'stairs-way') return STEPS.some((s) => s.a === c.dir && onward(s));
+  const next = STEPS.find(onward);
+  if (c?.id !== 'dead-end' || !next) return false;
+  const cut = f.rows.map((row, y) => (y === at.y + next.dy ? row.slice(0, at.x + next.dx) + '#' + row.slice(at.x + next.dx + 1) : row));
+  const from = bfs(cut, at, pass);
+  return [...find(f.rows, '>'), ...find(f.rows, '@')].every((p) => (from[p.y * w + p.x] ?? -1) < 0);
+}
+
+/** A nameless delver's carving at its death tile: the first true phrase, or one time in BOT_LIE_IN a false one of the same kind. */
+export function botCarving(f: Floor, at: Pos, rnd: () => number): string | null {
+  const lie = rnd() % BOT_LIE_IN === 0;
+  const arrows = STEPS.map((s) => `stairs-way:${s.a}`);
+  const truth = ['trap-ahead', 'dead-end', ...arrows].find((c) => carvingTrue(f, at, c));
+  if (!truth) return null;
+  if (!lie) return truth;
+  const same = (truth.startsWith('stairs-way') ? arrows : ['trap-ahead', 'dead-end']).filter((c) => !carvingTrue(f, at, c));
+  const any = same.length ? same : ['trap-ahead', 'dead-end', ...arrows].filter((c) => !carvingTrue(f, at, c));
+  return any[rnd() % any.length] ?? null;
 }
