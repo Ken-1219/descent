@@ -5,6 +5,7 @@ import {
   GOBLIN_HP,
   GOBLINS,
   HEARTS,
+  HURT_PER_TURN,
   IMPS,
   ITEMS,
   MECHANISMS,
@@ -118,6 +119,8 @@ export type Event =
   | { t: 'fall'; at: Pos; to: Pos }
   | { t: 'pickup'; item: Item; at: Pos }
   | { t: 'use'; item: Item }
+  /** Phase 11g: a potion tried at full hearts stays in the pack; no turn passes. */
+  | { t: 'kept'; item: Item }
   | { t: 'bomb'; at: Pos }
   | { t: 'light'; at: Pos }
   | { t: 'gate'; at: Pos; open: boolean }
@@ -266,6 +269,7 @@ export function step(state: State, action: Action): { state: State; events: Even
   if (action === 'I') {
     const item = d.item;
     if (!item) return { state, events: [] };
+    if (item === 'potion' && d.hearts >= HEARTS) return { state, events: [{ t: 'kept', item }] };
     d.item = null;
     events.push({ t: 'use', item });
     if (item === 'potion') d.hearts = Math.min(HEARTS, d.hearts + ITEMS.potion.heal);
@@ -619,13 +623,15 @@ export function step(state: State, action: Action): { state: State; events: Even
     if (d.torch === 0) events.push({ t: 'torchOut' });
   }
 
-  // 5. Damage resolves once.
-  let deathCause = '';
-  for (const h of hits) {
-    events.push({ t: 'hurt', amount: h.amount, cause: h.cause, at: h.at });
-    d.hearts = Math.max(d.floor.mercy ? 1 : 0, d.hearts - h.amount);
-    if (d.hearts === 0 && !deathCause) deathCause = h.cause;
+  // 5. Damage resolves once, and at most HURT_PER_TURN hearts a turn (Phase 11g): the first source in this order takes it and
+  // is the cause shown; any other source that landed this turn is absorbed.
+  const h = hits[0];
+  if (h) {
+    const amount = Math.min(HURT_PER_TURN, h.amount);
+    events.push({ t: 'hurt', amount, cause: h.cause, at: h.at });
+    d.hearts = Math.max(d.floor.mercy ? 1 : 0, d.hearts - amount);
   }
+  const deathCause = h && d.hearts === 0 ? h.cause : '';
 
   // 6. End check: dead beats won.
   if (d.hearts === 0) {

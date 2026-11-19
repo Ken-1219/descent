@@ -2,7 +2,7 @@
 // (once seen) the stairs. Opening it is not an action: no turn passes and nothing is logged. It draws only `seen`, the
 // sim's own memory, so it never shows more than you saw.
 import { PALETTE } from '../shared/content';
-import { isWall, width } from '../shared/grid';
+import { blocks, isWall, tileAt, width, type Pos } from '../shared/grid';
 import type { State } from '../shared/sim';
 import { button, el } from './ui';
 
@@ -20,6 +20,7 @@ export function mapPlate(s: State, fit: { width: number; height: number }, onClo
   const g = canvas.getContext('2d');
   let stairs = false;
   let edges = false;
+  let doors = false;
   if (g) {
     s.tiles.forEach((row, y) => {
       for (let x = 0; x < row.length; x++) {
@@ -32,7 +33,9 @@ export function mapPlate(s: State, fit: { width: number; height: number }, onClo
         // an edge you haven't followed yet (gilt), so a dead-end notch reads differently from a way on.
         const edge = !isWall(c) && [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx = 0, dy = 0]) => !s.seen[(y + dy) * w + x + dx] && x + dx >= 0 && x + dx < w);
         edges ||= edge;
-        g.fillStyle = up ? PALETTE.ember : isWall(c) ? PALETTE['ink-2'] : edge ? PALETTE.gilt : PALETTE.stone;
+        const door = !up && !edge && opening(s.tiles, x, y) !== null;
+        doors ||= door;
+        g.fillStyle = up ? PALETTE.ember : isWall(c) ? PALETTE['ink-2'] : edge ? PALETTE.gilt : door ? PALETTE.pale : PALETTE.stone;
         g.fillRect(x * cell, y * cell, cell, cell);
       }
     });
@@ -40,8 +43,23 @@ export function mapPlate(s: State, fit: { width: number; height: number }, onClo
     g.fillRect(s.pos.x * cell, s.pos.y * cell, cell, cell);
   }
   canvas.setAttribute('role', 'img');
-  canvas.setAttribute('aria-label', `Map of the tiles you have seen. You are marked in white${stairs ? '; the stairs in orange' : '; no stairs seen yet'}${edges ? '; unexplored edges in gold' : ''}.`);
+  canvas.setAttribute('aria-label', `Map of the tiles you have seen. You are marked in white${stairs ? '; the stairs in orange' : '; no stairs seen yet'}${doors ? '; ways out of a room in pale grey' : ''}${edges ? '; unexplored edges in gold' : ''}.`);
   const close = button('Close', 'map__close');
   close.addEventListener('click', onClose);
-  return el('div', 'plate map', el('h2', 'map__title', 'Map'), el('p', 'map__key muted', `You: white · ${stairs ? 'stairs: orange' : 'no stairs seen yet'}${edges ? ' · gold: not explored past here' : ''}`), canvas, close);
+  return el('div', 'plate map', el('h2', 'map__title', 'Map'), el('p', 'map__key muted', `white: you · ${stairs ? 'orange: stairs' : 'no stairs seen'}${doors ? ' · pale: way out' : ''}${edges ? ' · gold: unexplored edge' : ''}`), canvas, close);
+}
+
+/**
+ * Phase 11g: a real way out of a room: a one-tile gap in a wall line (wall on both sides) with a room on one side and a
+ * way on at the other. Returns the step toward the room, or null. Doors and gates draw their own frames.
+ */
+export function opening(tiles: readonly string[], x: number, y: number): Pos | null {
+  const c = tileAt(tiles, x, y);
+  if (blocks(c) || c === 'h' || c === '/') return null;
+  const pass = (dx: number, dy: number) => !blocks(tileAt(tiles, x + dx, y + dy));
+  for (const [dx = 0, dy = 0] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    if (pass(dy, dx) || pass(-dy, -dx) || !pass(dx, dy) || !pass(-dx, -dy)) continue;
+    if (pass(dx + dy, dy + dx) && pass(dx - dy, dy - dx)) return { x: dx, y: dy }; // both tiles beside the room-side step are open
+  }
+  return null;
 }

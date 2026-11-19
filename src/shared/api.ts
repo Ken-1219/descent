@@ -55,7 +55,7 @@ export type BossView = { hp: number; pool: number; carried: boolean; killer: str
 export type PulseResponse = { fell: number; carved: number; boss?: BossView };
 /** GET /api/chronicle: one row per floor, newest first. */
 /** `predicted` (bot win %, A39) and `players` (real runs, bots excluded) sit side by side for tuning the target curve. */
-export type ChronicleRow = { depth: number; fell: number; cleared: number; curse: Curse | null; zone: number | null; killer: string | null; predicted?: number | null; players?: { cleared: number; fell: number } };
+export type ChronicleRow = { depth: number; name?: string; fell: number; cleared: number; curse: Curse | null; zone: number | null; killer: string | null; predicted?: number | null; players?: { cleared: number; fell: number } };
 export type ChronicleResponse = { rows: ChronicleRow[] };
 
 /** POST /api/vote: Trust or Liar on a ghost's carving (after your run), or a winner's curse vote. Final once stored. */

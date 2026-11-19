@@ -60,6 +60,24 @@ export const LIGHT: Record<'dim' | 'remembered', Record<Token, Token>> = {
 // ---- Phase 3: run tuning ----
 
 export const HEARTS = 3;
+/**
+ * Phase 11g: each floor's name, picked by its seed: "The <first> <second>". Fixed lists (append only: a floor's name is
+ * shown on the Chronicle long after its day).
+ */
+export const FLOOR_FIRST = ['Drowned', 'Hollow', 'Ashen', 'Sunken', 'Silent', 'Bleeding', 'Forgotten', 'Crooked', 'Weeping', 'Ember', 'Gilded', 'Broken', 'Starless', 'Rotting', 'Hungry', 'Bone'] as const;
+export const FLOOR_SECOND = ['Halls', 'Vaults', 'Stair', 'Cellars', 'Crypts', 'Galleries', 'Wells', 'Catacombs', 'Cloisters', 'Barrows', 'Deeps', 'Warrens', 'Chambers', 'Ossuary', 'Pits', 'Undercroft'] as const;
+export const floorName = (seed: number): string => {
+  const n = seed >>> 0;
+  return `The ${FLOOR_FIRST[n % FLOOR_FIRST.length]} ${FLOOR_SECOND[Math.floor(n / FLOOR_FIRST.length) % FLOOR_SECOND.length]}`;
+};
+/**
+ * Phase 11g: the dungeon's stone changes with each seven-floor cycle (not each seed), so going deeper looks different:
+ * walls and floor are multiplied by this token (null: the stone's own colour). Floors past the last cycle wrap round.
+ */
+export const STONE_TINT: readonly (Token | null)[] = [null, 'bone', 'wisp', 'ember'];
+export const stoneTint = (depth: number): Token | null => (depth > 0 ? (STONE_TINT[Math.floor((depth - 1) / 7) % STONE_TINT.length] ?? null) : null);
+/** Phase 11g: the most hearts any one turn can take, whatever lands on it. */
+export const HURT_PER_TURN = 1;
 export const TORCH_RADIUS = 4;
 export const TORCH_LOW_RADIUS = 3;
 export const TORCH_LOW_PCT = 20;

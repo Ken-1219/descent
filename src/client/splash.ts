@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 // The feed card: floor number, Descend, played state. No Phaser and no sim: one request, a few DOM writes (§15.3).
 import { context, navigateTo, requestExpandedMode, showLoginPrompt } from '@devvit/web/client';
-import { ATTRIBUTION, CURSE_TEXT, PALETTE, PRIVACY } from '../shared/content';
+import { ATTRIBUTION, CURSE_TEXT, floorName, PALETTE, PRIVACY } from '../shared/content';
 import type { Floor } from '../shared/sim';
 import { miniMap } from './minimap';
 import { api, report } from './net';
@@ -121,6 +121,7 @@ void api.floor().then(
     // Boss day (§7 splash states): the Warden and its chain, or that it has fallen.
     const boss = (r.kind === 'play' || r.kind === 'played') && r.boss ? (r.boss.killer ? 'The Warden has fallen.' : `The Warden: ${r.boss.hp} of ${r.boss.pool} links.`) : '';
     if ('depth' in r && typeof r.depth === 'number') step('splash', r.depth);
+    if (r.kind === 'play' || r.kind === 'played') $('fname').textContent = floorName(r.seed); // Phase 11g
     if (r.kind === 'play') set(`Floor ${r.depth}${curse ? ` · ${CURSE_TEXT[curse].name}` : ''}`, boss || stats(r.ghosts), 'Descend', (e) => {
       step('descend', r.depth);
       expand(e);

@@ -1679,6 +1679,92 @@ async (page) => {
       check('the board has one line each for Honour, liar votes and streaks', /Honour:/.test(help) && /Liar votes:/.test(help) && /Streak:/.test(help), help);
       await ctx.close();
     }
+    // 26. Phase 11g: the frame on your tile is exact, both ways, for every kind of foe; Warden marks are said in words; the
+    // rules (a potion kept at full hearts); the floor's name; the boot line leaves the page; real openings on the map.
+    {
+      const { ctx, p } = await fresh({ width: 390, height: 844 }, '?scene=goblins-1');
+      const sweep = await p.evaluate(async () => {
+        const d = window.__descent;
+        d.skipAnim(true);
+        const FOES = ['goblin', 'imp', 'skeleton', 'arrow', 'warden'];
+        const out = { framed: 0, bare: 0, kinds: {}, bad: [] };
+        for (const sc of d.scenes()) {
+          for (let k = 0; k < sc.log.length; k++) {
+            d.load(sc.id);
+            for (const a of sc.log.slice(0, k)) await d.act(a);
+            if (d.state().ended) break;
+            const frame = d.frame();
+            await d.act('W');
+            const hurt = d.lastHurt();
+            if (frame) {
+              out.framed++;
+              out.kinds[hurt] = (out.kinds[hurt] ?? 0) + 1;
+              if (!hurt) out.bad.push(`${sc.id}@${k}: a frame, no hit`);
+            } else {
+              out.bare++;
+              if (FOES.includes(hurt)) out.bad.push(`${sc.id}@${k}: no frame, struck by ${hurt}`);
+            }
+          }
+        }
+        return out;
+      });
+      check('the frame is exact: a frame on your tile means a hit if you stay, and no frame means no foe strikes (every scene, every turn)',
+        sweep.bad.length === 0 && sweep.framed > 10 && sweep.bare > 50 && ['goblin', 'imp', 'skeleton'].every((k) => sweep.kinds[k] > 0), JSON.stringify({ ...sweep, bad: sweep.bad.slice(0, 5) }));
+      const gone = await p.evaluate(() => document.querySelector('.boot__slow') === null);
+      check('the hidden "Still dark?" line leaves the page once the game is up', gone);
+      await ctx.close();
+    }
+    // Warden marks: walk into the arena until the hero stands on a marked tile, then read the hint line.
+    {
+      const { ctx, p } = await fresh({ width: 390, height: 844 }, '?floor=warden&boss=alive');
+      await p.waitForSelector('#end.end--intro');
+      await p.locator('#end .btn--primary').click();
+      const w = await p.evaluate(async () => {
+        const d = window.__descent;
+        d.skipAnim(true);
+        for (const a of 'RRRRWWWWWW') {
+          if (d.frame()) break;
+          await d.act(a);
+        }
+        const l = document.getElementById('carving');
+        return { frame: d.frame(), line: l.hidden ? '' : l.innerText, pos: d.state().pos };
+      });
+      check('standing on a Warden mark, the hint line says it strikes there next turn and to step off', w.frame && /The Warden strikes this tile next turn: step off it/.test(w.line), JSON.stringify(w));
+      await ctx.close();
+    }
+    {
+      const { ctx, p } = await fresh({ width: 390, height: 844 }, '?floor=f0');
+      await p.evaluate(() => { const e = document.getElementById('end'); if (e.classList.contains('end--intro')) e.querySelector('.btn--primary').click(); });
+      const r = await p.evaluate(async () => {
+        const d = window.__descent;
+        d.skipAnim(true);
+        for (const a of 'DRRURRRRURRRRRRR') await d.act(a);
+        const before = d.state();
+        await d.act('I');
+        const after = d.state();
+        const l = document.getElementById('carving');
+        return { before, after, line: l.hidden ? '' : l.innerText, log: d.log() };
+      });
+      check('a potion used at full hearts stays in the pack, costs no turn, and the line says so',
+        r.before.item === 'potion' && r.before.hearts === 3 && r.after.item === 'potion' && r.after.turn === r.before.turn && /the potion stays in your pack/.test(r.line), JSON.stringify(r).slice(0, 300));
+      await ctx.close();
+    }
+    {
+      const { ctx, p } = await fresh({ width: 390, height: 844 }, '?floor=warden&boss=alive');
+      await p.waitForSelector('#end.end--intro');
+      const kicker = await p.locator('#end .end__kicker').innerText();
+      check('the intro names the floor', /^The [A-Z][a-z]+ [A-Z][a-z]+$/.test(kicker), kicker);
+      await ctx.close();
+    }
+    {
+      const { ctx, p } = await fresh({ width: 390, height: 844 }, '?depth=13&seed=1013');
+      await p.evaluate(async () => { window.__descent.skipAnim(true); for (const a of 'DDDDLLL') await window.__descent.act(a); });
+      await p.keyboard.press('m');
+      const key = await p.locator('#card .map__key').innerText();
+      await p.keyboard.press('m');
+      check('the map marks real openings (pale: a way out) beside unexplored edges', /pale: way out/.test(key), key);
+      await ctx.close();
+    }
   }
   } catch (e) {
     // A step that throws (a timeout) is recorded after the last check that ran, so the rest of the report survives.

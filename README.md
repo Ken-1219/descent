@@ -10,7 +10,7 @@ It is a short turn-based roguelike (a run takes a few minutes) built for Reddit 
 
 - **Moving:** arrow keys or WASD on a keyboard; swipe, or the on-screen pad, on a phone. Space waits a turn, E uses your item, M (or the Map button) shows every tile you have seen. The map costs no turn.
 - **The torch** burns one turn of light per move. Reach the stairs before it goes out; in the dark you lose a heart every two turns.
-- **Three hearts.** Spikes, darts, pits, goblins, imps, skeletons and the dark take them. Every danger warns you one turn ahead with a red mark.
+- **Three hearts.** Spikes, darts, pits, goblins, imps, skeletons and the dark take them, never more than one in a single turn. Every danger warns you one turn ahead with a red mark. A potion gives a heart back; at full hearts it stays in your pack.
 - **Floor 0** is a short practice floor. It teaches moving, keys and doors, spikes, an enemy's wind-up, items and ghosts. You play it once; after that each post opens straight on the day's floor.
 
 ## How the crowd shapes each floor

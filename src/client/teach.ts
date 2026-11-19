@@ -3,7 +3,8 @@
 // never teaches it twice. Words only: nothing here touches the run.
 import { TEACH, type Teach } from '../shared/content';
 import { width } from '../shared/grid';
-import { tells, visibility, type Event, type State } from '../shared/sim';
+import { visibility, type Event, type State } from '../shared/sim';
+import { shownTells } from './sprites';
 import { api } from './net';
 
 const KEY = 'descent:taught';
@@ -26,7 +27,7 @@ function met(s: State, events: readonly Event[]): Teach[] {
   const w = width(s.tiles);
   const lit = (x: number, y: number) => vis[y * w + x] === 2;
   const out: Teach[] = [];
-  for (const t of tells(s)) {
+  for (const t of shownTells(s)) {
     if (t.kind === 'windup' && lit(t.x, t.y)) out.push(t.cause === 'warden' ? 'warden' : 'imp'); // any foe's frame
     if (t.kind === 'armed' && lit(t.x, t.y)) out.push('dart');
   }

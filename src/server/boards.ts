@@ -1,10 +1,10 @@
 // Read-only views for Phase 9: the board, a ghost's lifetime record, the live count, the Chronicle. Every value here was
 // written when a run or vote was accepted (game.ts); nothing is computed in the rollover. Bots never appear.
 import { reddit, redis } from '@devvit/web/server';
-import { BOARD } from '../shared/content';
+import { BOARD, floorName } from '../shared/content';
 import { isWardenFloor } from '../shared/gen';
 import { bossView } from './boss';
-import { realResult } from './game';
+import { key, realResult } from './game';
 import type { BoardResponse, BoardRows, CardResponse, ChronicleResponse, PulseResponse } from '../shared/api';
 
 const isBot = (user: string) => user.startsWith('bot:');
@@ -81,7 +81,15 @@ export async function pulse(depth: number, user?: string): Promise<PulseResponse
 /** GET /api/chronicle: one row per floor, newest first, the last BOARD.chronicle floors. */
 export async function chronicle(): Promise<ChronicleResponse> {
   const all = Object.entries(await redis.hGetAll('chronicle')).map(([d, v]) => ({ ...JSON.parse(v), depth: Number(d) }));
-  return { rows: all.sort((a, b) => b.depth - a.depth).slice(0, BOARD.chronicle) };
+  const rows = all.sort((a, b) => b.depth - a.depth).slice(0, BOARD.chronicle);
+  // Phase 11g: each floor's name, from the seed its mods were stored with.
+  const mods = rows.length ? await redis.mGet(rows.map((r) => key(r.depth, 'mods'))) : [];
+  return {
+    rows: rows.map((r, i) => {
+      const seed: unknown = JSON.parse(mods[i] ?? 'null')?.seed;
+      return typeof seed === 'number' ? { ...r, name: floorName(seed) } : r;
+    }),
+  };
 }
 
 /** The next daily rollover (cron "0 15 * * *", UTC), for the countdown (A37). */

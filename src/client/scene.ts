@@ -1,11 +1,12 @@
 // The one Phaser scene. It draws `State` and plays the events `step()` returns; it decides no rule.
 import * as Phaser from 'phaser';
-import { PALETTE, TILE, type Token } from '../shared/content';
+import { PALETTE, stoneTint, TILE, type Token } from '../shared/content';
 import { carvingOf, type Ghost } from '../shared/ghosts';
-import { blockTiles, lightRadius, tells, visibility, type Event, type Pos, type State } from '../shared/sim';
+import { blockTiles, lightRadius, visibility, type Event, type Pos, type State } from '../shared/sim';
 import { FONT_3X5, type SpriteName } from './art';
+import { opening } from './map';
 import {
-  ANIMS, PACK, buildAtlas, links, choreograph, enemyLook, frameAt, HURT, loadPack, marks, px, py, rgba, RUN, shine, tileLook,
+  ANIMS, PACK, buildAtlas, links, shownTells, choreograph, enemyLook, frameAt, HURT, loadPack, marks, px, py, rgba, RUN, shine, tileLook,
   type Anim, type Frame, type Key, type Light, type Streak,
 } from './sprites';
 
@@ -15,7 +16,13 @@ const SHAKE_PX = 2;
 /** Hit-stop (A62): on damage the world holds for this long, then shakes. Inside the turn's 120 ms lock: input never waits. */
 const HITSTOP_MS = 60;
 const KILL_MS = 84;
-const REMEMBERED_ALPHA = 0.55; // Phase 11f: explored tiles stay readable (0.7 hid the trail the blind tester never noticed)
+const REMEMBERED_ALPHA = 0.6; // Phase 11f: explored tiles stay readable (0.7 hid the trail the blind tester never noticed)
+/** Phase 11g: remembered walls sit under lighter fog than remembered floor, so a room's shape (and its way out) reads. */
+const REMEMBERED_WALL_ALPHA = 0.4;
+/** Phase 11g: warnings draw above the light (it never dims a mark at the rim of a dark room's small light), under the fog. */
+const WARN_DEPTH = 1999.5;
+/** A real opening's threshold: a pale strip on the room side of the gap. */
+const THRESHOLD_PX = 2;
 const EDGE_TILES = 2;
 /** Phase 11f: a foe out of sight stays where you last saw it as a memory: one still frame, stone grey, faint. */
 const MEMORY_ALPHA = 0.5;
@@ -157,24 +164,35 @@ export class DescentScene extends Phaser.Scene {
     this.torches = [];
     this.torchLights = [];
     const w = state.tiles[0]?.length ?? 0;
+    const tint = stoneTint(state.floor.depth);
+    const stone = (img: Phaser.GameObjects.Image) => (tint ? img.setTint(color(tint)).setTintMode(Phaser.TintModes.MULTIPLY) : img);
     state.tiles.forEach((row, y) =>
       [...row].forEach((c, x) => {
         if (isWall(c)) {
           // Every wall gets the full brick face: the pack's wall-top cap is mostly transparent and would show the void.
-          this.add.image(px(x), py(y), 'pack', 'wall').setOrigin(0.5, 1).setDepth(depth(y, 1));
+          stone(this.add.image(px(x), py(y), 'pack', 'wall').setOrigin(0.5, 1).setDepth(depth(y, 1)));
           if (c === 'T') {
             this.torches.push({ img: this.add.image(px(x), py(y), 'own', 'torch-0@lit').setOrigin(0.5, 1).setDepth(depth(y, 2)), frame: 0, until: 0 });
             this.torchLights.push({ x: px(x), y: py(y) - TILE / 2, r: TORCH_GLOW_TILES * TILE, tint: 'ember' });
           }
           return;
         }
-        this.add.image(px(x), py(y), 'pack', 'floor').setOrigin(0.5, 1).setDepth(0);
+        stone(this.add.image(px(x), py(y), 'pack', 'floor').setOrigin(0.5, 1).setDepth(0));
       }),
     );
     this.hero = this.actor(state.pos.x, state.pos.y, 5, ANIMS['hero-idle']);
     this.streakGfx = this.add.graphics().setDepth(2001); // a dart or arrow shows even through the dark (Phase 11e)
     this.linkGfx = this.add.graphics().setDepth(1997);
-    this.tellGfx = this.add.graphics().setDepth(1996);
+    this.tellGfx = this.add.graphics().setDepth(WARN_DEPTH);
+    const sills = this.add.graphics().setDepth(0.5).fillStyle(color('pale'), 0.8);
+    state.tiles.forEach((row, y) => {
+      for (let x = 0; x < row.length; x++) {
+        const o = opening(state.tiles, x, y);
+        if (!o) continue;
+        const [x0, y0] = [x * TILE + (o.x > 0 ? TILE - THRESHOLD_PX : 0), y * TILE + (o.y > 0 ? TILE - THRESHOLD_PX : 0)];
+        sills.fillRect(x0, y0, o.x ? THRESHOLD_PX : TILE, o.y ? THRESHOLD_PX : TILE);
+      }
+    });
     this.fog = this.add.graphics().setDepth(2000);
     if (this.textures.exists('glow')) this.textures.remove('glow');
     this.glow = this.textures.createCanvas('glow', w * TILE, state.tiles.length * TILE);
@@ -368,7 +386,7 @@ export class DescentScene extends Phaser.Scene {
       fog.clear();
       vis.forEach((v, i) => {
         if (v === 2) return;
-        fog.fillStyle(color('ink-0'), v === 0 ? 1 : REMEMBERED_ALPHA);
+        fog.fillStyle(color('ink-0'), v === 0 ? 1 : isWall(state.tiles[Math.floor(i / w)]?.[i % w] ?? '#') ? REMEMBERED_WALL_ALPHA : REMEMBERED_ALPHA);
         fog.fillRect((i % w) * TILE, Math.floor(i / w) * TILE, TILE, TILE);
       });
     }
@@ -404,10 +422,10 @@ export class DescentScene extends Phaser.Scene {
     }
     this.drawGhosts(vis, w);
     for (const img of this.markImgs) img.destroy();
-    this.markImgs = marks(state).map((m) => this.image(m.frame, m.x, m.y, depth(m.y, 6)));
+    this.markImgs = marks(state).map((m) => this.image(m.frame, m.x, m.y, WARN_DEPTH + 0.1));
     // Phase 11e: every tile an attack is aimed at is filled, above the actors (a mark on your own tile shows) and under the fog.
     this.tellGfx?.clear().fillStyle(color('blood'), 0.35);
-    for (const t of tells(state)) if (t.kind === 'windup') this.tellGfx?.fillRect(t.x * TILE, t.y * TILE, TILE, TILE);
+    for (const t of shownTells(state)) if (t.kind === 'windup') this.tellGfx?.fillRect(t.x * TILE, t.y * TILE, TILE, TILE);
     if (this.hero) this.hero.tint = state.torch <= 0 && !state.ended ? 'stone' : null;
   }
 
@@ -586,7 +604,7 @@ export class DescentScene extends Phaser.Scene {
     this.glowAt = at;
     const ctx = glow.getContext();
     ctx.clearRect(0, 0, glow.width, glow.height);
-    const lights = [...this.torchLights, ...this.brazierLights, { x: hero.x, y: hero.y - TILE / 2, r: (r + 0.5) * TILE, tint: 'ember' as const }];
+    const lights = [...this.torchLights, ...this.brazierLights, { x: hero.x, y: hero.y - TILE / 2, r: (r + 1) * TILE, tint: 'ember' as const }];
     shine(ctx, glow.width, glow.height, lights, GLOW_DARK);
     for (const l of this.wispLights) {
       const g = ctx.createRadialGradient(l.x, l.y, 0, l.x, l.y, l.r);

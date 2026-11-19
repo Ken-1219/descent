@@ -1,5 +1,5 @@
 import { test, expect } from 'vitest';
-import { FLOOR_0, HEARTS, LIGHT, PALETTE, RUN, type Token } from '../src/shared/content';
+import { FLOOR_0, floorName, HEARTS, LIGHT, PALETTE, RUN, STONE_TINT, stoneTint, type Token } from '../src/shared/content';
 import { hash, mulberry32, pick } from '../src/shared/rng';
 import { judge, replay, score, start, step, visibility, type Action, type Event, type Floor, type State } from '../src/shared/sim';
 import { SPRITES, type SpriteDef } from '../src/client/art';
@@ -13,6 +13,18 @@ test('text pairs meet WCAG AA', () => {
   expect(contrast(PALETTE.bone, PALETTE['ink-2'])).toBeGreaterThanOrEqual(4.5);
   expect(contrast(PALETTE.pale, PALETTE['ink-2'])).toBeGreaterThanOrEqual(4.5);
   expect(contrast('#000000', '#ffffff')).toBeCloseTo(21, 5);
+});
+
+test('Phase 11g: every stone tint keeps the hero (bone) readable on the tinted stone, at 3:1 or more; names come by seed', () => {
+  const mul = (a: string, b: string) => `#${[1, 3, 5].map((i) => Math.floor((parseInt(a.slice(i, i + 2), 16) * parseInt(b.slice(i, i + 2), 16)) / 255).toString(16).padStart(2, '0')).join('')}`;
+  for (const t of STONE_TINT) {
+    const stone = t ? mul(PALETTE.stone, PALETTE[t]) : PALETTE.stone;
+    expect(contrast(PALETTE.bone, stone)).toBeGreaterThanOrEqual(3);
+  }
+  expect([1, 7, 8, 14, 15, 22, 28, 29].map(stoneTint)).toEqual([null, null, 'bone', 'bone', 'wisp', 'ember', 'ember', null]);
+  expect(floorName(0)).toBe('The Drowned Halls');
+  expect(floorName(17)).toBe('The Hollow Vaults');
+  expect(floorName(2 ** 32 - 1)).toMatch(/^The \w+ \w+$/);
 });
 
 test('light tables map every token to a token', () => {
@@ -366,15 +378,29 @@ test('items: pick up, swap with the one held, use costs a turn, nothing held cos
   expect(step(used.state, 'I')).toEqual({ state: used.state, events: [] });
 });
 
-test('items: potion caps at 3 hearts; lamp oil adds ITEMS.oil.turns, capped at the floor torch', () => {
-  const full = step(step(start(itemFloor('#@p.....#')), 'R').state, 'I').state;
-  expect(full.hearts).toBe(HEARTS);
+test('items: a potion at full hearts is kept (no turn); hurt, it heals 1; lamp oil adds ITEMS.oil.turns, capped at the floor torch', () => {
+  const held = step(start(itemFloor('#@p.....#')), 'R').state;
+  expect(step(held, 'I')).toEqual({ state: held, events: [{ t: 'kept', item: 'potion' }] }); // Phase 11g
+  const healed = step({ ...held, hearts: HEARTS - 1 }, 'I').state;
+  expect([healed.hearts, healed.item, healed.turn]).toEqual([HEARTS, null, held.turn + 1]);
   const low = step(start(itemFloor('#@l.....#', 50)), 'R').state;
   const drained: State = { ...low, torch: 5 };
   expect(step(drained, 'I').state.torch).toBe(5 + ITEMS.oil.turns - 1);
   expect(step(low, 'I').state.torch).toBe(49);
   const out: State = { ...low, torch: 0, darkTurns: 3 };
   expect(step(out, 'I').state.darkTurns).toBe(0);
+});
+
+test('Phase 11g: at most one heart a turn; the first source in order takes it and is the cause', () => {
+  // Two goblins wind up on you together: before 11g both struck (2 hearts); now one heart goes, to the first by id.
+  const s0 = start(floor(['#####', '#g.g#', '#####']));
+  const placed: State = { ...s0, pos: { x: 2, y: 1 }, enemies: s0.enemies.map((e) => ({ ...e, mode: 'windup' as const, aim: [{ x: 2, y: 1 }] })) };
+  const r = step(placed, 'W');
+  expect(r.events.filter((e) => e.t === 'enemyAttack')).toHaveLength(2);
+  expect(r.events.filter((e) => e.t === 'hurt')).toEqual([{ t: 'hurt', amount: 1, cause: 'goblin', at: { x: 2, y: 1 } }]);
+  expect(r.state.hearts).toBe(HEARTS - 1);
+  const last = step({ ...placed, hearts: 1 }, 'W');
+  expect(last.state.ended).toEqual({ kind: 'dead', cause: 'goblin' });
 });
 
 test('items: a bomb defeats enemies within 1 (8 neighbours), clears spikes within 1, and bombed skeletons never rebuild', () => {

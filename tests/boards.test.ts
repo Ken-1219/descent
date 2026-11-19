@@ -3,7 +3,7 @@
 import { expect } from 'vitest';
 import { createDevvitTest } from '@devvit/test/server/vitest';
 import { redis } from '@devvit/web/server';
-import { BOARD } from '../src/shared/content';
+import { BOARD, floorName } from '../src/shared/content';
 import { start, step, type Floor } from '../src/shared/sim';
 import { bot } from '../src/shared/bot';
 import { carve, floorFor, openFloor, resetRun, seedBots, submitRun, voteCarving } from '../src/server/game';
@@ -147,6 +147,8 @@ test('the poll and the Chronicle: counts only, and one ledger row per floor, new
   const c = await chronicle();
   expect(c.rows.map((r) => r.depth)).toEqual([2, 1]);
   expect(c.rows[1]).toMatchObject({ depth: 1, fell: 3 });
+  // Phase 11g: each row carries its floor's name, from the seed it was generated with.
+  for (const r of c.rows) expect(r.name).toBe(floorName((await stored(r.depth)).seed ?? -1));
   expect((await stored(2)).yesterday).toMatchObject({ depth: 1, fell: 3 });
   expect((await stored(2)).yesterday?.deaths?.reduce((a, b) => a + b, 0)).toBe(3);
   expect((await stored(2)).showcase?.length).toBeGreaterThan(0);

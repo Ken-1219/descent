@@ -241,12 +241,12 @@ export const controls = (root: HTMLElement, onMap: () => void) => {
 
 export type PanelAction = { label: string; run: () => void; disabled?: boolean };
 /**
- * End overlay and every designed state: headline, one line, optional body (the carving picker), an optional status
+ * End overlay and every designed state: a kicker (Phase 11g: the floor's name), headline, one line, optional body (the carving picker), an optional status
  * line, then one primary action and at most one secondary, at the bottom.
  */
 export const endPanel = (
   root: HTMLElement,
-  p: { title: string; line: string; primary: PanelAction; secondary?: PanelAction; body?: Node[]; status?: Node; clear?: boolean },
+  p: { title: string; line: string; primary: PanelAction; kicker?: string | null; secondary?: PanelAction; body?: Node[]; status?: Node; clear?: boolean },
 ) => {
   const make = (a: PanelAction, cls: string) => {
     const b = button(a.label, cls);
@@ -256,7 +256,7 @@ export const endPanel = (
   };
   const primary = make(p.primary, 'btn--primary');
   const actions = el('div', 'end__actions', ...(p.secondary ? [make(p.secondary, '')] : []), primary);
-  root.replaceChildren(el('div', 'plate end__panel', el('h1', 'title', p.title), el('p', '', p.line), ...(p.body ?? []), ...(p.status ? [p.status] : []), actions));
+  root.replaceChildren(el('div', 'plate end__panel', ...(p.kicker ? [el('p', 'end__kicker', p.kicker)] : []), el('h1', 'title', p.title), el('p', '', p.line), ...(p.body ?? []), ...(p.status ? [p.status] : []), actions));
   root.classList.toggle('end--clear', !!p.clear); // leaves the map undimmed (the carving picker shows your tile)
   root.hidden = false;
   // A held key (Space is also Wait) must not press a panel's button the moment it appears: repeats and the first half

@@ -1,5 +1,5 @@
 import { LIGHT, PALETTE, PITS, SKELETONS, TILE, LEVELS, type Level, type Token } from '../shared/content';
-import { spikeStage, tells, tierOf, type Enemy, type Event, type Kind, type Pos, type State } from '../shared/sim';
+import { spikeStage, step, tells, tierOf, type Enemy, type Event, type Kind, type Pos, type State, type Tell } from '../shared/sim';
 import { NAMES, SPRITES, type SpriteDef, type SpriteName } from './art';
 
 type Flip = { flipX?: boolean; flipY?: boolean };
@@ -397,8 +397,18 @@ const MARK: Partial<Record<ReturnType<typeof tells>[number]['kind'], { name: Spr
   crack: { name: 'crack' },
   mortar: { name: 'mortar' },
 };
+/**
+ * Phase 11g: the tells as drawn. A wind-up frame on your own tile shows only if standing still costs a heart next turn: the
+ * sim is deterministic, so this looks one turn ahead. Frames on other tiles still mark where an attack lands.
+ */
+export function shownTells(s: State): Tell[] {
+  const all = tells(s);
+  const onYou = all.some((t) => t.kind === 'windup' && t.x === s.pos.x && t.y === s.pos.y);
+  const hits = onYou && !s.ended && step(s, 'W').events.some((e) => e.t === 'hurt');
+  return onYou && !hits ? all.filter((t) => t.kind !== 'windup' || t.x !== s.pos.x || t.y !== s.pos.y) : all;
+}
 export const marks = (s: State): Mark[] =>
-  tells(s).flatMap((t) => {
+  shownTells(s).flatMap((t) => {
     const m = MARK[t.kind];
     return m ? [{ frame: O(m.name), x: t.x, y: m.above ? t.y - 1 : t.y }] : [];
   });

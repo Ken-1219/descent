@@ -621,6 +621,10 @@ Each phase lists Build, Show me (what to open), Checks, and Gate.
 
 - **Built:** a readable seen map (A90) and a Map overview that costs no turn (A91), remembered foes drawn as grey memories (A92), camera room past every edge (A93), the hero over gates (A94), an intro compass with a heading, letters and the Warden's arena (A95), each thing taught once per player and stored per user (A96, `POST /api/hint`), Board help (A97), generator fairness caps (A98: foes per room, reachable plates, at most 2 dark rooms in a row) with the generator goldens re-recorded on purpose (A99), and the third playtest's wording and map fixes (A100). Files: `src/client/map.ts` (the map overview), `src/client/teach.ts` (teach-once lessons).
 
+### Phase 11g — One heart a turn, readable danger and exits, floor names (Nov 19, inserted by the owner)
+
+- **Built:** a rule change on purpose: at most one heart lost per turn, and a potion at full hearts kept (A101), with the simulation goldens re-recorded deliberately (the 10 runs identical, one double-hit run added) and both bands and the rollover re-measured; the wind-up frame on your tile made exact by a one-turn lookahead, the Warden mark said in words, and warnings drawn above the light after a heart-by-heart audit (A102–A104); remembered walls lighter than floor, and real openings marked in the scene and on the Map (A105); one-tile notches and wall torches beside openings gone from the generator, with its goldens re-recorded on purpose (A106); a floor name by seed and a stone tint per seven-floor cycle (A107–A108); the boot line out of the page once unused (A109); wording fixes from the fourth blind playtest (A110). No new files.
+
 ### Phase 12 — Seed and submit (Dec 6–8)
 
 - Bug fixes only.

@@ -9,7 +9,7 @@
 // Phase 11e: ?day=N&seed=S makes today Floor N, generated from seed S (the floor the rollover would post with no crowd
 // changes is generate(N, fairSeed(N, …).seed)); a Warden day takes &boss=alive.
 import { generate, showcaseFamilies } from '../shared/gen';
-import { CURSES, FLOOR_0, TRAP_TEXT, type Curse } from '../shared/content';
+import { CURSES, FLOOR_0, floorName, TRAP_TEXT, type Curse } from '../shared/content';
 import type { BoardRows, BossView, MyTrap } from '../shared/api';
 import type { Trap } from '../shared/gen';
 import { carvingOf, fixtureGhosts, ghostView, type GhostRecord, type GhostView, type Vote } from '../shared/ghosts';
@@ -127,7 +127,7 @@ export const local: Api = {
     const boss = bossOf(depth);
     return { fell: ghostsOf(depth).fell, carved: 0, ...(boss ? { boss } : {}) };
   },
-  chronicle: async () => ({ rows: Array.from({ length: day() - 1 }, (_, i) => ({ depth: day() - 1 - i, fell: 10 + i, cleared: 3, curse: i % 2 ? 'frail' : null, zone: i % 9, killer: 'goblin' })) }),
+  chronicle: async () => ({ rows: Array.from({ length: day() - 1 }, (_, i) => ({ depth: day() - 1 - i, name: floorName(day() - 1 - i), fell: 10 + i, cleared: 3, curse: i % 2 ? 'frail' : null, zone: i % 9, killer: 'goblin' })) }),
   board: async (depth) => {
     net();
     // A fixture crowd of N players, plus this profile's own run (if any) ranked among them; same tie rule as the server.

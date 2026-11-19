@@ -1,17 +1,17 @@
 /// <reference types="vite/client" />
 // Boot, input router, HUD wiring and the dev hook. Rules live in src/shared/sim.ts; this file only sends actions.
-import { BOARD, CURSE_TEXT, WARDEN, FLOOR_0, FLOOR_0_GHOSTS, HEARTS, ITEMS, KILL_FAMILY, NAMELESS, PALETTE, TILE, TEACH_TEXT, TORCH_LOW_PCT, TRAPS, TRAP_TEXT, ZONE_NAMES, type Curse } from '../shared/content';
+import { BOARD, CURSE_TEXT, floorName, WARDEN, FLOOR_0, FLOOR_0_GHOSTS, HEARTS, ITEMS, KILL_FAMILY, NAMELESS, PALETTE, TILE, TEACH_TEXT, TORCH_LOW_PCT, TRAPS, TRAP_TEXT, ZONE_NAMES, type Curse } from '../shared/content';
 import { find, slitLine, zoneOf } from '../shared/grid';
 import { context, navigateTo, showLoginPrompt } from '@devvit/web/client';
 import type { BossView, FloorResponse, GhostView, MyTrap, RunResult } from '../shared/api';
 import { carvingLabel, type Ghost, type Vote } from '../shared/ghosts';
-import { isAction, replay, start, step, type Action, type End, type Event, type Floor, type Pos } from '../shared/sim';
+import { isAction, replay, start, step, type Action, type End, type Event, type Floor, type Pos, type Tell } from '../shared/sim';
 import { api, clientClass, report, submit, watchErrors, where } from './net';
 import { journey } from './journey';
 import { lesson, taught } from './teach';
 import { mapPlate } from './map';
 import { sound } from './sound';
-import { iconCanvas, loadPack, packIcon } from './sprites';
+import { iconCanvas, loadPack, packIcon, shownTells } from './sprites';
 import { button, carvingPicker, carvingsList, chainMeter, controls, createHud, cursePicker, el, endPanel, ghostCard, introCompass, saveLine, trapPicker, type PanelAction } from './ui';
 import { miniMap } from './minimap';
 import { boardPanel, chroniclePanel } from './screens';
@@ -20,6 +20,11 @@ import { boardPanel, chroniclePanel } from './screens';
 const stages = { script: performance.now(), floor: 0, engine: 0, intro: 0 };
 /** The intro can show before the scene exists: Descend then waits for it (set once the scene is ready). */
 const boot = { up: false, descend: false };
+/** The loading flame gives way; its "Still dark?" line leaves the page with it (Phase 11g: out of every tree once unused). */
+function hideBoot() {
+  document.getElementById('boot')?.setAttribute('hidden', '');
+  document.querySelector('.boot__slow')?.remove();
+}
 function descend() {
   journey.start(); // Phase 11c: the committed action that begins a run's journey
   if (boot.up) {
@@ -129,17 +134,18 @@ function noticeOf(events: readonly Event[], prev: typeof state, s: typeof state)
   if (taughtNow) return { turn: s.turn, keep: true, text: TEACH_TEXT[taughtNow] };
   const got = events.find((e) => e.t === 'pickup');
   if (got && prev.item && prev.item !== got.item) return { turn: s.turn, text: `You took the ${ITEM_WORD[got.item] ?? got.item}; your ${ITEM_WORD[prev.item] ?? prev.item} is left here.` };
+  if (events.some((e) => e.t === 'kept')) return { turn: s.turn, text: 'Your hearts are full: the potion stays in your pack.' }; // Phase 11g: no turn passes
   const used = events.find((e) => e.t === 'use');
-  const usedText = used && (used.item === 'potion' && s.hearts === prev.hearts ? 'The potion was wasted: your hearts were already full.' : USED[used.item]);
-  if (usedText) return { turn: s.turn, text: usedText };
+  if (used) return { turn: s.turn, text: USED[used.item] ?? '' };
   const kind = (id: number) => prev.enemies.find((e) => e.id === id)?.kind;
   for (const e of events) {
     if (e.t === 'collapse') return { turn: s.turn, text: 'The skeleton crumbles. It will rise again.' };
-    if (e.t === 'kill' && kind(e.id)) return { turn: s.turn, text: `The ${kind(e.id) === 'warden' ? 'Warden' : kind(e.id)} falls.` };
+    if (e.t === 'kill' && kind(e.id)) return { turn: s.turn, text: `The ${kind(e.id) === 'warden' ? 'Warden' : kind(e.id)} is slain.` };
   }
   return null;
 }
 let torchTurn = -1;
+let lastHurt: string | null = null; // the dev hook's view of the last turn
 let pack: HTMLCanvasElement | null = null;
 void loadPack().then((p) => {
   pack = p;
@@ -193,7 +199,7 @@ const fit = () => {
 // behind it. Descend tapped before the scene is up says so and goes through the moment it is.
 if (!devFloor && playable && live && state.turn === 0 && !state.ended) {
   intro();
-  document.getElementById('boot')?.setAttribute('hidden', '');
+  hideBoot();
 }
 const [Phaser, { DescentScene }] = await engine;
 stages.engine = performance.now();
@@ -281,6 +287,11 @@ let played: RunResult | null = null;
 /** Resolves true once the day's run is stored; a carving waits on it (§15.1: play never waits on the network). */
 let runSaved: Promise<boolean> = Promise.resolve(false);
 
+/** Phase 11g: a day's floor by name (Floor 0 has none). */
+function nameOf(f: Floor) {
+  return f.depth > 0 && f.seed !== undefined ? floorName(f.seed) : null;
+}
+
 const finish = (ended: End) => {
   const title = ended.kind === 'won' ? `Floor ${state.floor.depth} cleared` : 'You fell';
   if (practising) {
@@ -309,7 +320,7 @@ const finish = (ended: End) => {
   afterSave = () => void result();
   sendRun(live, save);
   const line = endLine(ended, state.turn, ended.kind === 'dead' ? trapOwner() : null) + linksLine(state.dealt);
-  endPanel(end, { title, line, status: save.node, clear: ended.kind === 'dead', primary: { label: 'Saving your run…', run: () => undefined, disabled: true } });
+  endPanel(end, { kicker: nameOf(state.floor), title, line, status: save.node, clear: ended.kind === 'dead', primary: { label: 'Saving your run…', run: () => undefined, disabled: true } });
   if (ended.kind === 'dead') keepHeroInView();
 };
 /** What happens once the run is stored (the result card), set by finish() for the run it sent; a retry keeps it. */
@@ -517,7 +528,7 @@ async function result(prefetched?: FloorResponse) {
   if (first === talk) moreList.querySelector('.comments__open')?.remove();
   // Phase 11d: the floor you just played, again, where nothing counts (never before your own run: you are on its card).
   const practiceAgain: PanelAction = { label: 'Practice this floor', run: () => practise(r.depth, r.floor, r.ghosts, () => void result()) };
-  endPanel(end, { title, line, body, primary: first, secondary: practiceAgain });
+  endPanel(end, { kicker: nameOf(r.floor), title, line, body, primary: first, secondary: practiceAgain });
   if (!next) journey.end(r.run.outcome === 'won', r.run.score); // Phase 11c: the run's journey closes once no choice is left
   watch(r.depth, r.nextAt, fellNow, clock, bossNow); // after the plate is in the page: the clock stops once it leaves
 }
@@ -682,6 +693,7 @@ function intro() {
         el('p', 'intro__line', `Walk into it: each bump breaks one link (${WARDEN.perRun} a run at most). Everyone today shares this chain; when it breaks, the Warden falls for all. Take the stairs whenever you like: your links count either way.`),
       ];
   endPanel(end, {
+    kicker: nameOf(f),
     title: `Floor ${f.depth}`,
     line: curse ? `Cursed: ${CURSE_TEXT[curse].name}, ${CURSE_TEXT[curse].effect}.` : 'No curse today.',
     body: [
@@ -716,9 +728,19 @@ function wayTo(from: Pos, to: Pos) {
  * The line under the HUD (aria-live): a nearby carving (no input needed), else a low torch. A torch event takes the line
  * on the turn it happens; on every other turn a nearby carving wins.
  */
+/** A wind-up frame on the hero's own tile. */
+function onYou(t: Tell) {
+  return t.kind === 'windup' && t.x === state.pos.x && t.y === state.pos.y;
+}
 function nearby() {
   const near = shown.list.filter((g) => g.carving && reach(g) <= 1);
   const g = near[0];
+  // Phase 11g: standing on a Warden mark beats every other line (two blind testers were hit by marks they didn't notice).
+  if (!state.ended && shownTells(state).some((t) => onYou(t) && t.cause === 'warden')) {
+    carvingLine.replaceChildren(el('span', '', 'The Warden strikes this tile next turn: step off it.'));
+    carvingLine.hidden = false;
+    return;
+  }
   // Phase 11d: what just happened, said on the turn it happened (a torch event first, then this, then a carving).
   if (notice && state.turn - notice.turn <= (notice.keep ? 1 : 0) && !state.ended && (notice.keep || !(torchTurn === state.turn && lowTorch(state.torch)))) {
     carvingLine.replaceChildren(el('span', '', notice.text));
@@ -732,11 +754,12 @@ function nearby() {
     if (!lowTorch(state.torch) && !state.ended && boss && !boss.killer && live && state.dealt === 0 && state.enemies.some((e) => e.kind === 'warden')) {
       const w = wardenAt(state.floor);
       const way = w ? wayTo(state.pos, w) : '';
-      carvingLine.replaceChildren(el('span', '', `The Warden is ${way ? `to the ${way}` : 'here'}: bump it for links. Stairs any time.`));
+      carvingLine.replaceChildren(el('span', '', `The Warden is ${way ? `to the ${way}` : 'right beside you'}: bump it for links. Stairs any time.`));
       carvingLine.hidden = false;
       return;
     }
-    carvingLine.replaceChildren(el('span', '', practiceFirst ? (state.turn < 8 ? 'Practice first: find the stairs.' : 'Practice is generous: real floors give less torch, and its items stay here.') : state.torch > 0 ? `Torch low: ${state.torch} turns of light left.` : 'Torch out: the dark is taking your hearts.'));
+    const burn = Math.max(1, state.torch - step(state, 'W').state.torch); // Phase 11g: count turns, not torch, in a dark room
+    carvingLine.replaceChildren(el('span', '', practiceFirst ? (state.turn < 8 ? 'Practice first: find the stairs.' : 'Practice is generous: real floors give less torch, and its items stay here.') : state.torch > 0 ? `Torch low: ${Math.ceil(state.torch / burn)} turns of light left${burn > 1 ? ` (this room burns ${burn} a turn)` : ''}.` : 'Torch out: the dark is taking your hearts.'));
     carvingLine.hidden = !!state.ended || (!practiceFirst && !lowTorch(state.torch));
     return;
   }
@@ -843,6 +866,7 @@ const run = async (a: Action) => {
   view();
   if (r.events.some((e) => e.t === 'hurt')) stopRepeat();
   lastSound = sound.play(r.events);
+  lastHurt = r.events.find((e) => e.t === 'hurt')?.cause ?? null;
   await scene.play(r.events, state, skipAnim);
   busy = false;
   if (state.ended) {
@@ -956,7 +980,7 @@ if (boss)
     }, () => undefined);
   }, BOARD.pollMs);
 void scene.ready.then(() => {
-  document.getElementById('boot')?.setAttribute('hidden', ''); // A64: the flame gives way to the floor
+  hideBoot(); // A64: the flame gives way to the floor
   boot.up = true;
   if (boot.descend) end.hidden = true; // Descend was tapped while the scene loaded
   journey.ready();
@@ -974,6 +998,9 @@ type DescentHook = {
   /** Floor 0 (with test options), a scene by id, or a generated floor (depth > 0, opts.seed). */
   load: (depth: number | string, opts?: { mercy?: boolean; torch?: number; seed?: number }) => void;
   skipAnim: (on: boolean) => void;
+  /** Phase 11g: a wind-up frame is drawn on your tile now; what hurt you on the last turn (null: nothing). */
+  frame: () => boolean;
+  lastHurt: () => string | null;
   /** Every scene's id and action log, for e2e checks that replay them by keyboard or taps. */
   scenes: () => { id: string; log: Action[]; hurt: [number, string][] }[];
   metrics: () => { inputToMotion: number; shakes: number; hitStops: number; sound: string | null; muted: boolean };
@@ -1018,6 +1045,8 @@ if (import.meta.env.DEV) {
       again();
     },
     skipAnim: (on) => (skipAnim = on),
+    frame: () => shownTells(state).some(onYou),
+    lastHurt: () => lastHurt,
     scenes: () => SCENES.map((s) => ({ id: s.id, log: [...s.log], hurt: s.hurt.map(([n, c]): [number, string] => [n, c]) })),
     metrics: () => ({ inputToMotion, shakes: scene.shakes, hitStops: scene.hitStops, sound: lastSound, muted: sound.muted }),
     advanceDay: LOCAL?.advanceDay ?? (() => undefined),

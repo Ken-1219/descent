@@ -1424,3 +1424,22 @@ body:has(#end:not([hidden])) .carving {
   padding-left: 1.2em;
   font-size: var(--t-small);
 }
+/* Phase 11g: the floor's name, over a card's headline, under the splash title and under a Chronicle floor. */
+.end__kicker,
+.splash__fname {
+  margin: 0;
+  color: var(--gilt);
+  font-size: var(--t-small);
+}
+.chronicle__name {
+  display: block;
+  color: var(--gilt);
+  font-family: var(--font-ui);
+  font-size: var(--t-small);
+}
+/* A very short frame keeps only the splash title. */
+@media (max-height: 400px) {
+  .splash__fname {
+    display: none;
+  }
+}

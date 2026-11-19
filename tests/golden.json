@@ -100,6 +100,39 @@
    "events": 3576844974
   },
   {
+   "name": "floor 6b: two sources on one turn take one heart (Phase 11g)",
+   "log": "DDDLLDDDRRRRUUULLUUUDURDURRRRUUURRRRDDDDLLDDDD",
+   "result": {
+    "outcome": "won",
+    "score": 1200,
+    "turns": 46,
+    "torch": 0,
+    "cause": "stairs",
+    "tile": {
+     "x": 9,
+     "y": 11
+    },
+    "dealt": 0
+   },
+   "state": {
+    "turn": 46,
+    "pos": {
+     "x": 9,
+     "y": 11
+    },
+    "hearts": 2,
+    "torch": 0,
+    "dealt": 0,
+    "ended": {
+     "kind": "won",
+     "cause": "stairs"
+    },
+    "tiles": 4155214188,
+    "enemies": 1947613349
+   },
+   "events": 2844606301
+  },
+  {
    "name": "floor 7 (Warden): ten links and out",
    "log": "LLLLDLLLDDRDDDDDDDDRDDLDLUUULLD",
    "result": {
@@ -332,11 +365,11 @@
   }
  ],
  "generated": {
-  "1": 2974935269,
-  "5": 464917417,
-  "7": 2128350876,
-  "14": 1023553137,
-  "21": 384894190,
-  "28": 4131286155
+  "1": 4284803723,
+  "5": 2350227873,
+  "7": 1196513354,
+  "14": 996738831,
+  "21": 4043858680,
+  "28": 3836823575
  }
 }

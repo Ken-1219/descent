@@ -295,6 +295,14 @@ function attempt(depth: number, seed: number, mods: Mods, fallback: number): Omi
     if (i !== j && a && b && !edges.includes(`${Math.min(i, j)}-${Math.max(i, j)}`)) corridor(a, b);
   }
 
+  // Phase 11g: a one-tile notch off a room's edge (a corridor end that leads nowhere) reads as a doorway, so it is wall again.
+  // Longer dead-end corridors stay: the "Dead end" and "Turn back" carvings are for those.
+  const inRoom = (p: Pos) => rooms.some((r) => inside(r, p));
+  for (const p of find(rows, '.')) {
+    const ways = DIRS.map((d) => ({ x: p.x + d.dx, y: p.y + d.dy })).filter((q) => !blocks(at(q)));
+    if (!inRoom(p) && ways.length === 1 && ways.every(inRoom)) put(p, '#');
+  }
+
   // Entrance in room 1; stairs in the room farthest away by walking distance.
   const r1 = int(rooms.length);
   const room1 = rooms[r1];
@@ -546,9 +554,12 @@ function attempt(depth: number, seed: number, mods: Mods, fallback: number): Omi
       mark(p, t);
     }
   }
+  // Wall torches sit inside a run of wall (Phase 11g): never on a room's corner tile or beside an opening, where a lit torch
+  // beside unseen dark read as an alcove you could walk into.
   for (const r of rooms) {
-    const torch = { x: r.x + int(r.w), y: r.y - 1 };
-    if (at(torch) === '#' && at({ x: torch.x, y: torch.y - 1 }) !== '.') put(torch, 'T');
+    const torch = { x: r.x + 1 + int(r.w - 2), y: r.y - 1 };
+    const wall = [torch, { x: torch.x - 1, y: torch.y }, { x: torch.x + 1, y: torch.y }, { x: torch.x, y: torch.y - 1 }].every((p) => at(p) === '#');
+    if (r.w >= 3 && wall) put(torch, 'T');
   }
   put(entrance, '@');
 
