@@ -2,7 +2,7 @@
 import { expect } from 'vitest';
 import { createDevvitTest } from '@devvit/test/server/vitest';
 import { redis } from '@devvit/web/server';
-import { BAND, FLOOR_0, LADDER_REACH, type Curse, PLAIN_BAND, TRAP_MAX, TRAP_ZONE_MAX } from '../src/shared/content';
+import { BAND, FLOOR_0, HOLD, LADDER_REACH, type Curse, PLAIN_BAND, TRAP_MAX, TRAP_ZONE_MAX } from '../src/shared/content';
 import { EMPTY_TALLY, fairSeed, setAside, modsFrom, plainBand, rolloverFloor, topFamily, winPct, type Tally } from '../src/shared/crowd';
 import { generate, NO_MODS, safePath, zoneWeights, type Mods, type Trap } from '../src/shared/gen';
 import { zoneOf } from '../src/shared/grid';
@@ -85,6 +85,30 @@ test('the ladder (A121): full, no crowd, reroll, moved traps, fewer traps, plain
   // The plain floor only when the cursed base floor can't be made at all.
   const broken = (d: number, s: number, m: Mods) => ({ ...generate(d, s, NO_MODS), fallback: m === NO_MODS ? 0 : 1 });
   expect(rolloverFloor(5, 11, tally, broken)).toMatchObject({ step: 'plain', mods: NO_MODS });
+});
+
+test('the posted floor is held to the plain band (A124): only its own random draws are redrawn, never what players chose', { timeout: 120_000 }, () => {
+  const traps: Trap[] = [{ zone: 4, kind: 'spikes', owner: 't2_o', name: 'olga' }, { zone: 0, kind: 'dart', owner: 't2_p', name: 'pia' }];
+  const tally: Tally = { deaths: [0, 0, 0, 0, 9, 0, 0, 0, 0], kills: {}, curseVotes: { frail: 2 }, traps };
+  const off = (d: number, w: number) => { const [lo, hi] = plainBand(d); return w < lo + HOLD.margin ? lo + HOLD.margin - w : w > hi - HOLD.margin ? w - hi + HOLD.margin : 0; };
+  let held = 0;
+  for (let d = 12; d <= 28 && held < 2; d++) {
+    const r = rolloverFloor(d, 3, tally);
+    if (!r.mods.draw) continue;
+    held++;
+    const { draw, ...asked } = r.mods;
+    const first = generate(d, r.seed, asked).floor;
+    expect(draw).toBeLessThanOrEqual(HOLD.draws);
+    expect(off(d, r.win)).toBeLessThan(off(d, winPct(first, HOLD.runs))); // closer to the band than the floor it replaced
+    expect(r.floor.curses).toEqual(['frail']);
+    // Every landed trap still lands, in its own zone (a dart slit sits in a wall, which can straddle a zone line).
+    const landed = (f: Floor) => (f.traps ?? []).map((t) => `${t.owner}:${t.kind}:${t.kind === 'dart' ? '' : zoneOf(t, f.rows.length)}`).sort();
+    expect(landed(r.floor)).toEqual(landed(first));
+    expect(landed(r.floor)).toEqual(['t2_o:spikes:4', 't2_p:dart:']);
+    expect(winPct(r.floor)).toBeGreaterThanOrEqual(r.plainWin - BAND.maxDropPct);
+    expect(rolloverFloor(d, 3, tally)).toEqual(r); // the same every time
+  }
+  expect(held).toBeGreaterThan(0);
 });
 
 test('the curse is the crowd\'s to make the day harder (A121): its own cost never counts against the band; a deadly trap still does', { timeout: 60_000 }, () => {

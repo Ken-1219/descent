@@ -389,6 +389,12 @@ export const BAND = { seeds: 16, maxDropPct: 20, skillPct: 60 };
  */
 export const LADDER_REACH = { rerolls: 3, trapMoves: 3, maxFloors: 40 };
 /**
+ * Phase 11j (A124): the posted floor is held to the plain band too. Outside it, the floor's own random draws are redrawn
+ * up to `draws` times and the closest posts. Each verdict uses `runs` bot runs (sd about 6 points near 50%, against 12 at
+ * BAND.seeds) and aims `margin` points inside the band, so a floor is not kept or redrawn on noise.
+ */
+export const HOLD = { draws: 12, runs: 64, margin: 6 };
+/**
  * The plain floor's own difficulty: rerolled until its win rate (skill-60 bot, `runs` runs) sits within `below`/`above`
  * points of §8's target line (startPct at depth 1 falling to endPct at depth 28), clamped to floorPct–ceilPct. Measured
  * on 30 floors × 32 runs per depth: plain floors ran 0–100% (bimodal), so one day could be hopeless and the next empty.

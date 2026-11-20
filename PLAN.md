@@ -633,6 +633,10 @@ Each phase lists Build, Show me (what to open), Checks, and Gate.
 
 - **Built:** a reordered ladder (A121): the system's choices go first, then the base floor is rerolled, then traps move within their zones, and only then are the fewest traps dropped. The crowd's curse is part of the base floor and never weighs against the band. Measured on 448 crowd rollovers: traps set aside 35.3% → 1.1%, the curse 6.5% → 0%, max 3.1 s. Set-aside is counted from what landed (A122). "Your mark" on the intro: up to three of your own facts from the day before, from the server (A123). The intro fits at 360×640. A sixth crowd playtest. No new files.
 
+### Phase 11j — Posted floors inside the band (Nov 20, inserted by the owner)
+
+- **Built:** the posted crowd floor is held to the plain band as well (A124). Outside it (64 bot runs, aiming 6 points inside), the floor's own random stream is drawn again, up to 12 times (`Mods.draw`), and the closest posts. The players' curse and traps and the crowd's weights never change. On 11i's 448 crowd rollovers, scored with fresh runs, posted floors outside the band went from 63.2% to 13.6% (too hard: 11.8% → 2.0%). Traps set aside stay at 1.1% and the curse at 0%, with a max of 5.3 s. Playtest moves to r/descent_game_test. Release 0.0.3. No new files.
+
 ### Phase 12 — Seed and submit (Dec 6–8)
 
 - Bug fixes only.

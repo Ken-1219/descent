@@ -13,7 +13,8 @@ import { spikeStage, start, step, tierOf, type Action, type Floor, type PlacedTr
 /** `slot` (Phase 11i, A121): the rollover moves a trap to its zone's next candidate tile before dropping it. */
 export type Trap = { zone: number; kind: 'spikes' | 'dart' | 'stairs'; owner?: string; name?: string | null; slot?: number };
 /** Yesterday's crowd: deaths per compass zone (0..8, row-major), the top-killing family, survivors' traps, active curses. */
-export type Mods = { curses: readonly Curse[]; deaths: readonly number[]; topFamily: Family | null; traps: readonly Trap[] };
+/** `draw` (Phase 11j, A124): the floor's own random stream drawn again (rooms and hazards); the rollover sets it, never a player. */
+export type Mods = { curses: readonly Curse[]; deaths: readonly number[]; topFamily: Family | null; traps: readonly Trap[]; draw?: number };
 export const NO_MODS: Mods = { curses: [], deaths: [0, 0, 0, 0, 0, 0, 0, 0, 0], topFamily: null, traps: [] };
 export type SafePath = { burn: number; log: readonly Action[] };
 /** `bought`: instances purchased per family (the hazard census). `fallback`: 0 normally; 1 or 2 when the retry cap was hit (see generate). */
@@ -237,7 +238,7 @@ export function generate(depth: number, seed: number, mods: Mods = NO_MODS, cap 
 }
 
 function attempt(depth: number, seed: number, mods: Mods, fallback: number): Omit<Generated, 'rejected' | 'fallback'> | null {
-  const rnd = mulberry32(hash(`descent:${depth}:${seed}`));
+  const rnd = mulberry32(hash(mods.draw ? `descent:${depth}:${seed}:draw:${mods.draw}` : `descent:${depth}:${seed}`)); // A124
   const int = (n: number) => (n > 0 ? rnd() % n : 0);
   const pickW = <T>(items: readonly T[], weight: (x: T) => number): T | undefined => {
     let r = int(items.reduce((s, x) => s + weight(x), 0));

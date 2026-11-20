@@ -2,8 +2,8 @@
 
 Two subreddits, two jobs:
 
-- **r/descent_game_dev**, the dev subreddit: `bun run dev` (playtest) uploads a new prerelease version (`0.0.1.N`) on every save. Dev tools, resets and "Roll over now" live here.
-- **The players' subreddit** runs one fixed, uploaded version, and gets a new one only when the owner says so. Every update serves the game from a new web origin, so players' browsers lose what they stored on the device: unfinished-run logs, the practice-done flag and the mute choice. The server keeps runs, records and the tutorial flag.
+- **r/descent_game_test**, the private playtest subreddit (`devvit.json` → `dev.subreddit`): `bun run dev` (playtest) uploads a new prerelease version (`0.0.1.N`) on every save. Dev tools, resets and "Roll over now" live here.
+- **r/descent_game_dev**, the players' subreddit, runs one fixed, uploaded version, and gets a new one only when the owner says so. Every update serves the game from a new web origin, so players' browsers lose what they stored on the device: unfinished-run logs, the practice-done flag and the mute choice. The server keeps runs, records and the tutorial flag.
 
 Commands are from the project root; `bunx devvit` is the Devvit CLI already in `devDependencies`. Checked against the Devvit CLI docs (developers.reddit.com/docs/guides/tools/devvit_cli, Nov 17 2026).
 
@@ -33,5 +33,5 @@ Commands are from the project root; `bunx devvit` is the Devvit CLI already in `
 5. **Health:** the ⋯ menu → Health shows today's funnel and load times. Check it after the first players.
 
 ## 5. Updating later
-- **Only when the owner says so:** repeat steps 1, 2 and 4 with the new version. Never run `bun run dev` against the players' subreddit; playtest stays on r/descent_game_dev.
+- **Only when the owner says so:** repeat steps 1, 2 and 4 with the new version. Never run `bun run dev` against the players' subreddit; playtest stays on r/descent_game_test.
 - **Roll back:** `bunx devvit install r/<players> descent-game@<previous version>`.

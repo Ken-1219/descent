@@ -1,7 +1,7 @@
 // The crowd's day as tomorrow's floor (Phase 8): a tally becomes mods, mods become a floor through a fallback ladder that
 // always ends in a floor, and a band keeps the crowd from spiralling difficulty. Server and Lab share it; the sim never
 // reads it. Trap souls are derived here from the victim's replay.
-import { BAND, CROWD, FAMILIES, KILL_FAMILY, LADDER_REACH, PLAIN_BAND, TRAPS, type Curse, type Family } from './content';
+import { BAND, CROWD, FAMILIES, HOLD, KILL_FAMILY, LADDER_REACH, PLAIN_BAND, TRAPS, type Curse, type Family } from './content';
 import { bot } from './bot';
 import { generate, NO_MODS, resolveCurse, safePath, type Generated, type Mods, type Trap } from './gen';
 import { slitLine } from './grid';
@@ -107,8 +107,24 @@ export function rolloverFloor(depth: number, seed0: number, tally: Tally, gen: G
     if (!fits) tried.push({ step, why: `win ${win}% < plain ${against}% - ${BAND.maxDropPct}` });
     return { floor: g.floor, win, fits };
   };
-  const done = (step: Step, mods: Mods, r: { floor: Floor; win: number }): Rolled =>
-    ({ floor: r.floor, mods, step, tried, win: r.win, seed: fair.seed, rerolls: fair.tries - 1, plainBandWin: fair.win, plainWin: ref });
+  // A124: the floor a step accepted is held to the plain band as well. Outside it, only its own random draws are redrawn
+  // (Mods.draw: the same curse, every landed trap still on the floor in its zone, the same crowd weights), and the closest posts.
+  const [lo, hi] = plainBand(depth);
+  const off = (win: number) => Math.max(0, lo + HOLD.margin - win, win - hi + HOLD.margin); // aim inside the band, not at its edge
+  const owners = (f: Floor) => (f.traps ?? []).map((t) => t.owner).sort().join();
+  const done = (step: Step, mods: Mods, r: { floor: Floor }): Rolled => {
+    const kept = owners(r.floor);
+    let best = { mods, floor: r.floor, win: winPct(r.floor, HOLD.runs) };
+    for (let draw = 1; draw <= HOLD.draws && off(best.win) > 0; draw++) {
+      const m = { ...mods, draw };
+      const g = gen(depth, fair.seed, m);
+      if (g.fallback || !safePath(g.floor) || owners(g.floor) !== kept) continue;
+      if (winPct(g.floor) < ref - BAND.maxDropPct) continue; // the relative band, measured as the ladder measures it
+      const win = winPct(g.floor, HOLD.runs);
+      if (off(win) < off(best.win)) best = { mods: m, floor: g.floor, win };
+    }
+    return { ...best, step, tried, seed: fair.seed, rerolls: fair.tries - 1, plainBandWin: fair.win, plainWin: ref };
+  };
   for (const [step, mods] of [['full', full], ['no crowd', players]] as const) {
     const r = score(step, fair.seed, mods, ref);
     if (r?.fits) return done(step, mods, r);
@@ -143,10 +159,9 @@ export function rolloverFloor(depth: number, seed0: number, tally: Tally, gen: G
       keep = next;
     }
     // No traps left: the base floor with only the crowd's curse is the reference itself, so it fits.
-    if (!fair.plain.fallback && safePath(fair.plain.floor)) return done('fewer traps', { ...NO_MODS, curses: full.curses }, { floor: fair.plain.floor, win: ref });
+    if (!fair.plain.fallback && safePath(fair.plain.floor)) return done('fewer traps', { ...NO_MODS, curses: full.curses }, fair.plain);
   }
-  const plain = gen(depth, fair.seed, NO_MODS);
-  return done('plain', NO_MODS, { floor: plain.floor, win: winPct(plain.floor) });
+  return done('plain', NO_MODS, gen(depth, fair.seed, NO_MODS));
 }
 
 /**
