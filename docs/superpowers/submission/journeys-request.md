@@ -13,10 +13,10 @@
 
 Hi Devvit team,
 
-Please review the journey map below and allowlist **descent-game** for Journey telemetry. The events are already wired (Devvit Web, `@devvit/analytics` 0.15.3, `permissions.journeys: true`), and until Nov 19 every receipt was denied as playtest. Version 0.0.2 is an uploaded version, so its receipts should read `JOURNEY_RECEIPT_DENIED_NOT_ALLOWLISTED` until the allowlist.
+Please review the journey map below and allowlist **descent-game** for Journey telemetry. The events are already wired (Devvit Web, `@devvit/analytics` 0.15.3, `permissions.journeys: true`), and every receipt so far reads `JOURNEY_RECEIPT_DENIED_PLAYTEST`, including on the uploaded version 0.0.2 (`devvit upload`, installed with `devvit install`; an app-ready receipt at 15:27 UTC on Nov 19). The app is uploaded but, by the hackathon's rules, not published. Can an uploaded, unpublished version record Journey telemetry once allowlisted, or is something else needed?
 
 - **App:** descent-game (Devvit Web)
-- **Installed on:** r/descent_game_dev, version 0.0.2 (uploaded with `devvit upload`, installed with `devvit install`, Nov 19 2026)
+- **Installed on:** r/descent_game_dev, version 0.0.3 (uploaded with `devvit upload`, installed with `devvit install`, Nov 20 2026)
 - **Developer:** u/Clean_Position8332
 
 **What the game is:** a daily roguelike. One floor a day; everyone plays the same floor once. Where players die reshapes tomorrow's floor.

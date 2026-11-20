@@ -58,3 +58,9 @@ Every posted floor is scored with 96 fresh bot runs (seeds 1001–1096), which t
   - `SWEEP checked 1, purged 0`.
 - **Journeys on 0.0.2:** the app-ready receipt at 15:27 UTC Nov 19, after the 0.0.2 install, still read `JOURNEY_RECEIPT_DENIED_PLAYTEST` ("not recorded for playtest app versions"), not the `NOT_ALLOWLISTED` RELEASE.md expected. journeys-request.md now says so and asks.
 - **Trap souls:** none in the logs yet.
+
+## The release
+- Gate passed, then `bun run deploy` uploaded **0.0.3**, and `devvit install r/descent_game_dev descent-game@0.0.3` installed exactly that ("upgraded from v0.0.2 to v0.0.3"; `devvit list installs` shows v0.0.3).
+- Settings carried over: Nameless delvers per day 12, Dev tools **on** (the owner switches them off after the playtest subreddit works).
+- Phone-size visit: the always-today post's splash shows Floor 12 "The Hungry Galleries", "12 fell here today · 7 carved a warning" (`docs/superpowers/submission/shots/11j-splash-0.0.3.png`). No move made. Not restarted at Floor 1.
+- journeys-request.md names 0.0.3 and reports the playtest receipts on 0.0.2.
