@@ -27,12 +27,19 @@ const predicted = (depth: number, r: Rolled) => ({ win: r.win, plain: r.plainWin
 
 const fellText = (n: number) => (n === 1 ? '1 delver fell' : `${n} delvers fell`);
 
-/** The summary comment on the new post (A30): what yesterday did to today. */
-export function summary(y: NonNullable<Floor['yesterday']>, traps: number): string {
-  const where = y.zone === null ? '' : `, most in the ${ZONE_NAMES[y.zone]?.toLowerCase()}`;
-  const curse = y.curse ? `The crowd cursed today with ${CURSE_TEXT[y.curse].name} (${CURSE_TEXT[y.curse].effect}).` : 'No curse today.';
+/**
+ * The summary comment on the new post (A30; A125 in Phase 11k): what yesterday did to today. Its counts are real players
+ * only. Nameless delvers (the game's bots) are said apart: they are on no board, but their deaths go into the heat like
+ * anyone's, so the comment says where they fell shaped today. A day no player ran says what today asks instead of "0".
+ */
+export function summary(y: NonNullable<Floor['yesterday']>, traps: number, real: { cleared: number; fell: number }): string {
+  const bots = Math.max(0, y.fell - real.fell);
+  const where = y.zone === null ? '' : ` Most deaths were in the ${ZONE_NAMES[y.zone]?.toLowerCase()}.`;
+  const nameless = (lead: string, verb: string) => (bots ? ` ${lead}${bots === 1 ? '1 nameless delver' : `${bots} nameless delvers`} (the game's own bots) ${verb}: never on the boards, but where they fell shaped today's floor.` : '');
+  const curse = y.curse ? ` The crowd cursed today with ${CURSE_TEXT[y.curse].name} (${CURSE_TEXT[y.curse].effect}).` : ' No curse today.';
   const set = traps ? ` Survivors set ${traps} trap${traps === 1 ? '' : 's'}; ${traps === 1 ? 'it waits' : 'they wait'} below.` : '';
-  return `Yesterday on Floor ${y.depth}: ${fellText(y.fell)}${where}, and ${y.cleared} cleared it. ${curse}${set}`;
+  if (!real.cleared && !real.fell) return `Floor ${y.depth + 1} is open. Be among the first down: where you fall, what you carve and the curse you vote shape Floor ${y.depth + 2}.${nameless(`On Floor ${y.depth}, `, 'fell')}${y.curse ? curse : ''}${set}`;
+  return `Yesterday on Floor ${y.depth}: ${fellText(real.fell)}, and ${real.cleared} cleared it.${nameless('', 'fell there too')}${where}${curse}${set}`;
 }
 
 /**
@@ -58,7 +65,7 @@ async function advance(day: number, why: string): Promise<{ posted: number | nul
   const p = await post(next, { mods: rolled.mods, floor, seed: rolled.seed });
   console.log(`ROLLOVER ${why}: floor ${day} -> ${next} (post ${p.id}), ladder step "${rolled.step}"${rolled.tried.length ? ` (after ${rolled.tried.map((x) => `${x.step}: ${x.why}`).join('; ')})` : ''}, win ${rolled.win}% vs plain ${rolled.plainWin}% (plain band check ${rolled.plainBandWin}% after ${rolled.rerolls} rerolls), ${floor.traps?.length ?? 0} player traps, curse ${curse ?? 'none'}${ended ? `; ${ended.text} Pool ${ended.pool}: ${ended.stats.links} links from ${ended.stats.runs} runs (${ended.stats.fighters} fought), mean ${ended.stats.mean}, median ${ended.stats.median}, max ${ended.stats.max}` : ''}${waits ? `; Warden pool ${waits.pool}${waits.carried ? ' (carried)' : ''}` : ''}; floor ${day} predicted ${before?.predicted ? `${before.predicted.win}%` : 'n/a'}, players ${real.cleared} cleared / ${real.fell} fell${real.cleared + real.fell ? ` (${Math.round((100 * real.cleared) / (real.cleared + real.fell))}%)` : ''}; health ${healthLine(h)}, ${Date.now() - t0} ms`);
   const boss = [ended?.text, waits ? `The Warden waits in its arena: ${waits.pool} links${waits.carried ? ', still wounded from its last floor' : ''}.` : ''].filter(Boolean).join(' ');
-  await reddit.submitComment({ id: p.id, text: `${summary(yesterday, floor.traps?.length ?? 0)}${boss ? ` ${boss}` : ''}` }).then((c) => console.log(`summary comment ${c.id} on floor ${next}`), (e: unknown) => console.error(`summary comment failed: ${String(e)}`));
+  await reddit.submitComment({ id: p.id, text: `${summary(yesterday, floor.traps?.length ?? 0, real)}${boss ? ` ${boss}` : ''}` }).then((c) => console.log(`summary comment ${c.id} on floor ${next}`), (e: unknown) => console.error(`summary comment failed: ${String(e)}`));
   const { deaths: _, ...ledger } = yesterday;
   await redis.hSet('chronicle', { [String(day)]: JSON.stringify({ ...ledger, predicted: before?.predicted?.win ?? null, players: real, ...(ended ? { warden: { hp: ended.hp, pool: ended.pool, killed: ended.killed, ...ended.stats } } : {}) }) });
   await flair(day);
@@ -68,7 +75,8 @@ async function advance(day: number, why: string): Promise<{ posted: number | nul
 
 /**
  * Phase 11c: the "Nameless delvers per day" setting. Its bot ghosts are added by their own job a little after the post, never
- * inside the rollover; they stay labelled and excluded exactly like any seeded bot (boards, funnel, tally, real counts).
+ * inside the rollover; they stay labelled and excluded like any seeded bot (boards, funnel, real counts). Their deaths go into
+ * the heat and kills like anyone's, so they do reach the tally (Phase 11k found the old comment wrong).
  */
 async function scheduleNameless(depth: number) {
   const n = Number((await settings.get<number>('namelessDelvers')) ?? 0);

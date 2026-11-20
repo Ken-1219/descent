@@ -2,7 +2,7 @@
 import { expect } from 'vitest';
 import { createDevvitTest } from '@devvit/test/server/vitest';
 import { redis } from '@devvit/web/server';
-import { BAND, FLOOR_0, HOLD, LADDER_REACH, type Curse, PLAIN_BAND, TRAP_MAX, TRAP_ZONE_MAX } from '../src/shared/content';
+import { BAND, CURSE_TEXT, FLOOR_0, HOLD, LADDER_REACH, type Curse, PLAIN_BAND, TRAP_MAX, TRAP_ZONE_MAX } from '../src/shared/content';
 import { EMPTY_TALLY, fairSeed, setAside, modsFrom, plainBand, rolloverFloor, topFamily, winPct, type Tally } from '../src/shared/crowd';
 import { generate, NO_MODS, safePath, zoneWeights, type Mods, type Trap } from '../src/shared/gen';
 import { zoneOf } from '../src/shared/grid';
@@ -166,7 +166,18 @@ test('rollover turns the tally into tomorrow: curse, heat, owned traps and yeste
   // Idempotent: a doubled cron, and "Roll over now" after the cron, both find the depth already opened.
   expect(await rollover('2026-11-24')).toEqual({ posted: null });
   expect(await redis.hGet('game', 'day')).toBe('2');
-  expect(summary(f2.yesterday ?? { depth: 1, fell: 0, cleared: 0, zone: null, curse: null }, 1)).toMatch(/Yesterday on Floor 1: 6 delvers fell.*Overrun/);
+  expect(summary(f2.yesterday ?? { depth: 1, fell: 0, cleared: 0, zone: null, curse: null }, 1, { cleared: 1, fell: 0 })).toMatch(/Yesterday on Floor 1: 0 delvers fell, and 1 cleared it\. 6 nameless delvers \(the game's own bots\) fell there too.*Overrun/);
+});
+
+test('the summary comment (A125): real players counted, nameless delvers said apart, and a quiet day never reads "0 fell"', () => {
+  const y = { depth: 11, fell: 12, cleared: 2, zone: 4, curse: null };
+  const quiet = summary(y, 0, { cleared: 0, fell: 0 });
+  expect(quiet).toBe("Floor 12 is open. Be among the first down: where you fall, what you carve and the curse you vote shape Floor 13. On Floor 11, 12 nameless delvers (the game's own bots) fell: never on the boards, but where they fell shaped today's floor.");
+  expect(quiet).not.toMatch(/\b0\b/);
+  expect(summary({ ...y, fell: 0, cleared: 0, zone: null }, 0, { cleared: 0, fell: 0 })).toBe('Floor 12 is open. Be among the first down: where you fall, what you carve and the curse you vote shape Floor 13.');
+  expect(summary({ ...y, fell: 13, curse: 'frail' }, 1, { cleared: 3, fell: 1 })).toBe(
+    "Yesterday on Floor 11: 1 delver fell, and 3 cleared it. 12 nameless delvers (the game's own bots) fell there too: never on the boards, but where they fell shaped today's floor. Most deaths were in the centre. The crowd cursed today with Frail (" + CURSE_TEXT.frail.effect + '). Survivors set 1 trap; it waits below.',
+  );
 });
 
 test('"Roll over now" claims no date: the daily cron still runs that day; two presses at once post one floor', async () => {

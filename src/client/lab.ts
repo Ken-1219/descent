@@ -3,7 +3,7 @@ import { PALETTE, TILE, type Token } from '../shared/content';
 import { bestiaryTab, caption, depthTab, figure, ghostsTab, rolloverTab, screensTab, section } from './labfloors';
 import {
   ANIMS, rgba, shine, type Light, buildAtlas, contrast, drawAnim,
-  drawFrame, drawPack, frameAt, iconCanvas, loadPack, type Anim, type Atlas, type PackName,
+  drawFrame, drawPack, frameAt, iconCanvas, loadPack, packIcon, type Anim, type Atlas, type PackName,
 } from './sprites';
 import { button, dpad, el, ghostCard, hearts, plate, slot, wick } from './ui';
 
@@ -291,6 +291,61 @@ const castTab = () => {
   return [box];
 };
 
+// ---- Front door tab (Phase 11k): the subreddit's icon and banners at Reddit's sizes, from the game's own art, flat tokens ----
+// Exported by screenshotting each canvas (they are drawn at 1 css px per pixel). Banners keep the bottom-left clear: the
+// icon and the name sit there. No Reddit name or mascot anywhere.
+const frontDoorTab = (): Node[] => {
+  const box = el('div', 'lab__frontdoor');
+  const art = (id: string, w: number, h: number, draw: (ctx: CanvasRenderingContext2D, pack: HTMLCanvasElement) => void) => {
+    const c = document.createElement('canvas');
+    Object.assign(c, { width: w, height: h, id });
+    c.style.width = `${w}px`;
+    c.style.height = `${h}px`;
+    box.append(section(`${id} (${w}×${h})`, c));
+    return (pack: HTMLCanvasElement) => {
+      const ctx = c.getContext('2d');
+      if (!ctx) return;
+      ctx.imageSmoothingEnabled = false;
+      ctx.fillStyle = PALETTE['ink-0'];
+      ctx.fillRect(0, 0, w, h);
+      draw(ctx, pack);
+    };
+  };
+  const put = (ctx: CanvasRenderingContext2D, src: HTMLCanvasElement | undefined, x: number, y: number) => src && ctx.drawImage(src, Math.round(x), Math.round(y));
+  const banner = (w: number, h: number) => (ctx: CanvasRenderingContext2D, pack: HTMLCanvasElement) => {
+    const z = Math.floor(h / 96); // pack tiles at z×: a wall along the top, floor along the bottom
+    for (let x = 0; x < w; x += TILE * z) {
+      put(ctx, packIcon(pack, 'wall-top', z), x, 0);
+      put(ctx, packIcon(pack, 'wall', z), x, TILE * z);
+      put(ctx, packIcon(pack, 'floor', z), x, h - TILE * z);
+    }
+    const hero = iconCanvas('hero', z * 2);
+    put(ctx, hero, w / 2 - h * 1.05 - hero.width / 2, h - TILE * z - hero.height + z * 4);
+    [[0.69, 0.42], [0.78, 0.58], [0.86, 0.4], [0.93, 0.55]].forEach(([fx = 0, fy = 0], i) => put(ctx, iconCanvas(i % 2 ? 'wisp-b' : 'wisp', z + (i % 2)), w * fx, h * fy));
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillStyle = PALETTE.gilt;
+    ctx.font = `${Math.round(h * 0.36)}px 'Jacquard 24'`;
+    ctx.fillText('Descent', w / 2, h * 0.6);
+    ctx.fillStyle = PALETTE.bone;
+    ctx.font = `${Math.round(h * 0.075)}px 'Pixelify Sans'`;
+    ctx.fillText("The community's deaths build the dungeon.", w / 2, h * 0.6 + h * 0.13);
+  };
+  const draws = [
+    art('icon', 256, 256, (ctx) => {
+      const hero = iconCanvas('hero', 10);
+      put(ctx, hero, (256 - hero.width) / 2, (256 - hero.height) / 2 + 6);
+    }),
+    art('banner-desktop', 1920, 384, banner(1920, 384)),
+    art('banner-mobile', 1600, 480, banner(1600, 480)),
+  ];
+  void Promise.all([loadPack(), document.fonts.load("10px 'Jacquard 24'"), document.fonts.load("10px 'Pixelify Sans'")]).then(([pack]) => {
+    for (const d of draws) d(pack);
+    box.dataset.ready = '1';
+  });
+  return [box];
+};
+
 const TABS: [string, string, () => Node[]][] = [
   ['tokens', 'Tokens', tokensTab],
   ['kit', 'Kit', kitTab],
@@ -300,6 +355,7 @@ const TABS: [string, string, () => Node[]][] = [
   ['ghosts', 'Ghosts', ghostsTab],
   ['rollover', 'Rollover', rolloverTab],
   ['screens', 'Screens', screensTab],
+  ['frontdoor', 'Front door', frontDoorTab],
 ];
 
 const show = () => {

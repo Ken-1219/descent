@@ -181,7 +181,8 @@ tests/
   gen.test.ts               tiers, determinism, crowd, curses, traps, 2,000-floor gates, generate() timing
   curve.test.ts             bot win-rate curve on two seed lists (own file so Vitest runs it in parallel)
   rollover.test.ts          Phase 8: tally, ladder, band, 28 bot days, trap selection and trap souls, flair bounds
-  play.mcp.js               end-to-end browser check run through the Playwright MCP (rules, input, death, resize)
+  play.mcp.js               end-to-end browser check (rules, input, death, resize); run by e2e.mjs
+  e2e.mjs                   the e2e runner (`bun run e2e`, CI): serves the harness, runs play.mcp.js; `--budgets` measures §15.3 (the owner's one allowed browser script)
 shots/                      gitignored
 docs/superpowers/           per-phase specs and plans written by Superpowers
 ```
@@ -636,6 +637,10 @@ Each phase lists Build, Show me (what to open), Checks, and Gate.
 ### Phase 11j — Posted floors inside the band (Nov 20, inserted by the owner)
 
 - **Built:** the posted crowd floor is held to the plain band as well (A124). Outside it (64 bot runs, aiming 6 points inside), the floor's own random stream is drawn again, up to 12 times (`Mods.draw`), and the closest posts. The players' curse and traps and the crowd's weights never change. On 11i's 448 crowd rollovers, scored with fresh runs, posted floors outside the band went from 63.2% to 13.6% (too hard: 11.8% → 2.0%). Traps set aside stay at 1.1% and the curse at 0%, with a max of 5.3 s. Playtest moves to r/descent_game_test. Release 0.0.3. No new files.
+
+### Phase 11k — Housekeeping and the front door (Nov 20, inserted by the owner)
+
+- **Built:** the e2e runner in the repo (`tests/e2e.mjs`, `bun run e2e`, a CI job), the owner's one allowed standalone browser script, with `--budgets` for §15.3 on the production build (A126); the summary comment counts real players only, says nameless delvers apart, and a quiet day invites instead of reading "0 fell" (A125); README, Devpost text and video shot list refreshed; the nameless delvers' wording corrected to the code (their deaths do reach tomorrow's tally); a front-door kit (description, sidebar, welcome post, icon and banners from the Lab's Front door tab); §15.3 re-measured on 0.0.3. Files: `tests/e2e.mjs` (new). No simulation, generator or rollover-logic changes.
 
 ### Phase 12 — Seed and submit (Dec 6–8)
 

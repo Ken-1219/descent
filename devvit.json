@@ -135,7 +135,7 @@
       "namelessDelvers": {
         "type": "number",
         "label": "Nameless delvers per day",
-        "helpText": "Bot ghosts added a few minutes after each new floor, so early floors don't look empty. Shown as nameless delvers; never counted in boards, the funnel or tomorrow's floor. 0 is off; at most 100.",
+        "helpText": "Bot ghosts added a few minutes after each new floor, so early floors don't look empty. Shown as nameless delvers; never counted in boards or the funnel. Where they die counts toward tomorrow's floor like any death. 0 is off; at most 100.",
         "defaultValue": 0
       },
       "devTools": {

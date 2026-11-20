@@ -11,13 +11,15 @@ It is a short turn-based roguelike (a run takes a few minutes) built for Reddit 
 - **Moving:** arrow keys or WASD on a keyboard; swipe, or the on-screen pad, on a phone. Space waits a turn, E uses your item, M (or the Map button) shows every tile you have seen. The map costs no turn.
 - **The torch** burns one turn of light per move. Reach the stairs before it goes out; in the dark you lose a heart every two turns.
 - **Three hearts.** Spikes, darts, pits, goblins, imps, skeletons and the dark take them, never more than one in a single turn. Every danger warns you one turn ahead with a red mark. A potion gives a heart back; at full hearts it stays in your pack.
-- **Floor 0** is a short practice floor. It teaches moving, keys and doors, spikes, an enemy's wind-up, items and ghosts. You play it once; after that each post opens straight on the day's floor.
+- **Floor 0** is a short first floor. It teaches moving, keys and doors, spikes, an enemy's wind-up, items and ghosts. You play it once; after that each post opens straight on the day's floor. Anything new is taught once, in a line under the HUD, the first time you meet it.
+- **One run counts a day.** After it, "Practice this floor" (and "Practice" on any Chronicle row) replays a floor as often as you like; practice is never sent or counted.
+- **Each floor has a name** ("The Hungry Galleries") and every seven floors the stone takes a new tint, so you can tell where you are in the dungeon.
 
 ## How the crowd shapes each floor
 
-- **Deaths move the danger.** The intro of each floor shows a compass: ☠ where people fell yesterday, ▲ where today's danger is.
+- **Deaths move the danger.** The intro of each floor shows a compass: ☠ where people fell yesterday, ▲ where today's danger is. Under "Your mark" it also tells you what your own run did yesterday: where your trap waits, whether your curse vote won, what your trap caught.
 - **The top killer spreads.** Whatever killed the most people yesterday is more likely to fill tomorrow's floor.
-- **Winners choose.** Clearing a floor lets you vote tomorrow's curse (shorter torch, more hazards, smaller light, lighter-sleeping enemies, or fewer hearts) and set one trap (spikes, a dart slit or false stairs) in a zone you pick. Your trap appears tomorrow under your name. If it hurts or kills someone, you earn souls. To keep a floor fair the game gives up its own choices first (where the danger gathers, the top killer), then rerolls the floor, then moves a trap within its zone. A trap is set aside only as a last resort, and the winning curse almost never; the next day's intro says so, under "Your mark", with what your own run did.
+- **Winners choose.** Clearing a floor lets you vote tomorrow's curse (shorter torch, more hazards, smaller light, lighter-sleeping enemies, or fewer hearts) and set one trap (spikes, a dart slit or false stairs) in a zone you pick. Your trap appears tomorrow under your name. If it hurts or kills someone, you earn souls. To keep a floor fair the game gives up its own choices first (where the danger gathers, the top killer), then rerolls the floor, then moves a trap within its zone. A trap is set aside only as a last resort, and the winning curse almost never. Every posted floor is then held to a difficulty line that falls from depth to depth: if the crowd's floor lands too easy or too hard, the game redraws its own layout, never what players chose, and posts the closest.
 - **Ghosts.** When you die, a wisp marks the spot for everyone. You may carve a short warning on it from a fixed list ("Trap ahead", "Safe this way →"…), and other players vote it Trust or Liar after their own run.
 - **The Warden.** Every seventh floor holds a chained boss shared by the whole community. Each bump breaks one link of its chain; its links are sized to yesterday's crowd. Whoever breaks the last link gets a memorial post naming the top link-breakers. If it survives the day, it keeps its wounds until its next floor.
 - **Boards and the Chronicle.** Today's scores, the deepest floor reached, souls and honour; the Chronicle keeps one line per floor of what the crowd did.
@@ -29,7 +31,7 @@ It is a short turn-based roguelike (a run takes a few minutes) built for Reddit 
 3. Run **Start Floor 1** from the same menu. After that the app posts a floor every day at 15:00 UTC on its own, with a summary comment of yesterday.
 4. **Health** in the same menu shows today's numbers: how many people got from the post to a finished run, load times by kind of device, errors and failed saves.
 5. **"Post today's floor (to pin)"** in the same menu makes a post that always opens today's floor and never closes. Pin it: it is the link to share.
-6. **"Nameless delvers per day"** (a setting, default 0) adds that many bot delvers a couple of minutes after each new floor, so an early floor doesn't look empty. Every other one carves what the floor makes true where it died ("Trap ahead" beside a real trap, "Dead end" in a real dead end, "Stairs this way" along the real route), and one carving in four lies on purpose, so a carving is worth reading and worth doubting. They are bots: their ghosts show as "a nameless delver", and they never count on boards, in Health, in a floor's real-player numbers or in what shapes tomorrow's floor. 0 turns them off.
+6. **"Nameless delvers per day"** (a setting, default 0) adds that many bot delvers a couple of minutes after each new floor, so an early floor doesn't look empty. Every other one carves what the floor makes true where it died ("Trap ahead" beside a real trap, "Dead end" in a real dead end, "Stairs this way" along the real route), and one carving in four lies on purpose, so a carving is worth reading and worth doubting. They are bots: their ghosts show as "a nameless delver", and they never count on boards, in Health or in a floor's real-player numbers. Where they die does go into the floor's death counts, like anyone's, so it helps shape tomorrow's floor; the summary comment counts them apart from real players. 0 turns them off.
 7. **The "Dev tools" setting** (reset a run, roll over now, set the Warden's links) is for testing only. Leave it off on a players' subreddit.
 
 ## Privacy
@@ -48,7 +50,8 @@ Descent stores your Reddit user ID and name with your runs, ghosts, carvings, vo
 - **Requirements:** Node 24 and bun.
 - **Install:** `bun install`
 - **Play locally without Reddit:** `bun run local`, then open http://localhost:5190/game.html (the server is faked in the browser). Dev knobs are listed at the top of `src/client/local.ts`; the Lab (`/lab.html`) shows the art, every enemy scene, the generator and the screens.
-- **Checks:** `bun run check` runs the type check, the unit tests and the golden runs. The end-to-end suite is `tests/play.mcp.js` (see its header).
+- **Checks:** `bun run check` runs the type check, the unit tests and the golden runs. `bun run e2e` runs the end-to-end suite (`tests/play.mcp.js`) in Playwright's Chromium, serving the local harness itself; `bun run build && bun run e2e --budgets` also measures the §15.3 budgets on the production build. CI runs both `check` and `e2e`.
+- **The one browser script:** browsers are otherwise driven only step by step through the Playwright MCP tools (the owner's rule). `tests/e2e.mjs` is the single, explicit exception the owner allowed on Nov 20 2026, so the suite can run in CI.
 - **Playtest on Reddit:** `bun run dev` (r/descent_game_test only; r/descent_game_dev is the players').
 - **Release:** [RELEASE.md](RELEASE.md).
 

@@ -1,5 +1,5 @@
-// End-to-end check for the game and Lab (Phase 3+). Run it through the Playwright MCP tool browser_run_code_unsafe
-// with this file as `filename`, while `bun run local` serves http://localhost:5190. Returns PASS/FAIL per check.
+// End-to-end check for the game and Lab (Phase 3+). Run it with `bun run e2e` (tests/e2e.mjs serves
+// http://localhost:5190 and runs this in Playwright's Chromium; CI does the same). Returns PASS/FAIL per check.
 // It uses the dev-only window.__descent hook, so it never runs against production builds.
 async (page) => {
   const URL = 'http://localhost:5190/game.html';
