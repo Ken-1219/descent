@@ -858,7 +858,7 @@ async (page) => {
       await ready(p);
       const t = await endText(p);
       const marked = await p.evaluate(() => ({ dead: [...document.querySelectorAll('.intro-compass__cell')].findIndex((c) => c.hasAttribute('data-deadliest')), danger: [...document.querySelectorAll('.intro-compass__cell')].findIndex((c) => c.hasAttribute('data-danger')) }));
-      check('intro reads today\'s stored floor: where the danger actually is, beside where the crowd died', marked.dead === 2 && marked.danger >= 0 && (marked.danger === 2 || /Today's danger gathered in the/.test(t)), JSON.stringify(marked));
+      check('intro reads today\'s stored floor: where the danger actually is, beside where the crowd died', marked.dead === 2 && marked.danger >= 0 && (marked.danger === 2 || /Today's danger: the/.test(t)), JSON.stringify(marked));
       await ctx.close();
     }
     {
@@ -1811,7 +1811,7 @@ async (page) => {
       await p.goto(`${URL}?world=e2e&day=10`);
       await p.waitForSelector('#end.end--intro');
       const two = await p.locator('#end').innerText();
-      check('day 10 is rolled over from day 9\'s tally', /20 fell on Floor 9/.test(two), two.slice(0, 200));
+      check('day 10 is rolled over from day 9\'s tally, nameless delvers counted apart and said to fill in (A127)', /20 nameless delvers fell on Floor 9/.test(two) && /Too few players, so the delvers filled in/.test(two), two.slice(0, 300));
       await ctx.close();
     }
     // 28. Phase 11i: your mark on today. Fall on a crowd world's day 9; day 10's intro says where, and still fits at 360×640.

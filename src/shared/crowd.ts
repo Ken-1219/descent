@@ -4,12 +4,33 @@
 import { BAND, CROWD, FAMILIES, HOLD, KILL_FAMILY, LADDER_REACH, PLAIN_BAND, TRAPS, type Curse, type Family } from './content';
 import { bot } from './bot';
 import { generate, NO_MODS, resolveCurse, safePath, type Generated, type Mods, type Trap } from './gen';
-import { slitLine } from './grid';
+import { slitLine, zoneOf } from './grid';
 import { isAction, start, step, type Floor } from './sim';
 
 /** What a floor's day left, read at rollover: deaths per compass zone, kills by cause, curse votes, the survivors' traps. */
 export type Tally = { deaths: readonly number[]; kills: Readonly<Record<string, number>>; curseVotes: Partial<Record<Curse, number>>; traps: readonly Trap[] };
 export const EMPTY_TALLY: Tally = { deaths: NO_MODS.deaths, kills: {}, curseVotes: {}, traps: [] };
+
+/**
+ * A127: what shapes tomorrow from a floor's deaths (its ghosts). Real deaths alone once there are CROWD.realDeaths of
+ * them; below that the nameless delvers' deaths fill in, so a quiet floor still has a shape. Curse votes and traps are
+ * players' only and never pass through here. `zone` and `killer` are the deadliest zone and cause of the deaths used.
+ */
+export function shapeOf(ghosts: readonly { x: number; y: number; cause: string; bot?: true }[], side: number) {
+  const real = ghosts.filter((g) => !g.bot);
+  const nameless = ghosts.length - real.length;
+  const filled = real.length < CROWD.realDeaths && nameless > 0;
+  const deaths = Array.from({ length: 9 }, () => 0);
+  const kills: Record<string, number> = {};
+  for (const g of filled ? ghosts : real) {
+    const z = zoneOf(g, side);
+    deaths[z] = (deaths[z] ?? 0) + 1;
+    kills[g.cause] = (kills[g.cause] ?? 0) + 1;
+  }
+  const zone = deaths.reduce<number | null>((b, n, i) => (n > (b === null ? 0 : (deaths[b] ?? 0)) ? i : b), null);
+  const killer = Object.entries(kills).sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))[0]?.[0] ?? null;
+  return { deaths, kills, players: real.length, nameless, filled, zone, killer };
+}
 
 /** Yesterday's top killer: kills mapped to families, at least CROWD.minKills, ties in FAMILIES order. */
 export function topFamily(kills: Readonly<Record<string, number>>): Family | null {

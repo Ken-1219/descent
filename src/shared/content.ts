@@ -220,7 +220,8 @@ export const SLACK = { startPct: 268, perDepthPct: 2, minPct: 235, perRoomPct: 8
 export const GATE_TORCH_PCT = 70;
 
 /** Compass zones ranked by yesterday's deaths: weights ×10. Zones with no deaths 6; no deaths anywhere: uniform. */
-export const CROWD = { rankWeights: [22, 16, 12], otherWeight: 8, emptyWeight: 6, uniformWeight: 10, topFamilyPct: 150, overflowTrapWeight: 2, minDeaths: 3, minSharePct: 5, minKills: 3 };
+/** `realDeaths` (Phase 11k, A127): from this many real deaths on a floor, only real deaths shape tomorrow; below it the nameless delvers' deaths fill in. */
+export const CROWD = { rankWeights: [22, 16, 12], otherWeight: 8, emptyWeight: 6, uniformWeight: 10, topFamilyPct: 150, overflowTrapWeight: 2, minDeaths: 3, minSharePct: 5, minKills: 3, realDeaths: 5 };
 export const TRAP_MAX = 12;
 /** Player traps per compass zone, so one crowded zone can't wall off a floor. */
 export const TRAP_ZONE_MAX = 3;

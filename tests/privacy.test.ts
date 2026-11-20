@@ -26,7 +26,6 @@ async function seed() {
     await redis.zAdd('f:1:cv', { member: `${u}:trust`, score: 1 });
   }
   await redis.hSet('f:1:votes', { 't2_gone>t2_stay': 'trust', 't2_stay>t2_gone': 'liar', 't2_stay>curse': 'frail', 't2_gone>curse': 'frail' });
-  await redis.hSet('f:1:heat', { '4': '2' });
   await redis.hSet('boss:0', { depth: '7', pool: '60', dealt: '60', killer: 't2_gone', killerName: 'gone' });
   await redis.zAdd('boss:0:dmg', { member: 't2_gone', score: 40 }, { member: 't2_stay', score: 20 });
 }
@@ -43,7 +42,6 @@ test('purge removes every stored copy of a user\'s ID and name, and nothing of a
   expect(all).not.toMatch(/"gone"|:gone|u\/gone/);
   expect(all).toContain('t2_stay'); // the other player is untouched
   expect(await redis.hGet('f:1:votes', 't2_stay>curse')).toBe('frail');
-  expect(await redis.hGet('f:1:heat', '4')).toBe('2'); // counts name nobody
   const floor = JSON.parse((await redis.get('f:1:floor')) ?? '{}');
   expect(floor.traps).toHaveLength(2); // the trap stays on the floor; its owner becomes nobody
   expect(await redis.hGet('boss:0', 'killer')).toBeTruthy(); // the kill stands, nameless

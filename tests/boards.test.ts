@@ -3,10 +3,10 @@
 import { expect } from 'vitest';
 import { createDevvitTest } from '@devvit/test/server/vitest';
 import { redis } from '@devvit/web/server';
-import { BOARD, floorName } from '../src/shared/content';
+import { BOARD, CROWD, floorName } from '../src/shared/content';
 import { start, step, type Floor } from '../src/shared/sim';
 import { bot } from '../src/shared/bot';
-import { carve, floorFor, openFloor, placeTrap, resetRun, seedBots, submitRun, voteCarving, voteCurse } from '../src/server/game';
+import { carve, floorFor, openFloor, placeTrap, resetRun, seedBots, submitRun, tally, voteCarving, voteCurse } from '../src/server/game';
 import { purge } from '../src/server/privacy';
 import { boardsFor, cardFor, chronicle, nextRollover, pulse } from '../src/server/boards';
 import { rollNow, startFirstFloor } from '../src/server/rollover';
@@ -147,14 +147,29 @@ test('the poll and the Chronicle: counts only, and one ledger row per floor, new
   await rollNow();
   const c = await chronicle();
   expect(c.rows.map((r) => r.depth)).toEqual([2, 1]);
-  expect(c.rows[1]).toMatchObject({ depth: 1, fell: 3 });
+  expect(c.rows[1]).toMatchObject({ depth: 1, fell: 0, nameless: 3, filled: true }); // A127: players and bots apart
   // Phase 11g: each row carries its floor's name, from the seed it was generated with.
   for (const r of c.rows) expect(r.name).toBe(floorName((await stored(r.depth)).seed ?? -1));
-  expect((await stored(2)).yesterday).toMatchObject({ depth: 1, fell: 3 });
+  expect((await stored(2)).yesterday).toMatchObject({ depth: 1, fell: 0, cleared: 0, nameless: 3, filled: true });
   expect((await stored(2)).yesterday?.deaths?.reduce((a, b) => a + b, 0)).toBe(3);
   expect((await stored(2)).showcase?.length).toBeGreaterThan(0);
   expect(nextRollover(Date.UTC(2026, 10, 16, 9))).toBe(Date.UTC(2026, 10, 16, 15));
   expect(nextRollover(Date.UTC(2026, 10, 16, 16))).toBe(Date.UTC(2026, 10, 17, 15));
+});
+
+test('the server\'s tally (A127): at CROWD.realDeaths real deaths the nameless delvers stop counting; one fewer and they fill in', async () => {
+  await startFirstFloor();
+  const f1 = await openFloor(1);
+  for (let k = 1; k < CROWD.realDeaths; k++) await submitRun(`t2_p${k}`, 1, dies(f1), { name: `p${k}` });
+  await seedBots(4);
+  const below = await tally(1);
+  expect(below).toMatchObject({ players: CROWD.realDeaths - 1, nameless: 4, filled: true });
+  expect(below.deaths.reduce((a, b) => a + b, 0)).toBe(CROWD.realDeaths - 1 + 4);
+  await submitRun('t2_last', 1, dies(f1), { name: 'last' });
+  const at = await tally(1);
+  expect(at).toMatchObject({ players: CROWD.realDeaths, nameless: 4, filled: false });
+  expect(at.deaths.reduce((a, b) => a + b, 0)).toBe(CROWD.realDeaths);
+  expect(Object.values(at.kills).reduce((a, b) => a + b, 0)).toBe(CROWD.realDeaths);
 });
 
 test('difficulty data (A39): each floor stores its predicted win rate; the Chronicle sets real players (bots excluded) beside it', async () => {

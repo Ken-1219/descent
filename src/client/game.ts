@@ -692,6 +692,13 @@ function zoneName(z: number) {
   return ZONE_NAMES[z]?.toLowerCase() ?? '';
 }
 
+/** A127: players and nameless delvers apart ("3 players and 12 nameless delvers fell"); a floor stored before 11k says only "N fell". */
+function whoFell(y: NonNullable<Floor['yesterday']>) {
+  if (y.nameless === undefined) return `${y.fell} fell`;
+  const who = [y.fell ? `${y.fell} player${y.fell === 1 ? '' : 's'}` : '', y.nameless ? `${y.nameless} nameless delver${y.nameless === 1 ? '' : 's'}` : ''];
+  return `${who.filter(Boolean).join(' and ') || '0 players'} fell`;
+}
+
 /**
  * The intro (replaces Phase 8's yesterday line): before your first move on the day's floor. It reads today's stored
  * floor, not only yesterday's tally: the compass shows where the crowd died and where today's danger actually is, so a
@@ -707,10 +714,11 @@ function intro() {
   const lines: string[] = [];
   if (!y) lines.push(state.floor.depth === 1 ? 'The first floor. Nobody has fallen yet.' : 'Nobody fell here yesterday.');
   else if (fell === 0) lines.push(`Nobody fell on Floor ${y.depth}, so nothing moved.`);
-  else if (fell < 3) lines.push(`Only ${fell} fell on Floor ${y.depth}: too few to move anything.`);
+  else if (fell < 3) lines.push(`Only ${whoFell(y)} on Floor ${y.depth}: too few to move anything.`);
   else {
-    lines.push(`${y.fell} fell on Floor ${y.depth}${y.zone === null ? '' : `, most in the ${zoneName(y.zone)}`}. ${y.cleared} cleared it.`);
-    if (y.zone !== null && Math.max(...danger) > 0 && hz !== y.zone) lines.push(`Today's danger gathered in the ${zoneName(hz)}.`);
+    lines.push(`${whoFell(y)} on Floor ${y.depth}${y.zone === null ? '' : `, most in the ${zoneName(y.zone)}`}.${y.cleared || y.nameless === undefined ? ` ${y.cleared} cleared it.` : ''}`);
+    if (y.filled) lines.push('Too few players, so the delvers filled in.');
+    if (y.zone !== null && Math.max(...danger) > 0 && hz !== y.zone) lines.push(`Today's danger: the ${zoneName(hz)}.`);
     if (y.killer) lines.push(`Top killer: ${killerName(y.killer)}.`);
   }
   // Phase 11e: the day's torch budget, said before the first move (Floor 0's practice torch is more generous).

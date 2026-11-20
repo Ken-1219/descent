@@ -26,7 +26,7 @@ const chronicleList = (rows: readonly ChronicleRow[], killerName: (k: string) =>
     const go = button('Practice', 'chronicle__practice');
     go.setAttribute('aria-label', `Practise Floor ${r.depth} (nothing counts)`);
     go.addEventListener('click', () => practise(r.depth));
-    list.append(el('li', 'chronicle__row', el('span', 'chronicle__floor', `Floor ${r.depth}`, ...(r.name ? [el('span', 'chronicle__name', r.name)] : [])), el('span', '', `${r.fell} fell${where}; ${r.cleared} cleared${curse}${killer}.`), go));
+    list.append(el('li', 'chronicle__row', el('span', 'chronicle__floor', `Floor ${r.depth}`, ...(r.name ? [el('span', 'chronicle__name', r.name)] : [])), el('span', '', `${r.fell} ${r.nameless === undefined ? '' : r.fell === 1 ? 'player ' : 'players '}fell${r.nameless ? ` (+${r.nameless} nameless delver${r.nameless === 1 ? '' : 's'}${r.filled ? ', who helped shape the next floor' : ''})` : ''}${where}; ${r.cleared} cleared${curse}${killer}.`), go));
   }
   if (!rows.length) list.append(el('li', 'muted', 'The ledger is empty. Floor 1 is still open.'));
   return list;

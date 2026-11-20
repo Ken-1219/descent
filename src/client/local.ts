@@ -13,7 +13,7 @@
 // from day 9's tally as the server builds it (every death, the kills, this profile's curse vote and trap), with its own 20.
 import { generate, showcaseFamilies } from '../shared/gen';
 import { bot } from '../shared/bot';
-import { rolloverFloor, setAside, type Tally } from '../shared/crowd';
+import { rolloverFloor, setAside, shapeOf, type Tally } from '../shared/crowd';
 import { zoneOf } from '../shared/grid';
 import { CURSES, FLOOR_0, floorName, TRAP_TEXT, type Curse } from '../shared/content';
 import type { BoardRows, BossView, MyTrap, Yours } from '../shared/api';
@@ -252,19 +252,11 @@ const FIXTURE_TALLY: Tally = {
     { owner: 't2_fx_okoro', name: 'Okoro_Delves', zone: 7, kind: 'stairs' },
   ],
 };
-/** Day d's tally as the server's tally() builds it: every death per zone and cause, this profile's curse vote and trap. */
-function tallyOf(d: number): Tally {
-  const f = floorOf(d);
-  const ghosts = Object.values(ghostsRecords(d));
-  const deaths = Array.from({ length: 9 }, () => 0);
-  const kills: Record<string, number> = {};
-  for (const g of ghosts) {
-    deaths[zoneOf(g, f.rows.length)] = (deaths[zoneOf(g, f.rows.length)] ?? 0) + 1;
-    kills[g.cause] = (kills[g.cause] ?? 0) + 1;
-  }
+/** Day d's tally as the server's tally() builds it: its deaths shaped by A127, this profile's curse vote and trap. */
+function tallyOf(d: number) {
   const curse = read<Curse>(`curse:${d}`);
   const trap = read<Trap>(`trap:${d}`);
-  return { deaths, kills, curseVotes: curse ? { [curse]: 1 } : {}, traps: trap ? [{ ...trap, owner: ME, name: 'local_delver' }] : [] };
+  return { ...shapeOf(Object.values(ghostsRecords(d)), floorOf(d).rows.length), curseVotes: curse ? { [curse]: 1 } : {}, traps: trap ? [{ ...trap, owner: ME, name: 'local_delver' }] : [] };
 }
 const ghostsRecords = (d: number): Record<string, GhostRecord> => {
   const mine = read<GhostRecord>(`ghost:${d}`);
@@ -273,16 +265,14 @@ const ghostsRecords = (d: number): Record<string, GhostRecord> => {
 /** A crowd day: rolled over like the server's advance(), then 20 nameless delvers die on it, every other one carving (A118). */
 function crowdDay(d: number): Floor {
   const prev = d > FIRST_CROWD_DAY ? d - 1 : null;
-  const t = prev ? tallyOf(prev) : FIXTURE_TALLY;
+  const shaped = prev ? tallyOf(prev) : null;
+  const t = shaped ?? FIXTURE_TALLY;
   const rolled = rolloverFloor(d, hash(`crowd:${crowd}:${d}`), t);
   // The fixture day's own line: 17 fell (the tally's deaths), 6 cleared.
   let yesterday: Floor['yesterday'] = prev ? undefined : { depth: d - 1, fell: 17, cleared: 6, zone: 5, curse: rolled.mods.curses[0] ?? null, deaths: [...t.deaths], killer: 'goblin' };
-  if (prev) {
-    const fell = Object.keys(ghostsRecords(prev)).length;
-    const runs = (read<Crowd>(`crowd:${prev}`)?.runs ?? 0) + (runOf(prev) ? 1 : 0);
-    const zone = t.deaths.reduce<number | null>((z, n, i) => (n > (z === null ? 0 : (t.deaths[z] ?? 0)) ? i : z), null);
-    const killer = Object.entries(t.kills).sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))[0]?.[0] ?? null;
-    yesterday = { depth: prev, fell, cleared: Math.max(0, runs - fell), zone, curse: rolled.mods.curses[0] ?? null, deaths: [...t.deaths], killer, setAside: setAside(t, rolled) };
+  if (prev && shaped) {
+    const cleared = runOf(prev)?.outcome === 'won' ? 1 : 0;
+    yesterday = { depth: prev, fell: shaped.players, cleared, nameless: shaped.nameless, filled: shaped.filled, zone: shaped.zone, curse: rolled.mods.curses[0] ?? null, deaths: [...shaped.deaths], killer: shaped.killer, setAside: setAside(t, rolled) };
   }
   const f: Floor = { ...rolled.floor, showcase: showcaseFamilies(d), ...(yesterday ? { yesterday } : {}) };
   write(`floor:${d}`, f);
@@ -309,7 +299,7 @@ const crowdStreak = (d: number) => {
 const crowdChronicle = () =>
   Array.from({ length: day() - FIRST_CROWD_DAY + 1 }, (_, i) => day() - 1 - i).flatMap((d) => {
     const y = read<Floor>(`floor:${d + 1}`)?.yesterday;
-    return y ? [{ depth: d, name: floorName(read<Floor>(`floor:${d}`)?.seed ?? d), fell: y.fell, cleared: y.cleared, curse: y.curse, zone: y.zone, killer: y.killer ?? null }] : [];
+    return y ? [{ depth: d, name: floorName(read<Floor>(`floor:${d}`)?.seed ?? d), fell: y.fell, cleared: y.cleared, nameless: y.nameless ?? 0, filled: !!y.filled, curse: y.curse, zone: y.zone, killer: y.killer ?? null }] : [];
   });
 /** Your mark (A123) in a crowd world: the server's yoursFor() over local storage. Nobody votes on your carving here. */
 function yoursOf(d: number, today: Floor): Yours | undefined {

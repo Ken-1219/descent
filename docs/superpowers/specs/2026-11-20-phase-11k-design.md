@@ -1,6 +1,6 @@
 # Phase 11k: housekeeping and the front door (design and results)
 
-Source: the owner's Phase 11k brief (Nov 20), after accepting Phase 11j and 0.0.3. No simulation, generator or rollover-logic changes. Starting point: 40241ad (phase-11j).
+Source: the owner's Phase 11k brief (Nov 20), after accepting Phase 11j and 0.0.3. No simulation or generator changes; one rollover change (A127), allowed by the owner later that day. Starting point: 40241ad (phase-11j).
 
 ## Decisions (continuing A1–A124)
 - **A125. The summary comment counts real players, and a quiet day invites:**
@@ -15,12 +15,28 @@ Source: the owner's Phase 11k brief (Nov 20), after accepting Phase 11j and 0.0.
   - It is the one standalone browser script, an explicit exception the owner allowed on Nov 20. The README and the script's header say so.
   - CI has an `e2e` job.
 
+- **A127. Nameless delvers shape tomorrow only as a fill-in (the one rollover change the owner allowed in 11k):**
+  - `shapeOf()` in `crowd.ts`, shared by the server's tally and the local harness, reads a floor's ghosts.
+  - From `CROWD.realDeaths` (5) real deaths, only real deaths decide tomorrow's zone weights and top killer.
+  - Below that, the bots' deaths are added so the floor still has a shape (`filled`).
+  - Curse votes and traps never pass through it; they stay players-only.
+  - It works from the ghost records (each says whether it was a bot), so it needs no new storage and is right on floors written by 0.0.3. The old `heat` and `kills` counters had no reader left, so their writes (and the decrements in the bot purge and the dev reset) are gone; the tests now check the tally instead.
+  - **What players see:**
+    - `Floor.yesterday` now carries players only in `fell` and `cleared`, plus `nameless` and `filled`.
+    - The intro reads "3 players and 12 nameless delvers fell on Floor 12…" ("0 cleared" is left out). When the bots filled in, it adds "Too few players, so the delvers filled in."
+    - To keep the intro fitting at 360×640 with these words, "Today's danger gathered in the X" became "Today's danger: the X", and at 680 px tall or less the intro's lines use a 1.3 line height.
+    - The summary comment counts players and nameless delvers apart, and says either "with too few players, their deaths helped shape today" or "enough players fell, so only players' deaths shaped today".
+    - The Chronicle reads "N players fell (+M nameless delvers, who helped shape the next floor)".
+  - A floor stored before 11k shows its old "N fell".
+  - The README, the setting's help text and A70 (in the 11c spec) now describe this rule.
+
 ## Assumptions (recommended options taken)
 - **Playwright as a dev dependency:** pinned to 1.65.1 (latest stable). It's tooling only, not a runtime dependency. CI installs its Chromium with `--with-deps`.
 - **The runner imports `FLOOR_0` from `src/shared/content.ts` directly.** Node 24 strips the type-only import, so no build step or fixture file is needed.
 - **`--budgets` reports, it doesn't gate:** throttled timings on a shared CI runner would flake. Sizes are already gated by `tests/bundle.test.ts`.
-- **Nameless delvers do shape tomorrow's floor.** Their deaths go into `heat` and `kills` (`submitRun` has no bot guard there), so the tally reads them. A70 ("excluded exactly as before"), the README and the setting's help text all said otherwise. Since this phase rules out rollover changes, the wording is corrected to the code and the behaviour is put to the owner as a question. The help text change ships with the next version.
-- **The summary change also ships with the next version.** RELEASE.md says the players' subreddit updates only when the owner says so, so no 0.0.4 was cut. Tonight's comment on 0.0.3 still uses the old wording.
+- **Nameless delvers:** the first draft of this phase only corrected the wording, since its brief ruled out rollover changes. The owner then allowed A127 as the one rollover change.
+- **Dependabot:** the template's config opened 7 version-bump PRs. Versions are pinned until submission, so `open-pull-requests-limit: 0` for npm and GitHub Actions turns version updates off; security updates still open. The owner closes the 7 open ones.
+- **Release:** the owner asked for 0.0.4 after tonight's rollover check, carrying the quiet-day wording and A127. Tonight's comment on 0.0.3 still uses the old wording.
 - **Front-door art:** drawn in a new Lab tab ("Front door", dev only) from the Delver and wisp sprites, the graded CC0 tiles the game uses, and the game's two fonts, in flat tokens. Exported with Playwright MCP element screenshots. Sizes: 256×256, 1920×384, 1600×480.
 
 ## Measurements: §15.3 on 0.0.3
@@ -48,6 +64,6 @@ Source: the owner's Phase 11k brief (Nov 20), after accepting Phase 11j and 0.0.
 - Journey receipts on 0.0.3 still read `JOURNEY_RECEIPT_DENIED_PLAYTEST`.
 
 **Checks:**
-- `bun run check` 170/170.
+- `bun run check` 172/172 (with A127's tests: the pure threshold test, the server's tally at and below the threshold, the 28-day test and both bands unchanged).
 - `bun run e2e` 147/147, both with its own server and against a running harness.
 - CI: see the report.

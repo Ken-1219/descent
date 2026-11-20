@@ -19,7 +19,7 @@ A run is a few minutes of turn-based play: a torch that burns down with every mo
 - **Before your first move**, the intro shows a compass of where yesterday's crowd died against where today's danger is. It names the curse, the top killer and the traps survivors set, and under "Your mark" what your own run did to today.
 - **After your run** one result card holds everything, each step optional: carve a warning on your ghost, vote a curse, set a trap, practise the floor. Then come the boards (today, deepest, souls, honour) and the Chronicle, a one-line ledger of every floor so far.
 - **Each day** a new post arrives with a summary comment of what the crowd did yesterday.
-- **A floor is never empty:** a subreddit can add "nameless delvers", bots that die on the new floor and carve what is true there (one carving in four lies on purpose, as players might). They are labelled, and never on a board.
+- **A floor is never empty:** a subreddit can add "nameless delvers", bots that die on the new floor and carve what is true there (one carving in four lies on purpose, as players might). They are labelled, never on a board, and shape the next floor only when too few players fell there.
 
 ## How we built it
 - **Platform:** Devvit Web, with a Phaser 4 game in the expanded view and a plain DOM splash card light enough for the feed.

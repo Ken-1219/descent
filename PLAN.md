@@ -640,7 +640,7 @@ Each phase lists Build, Show me (what to open), Checks, and Gate.
 
 ### Phase 11k — Housekeeping and the front door (Nov 20, inserted by the owner)
 
-- **Built:** the e2e runner in the repo (`tests/e2e.mjs`, `bun run e2e`, a CI job), the owner's one allowed standalone browser script, with `--budgets` for §15.3 on the production build (A126); the summary comment counts real players only, says nameless delvers apart, and a quiet day invites instead of reading "0 fell" (A125); README, Devpost text and video shot list refreshed; the nameless delvers' wording corrected to the code (their deaths do reach tomorrow's tally); a front-door kit (description, sidebar, welcome post, icon and banners from the Lab's Front door tab); §15.3 re-measured on 0.0.3. Files: `tests/e2e.mjs` (new). No simulation, generator or rollover-logic changes.
+- **Built:** the e2e runner in the repo (`tests/e2e.mjs`, `bun run e2e`, a CI job), the owner's one allowed standalone browser script, with `--budgets` for §15.3 on the production build (A126); the summary comment counts real players only, says nameless delvers apart, and a quiet day invites instead of reading "0 fell" (A125); README, Devpost text and video shot list refreshed; nameless delvers shape tomorrow only as a fill-in, below `CROWD.realDeaths` (5) real deaths, with players and bots counted apart in the intro, summary and Chronicle (A127, `shapeOf`, the one rollover change the owner allowed); Dependabot's version PRs turned off; a front-door kit (description, sidebar, welcome post, icon and banners from the Lab's Front door tab); §15.3 re-measured on 0.0.3. Files: `tests/e2e.mjs` (new). No simulation or generator changes.
 
 ### Phase 12 — Seed and submit (Dec 6–8)
 

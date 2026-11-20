@@ -1,7 +1,7 @@
 // Redis reads and writes for floors and runs. Routes pass identity in from the Devvit context; nothing here trusts a body.
 import { context, reddit, redis } from '@devvit/web/server';
 import { BOARD, CURSES, GHOSTS, NAMELESS, TEACH, TRAP_TEXT, type Curse } from '../shared/content';
-import { trapHits, trapSouls, type Tally } from '../shared/crowd';
+import { shapeOf, trapHits, trapSouls, type Tally } from '../shared/crowd';
 import { nextRollover } from './boards';
 import { bossView, fallen, strike, unstrike } from './boss';
 import { generate, isWardenFloor, NO_MODS, resolveCurse, type Mods, type Trap } from '../shared/gen';
@@ -25,7 +25,7 @@ const nextStreak = (prev: string | null, depth: number) => {
 /** Who a run belongs to: the name comes from the Devvit context (null for bots, shown as a nameless delver). */
 export type Who = { name: string | null; bot?: true };
 
-type Key = 'mods' | 'floor' | 'runs' | 'scores' | 'starts' | 'ghosts' | 'carvings' | 'heat' | 'kills' | 'resets' | 'traps' | 'curse' | 'cv' | 'votes' | 'trapped' | 'flair' | 'seq' | 'real' | 'seen' | 'funnel' | 'errs' | 'health';
+type Key = 'mods' | 'floor' | 'runs' | 'scores' | 'starts' | 'ghosts' | 'carvings' | 'resets' | 'traps' | 'curse' | 'cv' | 'votes' | 'trapped' | 'flair' | 'seq' | 'real' | 'seen' | 'funnel' | 'errs' | 'health';
 export const key = (d: number, k: Key) => `f:${d}:${k}`;
 export const isBot = (user: string) => user.startsWith('bot:');
 
@@ -216,8 +216,6 @@ export async function submitRun(user: string, depth: number, log: string, who: W
     const killer = run.cause === 'trap' ? hits.find((h) => h.killed) : undefined;
     const ghost: GhostRecord = { name: who.name, x: run.tile.x, y: run.tile.y, cause: run.cause, at, ...(who.bot ? { bot: true as const } : {}), ...(killer ? { by: killer.name ?? NAMELESS } : {}) };
     await tx.hSet(key(depth, 'ghosts'), { [user]: JSON.stringify(ghost) });
-    await tx.hIncrBy(key(depth, 'heat'), String(zoneOf(run.tile, floor.rows.length)), 1);
-    await tx.hIncrBy(key(depth, 'kills'), run.cause, 1);
   }
   await tx.exec();
   // A43: the Warden's damage comes only from this replay, once (a resend returned above), and never from a bot.
@@ -286,15 +284,8 @@ export async function purgeBots(): Promise<{ depth: number; removed: number }> {
   const { day } = await today();
   if (!day) return { depth: 0, removed: 0 };
   const bots = Object.keys(await redis.hGetAll(key(day, 'runs'))).filter(isBot);
-  const floor = await storedFloor(day);
-  const ghosts = await ghostRecords(day);
   const tx = await redis.watch();
   await tx.multi();
-  for (const [user, g] of Object.entries(ghosts)) {
-    if (!isBot(user) || !floor) continue;
-    await tx.hIncrBy(key(day, 'heat'), String(zoneOf(g, floor.rows.length)), -1);
-    await tx.hIncrBy(key(day, 'kills'), g.cause, -1);
-  }
   if (bots.length) {
     for (const k of ['runs', 'ghosts', 'carvings'] as const) await tx.hDel(key(day, k), bots);
     await tx.zRem(key(day, 'scores'), bots);
@@ -322,7 +313,6 @@ export async function resetRun(user: string): Promise<{ depth: number; had: bool
   const { day } = await today();
   if (!day) return { depth: 0, had: false };
   const had = !!(await redis.hGet(key(day, 'runs'), user));
-  const ghost = await redis.hGet(key(day, 'ghosts'), user);
   const floor = await storedFloor(day);
   const votes = Object.entries(await redis.hGetAll(key(day, 'votes')));
   const run = await runOf(day, user);
@@ -363,11 +353,6 @@ export async function resetRun(user: string): Promise<{ depth: number; had: bool
     else if (run.outcome === 'won') await tx.zRem('deepest', [user]);
     if (run.outcome === 'dead') await tx.zIncrBy('deaths', user, -1);
     await tx.hIncrBy(key(day, 'real'), run.outcome === 'won' ? 'cleared' : 'fell', -1);
-  }
-  if (ghost && floor) {
-    const g: GhostRecord = JSON.parse(ghost);
-    await tx.hIncrBy(key(day, 'heat'), String(zoneOf(g, floor.rows.length)), -1);
-    await tx.hIncrBy(key(day, 'kills'), g.cause, -1);
   }
   for (const k of ['runs', 'ghosts', 'carvings', 'starts'] as const) await tx.hDel(key(day, k), [user]);
   await tx.zRem(key(day, 'scores'), [user]);
@@ -480,30 +465,17 @@ export async function placeTrap(user: string, depth: number, zone: number, kind:
  * exists to show the crowd effect), kills by cause, the curse votes, and the players' traps with owner and name (bots
  * never set one). Four reads, whatever the crowd size.
  */
-export async function tally(depth: number): Promise<Tally> {
-  const [heat, kills, votes, traps] = await Promise.all([
-    redis.hGetAll(key(depth, 'heat')),
-    redis.hGetAll(key(depth, 'kills')),
-    standings(depth),
-    redis.hGetAll(key(depth, 'traps')),
-  ]);
+/** A floor's tally for the rollover: its deaths shaped by A127 (from the ghosts, real and nameless apart), the curse votes and the players' traps. */
+export async function tally(depth: number): Promise<Tally & ReturnType<typeof shapeOf>> {
+  const [ghosts, floor, votes, traps] = await Promise.all([ghostRecords(depth), storedFloor(depth), standings(depth), redis.hGetAll(key(depth, 'traps'))]);
   return {
-    deaths: Array.from({ length: 9 }, (_, z) => Math.max(0, Number(heat[String(z)] ?? 0))),
-    kills: Object.fromEntries(Object.entries(kills).map(([c, n]): [string, number] => [c, Number(n)]).filter(([, n]) => n > 0)),
+    ...shapeOf(floor ? Object.values(ghosts) : [], floor?.rows.length ?? 1),
     curseVotes: Object.fromEntries(votes),
     traps: Object.entries(traps).sort(([a], [b]) => (a < b ? -1 : 1)).flatMap(([owner, v]): Trap[] => {
       const t = JSON.parse(v);
       return isTrapKind(t.kind) ? [{ owner, name: t.name ?? null, zone: t.zone, kind: t.kind }] : [];
     }),
   };
-}
-
-/** Counts for the summary, the yesterday line and the Chronicle: deaths, runs, the deadliest zone. */
-export async function dayStats(depth: number): Promise<{ fell: number; runs: number; zone: number | null }> {
-  const [fell, runs, heat] = await Promise.all([redis.hLen(key(depth, 'ghosts')), redis.hLen(key(depth, 'runs')), redis.hGetAll(key(depth, 'heat'))]);
-  let zone: number | null = null;
-  for (let z = 0; z < 9; z++) if (Number(heat[String(z)] ?? 0) > (zone === null ? 0 : Number(heat[String(zone)] ?? 0))) zone = z;
-  return { fell, runs, zone };
 }
 
 /** A39: how real players did on a floor (bots excluded), counted when each run was accepted. */

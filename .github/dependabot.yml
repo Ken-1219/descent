@@ -7,7 +7,8 @@ updates:
       interval: "cron"
       cronjob: "0 17 * * 1,2" # At 5pm on Monday and Tuesday - https://crontab.guru/
       timezone: "America/New_York"
-    open-pull-requests-limit: 10 # Optional: prevents PR spam by limiting active updates
+    # Phase 11k: versions are pinned until submission (CLAUDE.md), so no version-update PRs; security updates still open.
+    open-pull-requests-limit: 0
     ignore:
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
@@ -35,5 +36,6 @@ updates:
           - "@tailwindcss/*"
   - package-ecosystem: "github-actions"
     directory: "/"
+    open-pull-requests-limit: 0
     schedule:
       interval: "weekly"

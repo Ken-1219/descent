@@ -139,15 +139,16 @@ const dies = (floor: Floor) => {
   return { log, end: s };
 };
 
-test('a death stores a ghost on the replay\'s tile with the context name, plus compass heat and the kill, in one write', async () => {
+test('a death stores a ghost on the replay\'s tile with the context name, which the tally reads as its zone and cause', async () => {
   await startFirstFloor();
   const floor = await openFloor(1);
   const { log, end } = dies(floor);
   expect((await submitRun('t2_a', 1, log, { name: 'alice' })).kind).toBe('saved');
   const ghost = JSON.parse((await redis.hGet('f:1:ghosts', 't2_a')) ?? '{}');
   expect(ghost).toMatchObject({ name: 'alice', x: end.pos.x, y: end.pos.y, cause: end.ended?.cause });
-  expect(await redis.hGet('f:1:heat', String(zoneOf(end.pos, floor.rows.length)))).toBe('1');
-  expect(await redis.hGet('f:1:kills', end.ended?.cause ?? '')).toBe('1');
+  const t = await tally(1);
+  expect(t.deaths[zoneOf(end.pos, floor.rows.length)]).toBe(1);
+  expect(t.kills[end.ended?.cause ?? '']).toBe(1);
   // A survivor leaves no ghost.
   const won = played(floor);
   if (replay(floor, [...won] as Action[]).ended?.kind === 'won') {
@@ -225,12 +226,10 @@ test('ghosts never enter the simulation: the same log scores the same whatever g
   expect(r).toEqual({ kind: 'saved', run: before.ok ? before.run : null });
 });
 
-test('bot seeding goes through run validation; bot ghosts are flagged, nameless, count toward heat, and purge removes them with their heat and kills', async () => {
+test('bot seeding goes through run validation; bot ghosts are flagged and nameless, fill in the tally, and purge removes them', async () => {
   await startFirstFloor();
   const floor = await openFloor(1);
   await submitRun('t2_a', 1, dies(floor).log, { name: 'alice' });
-  const heatBefore = await redis.hGetAll('f:1:heat');
-  const killsBefore = await redis.hGetAll('f:1:kills');
   const s = await seedBots(5);
   expect(s.ghosts).toBe(5);
   const view = await ghostsOf(1, null);
@@ -241,22 +240,21 @@ test('bot seeding goes through run validation; bot ghosts are flagged, nameless,
   const runs = Object.entries(await redis.hGetAll('f:1:runs')).filter(([k]) => k.startsWith('bot:'));
   expect(runs).toHaveLength(s.runs);
   for (const [, v] of runs) expect(JSON.parse(v).bot).toBe(true);
-  const heatSum = (h: Record<string, string>) => Object.values(h).reduce((n, v) => n + Number(v), 0);
-  expect(heatSum(await redis.hGetAll('f:1:heat'))).toBe(heatSum(heatBefore) + 5);
+  const shaped = async () => (await tally(1)).deaths.reduce((a, b) => a + b, 0);
+  expect(await shaped()).toBe(6); // one player: the bots fill in (A127)
   const p = await purgeBots();
   expect(p.removed).toBe(s.runs);
   expect((await ghostsOf(1, null)).fell).toBe(1);
-  expect(heatSum(await redis.hGetAll('f:1:heat'))).toBe(heatSum(heatBefore));
-  expect(heatSum(await redis.hGetAll('f:1:kills'))).toBe(heatSum(killsBefore));
+  expect(await shaped()).toBe(1);
   expect(Object.keys(await redis.hGetAll('f:1:runs'))).toEqual(['t2_a']);
   expect(await redis.zCard('f:1:scores')).toBe(1);
 });
 
-test('dev reset: clears the caller\'s run, ghost, carving, score, heat and kill on the live floor, and bumps the attempt', async () => {
+test('dev reset: clears the caller\'s run, ghost, carving and score on the live floor (so the tally drops it), and bumps the attempt', async () => {
   await startFirstFloor();
   const floor = await openFloor(1);
   await submitRun('t2_b', 1, dies(floor).log, { name: 'bob' });
-  const heat0 = await redis.hGetAll('f:1:heat');
+  const heat0 = (await tally(1)).deaths;
   await submitRun('t2_a', 1, dies(floor).log, { name: 'alice' });
   await carve('t2_a', 1, 'safe-way:L');
   expect(await resetRun('t2_a')).toEqual({ depth: 1, had: true });
@@ -264,7 +262,7 @@ test('dev reset: clears the caller\'s run, ghost, carving, score, heat and kill 
   expect(await redis.hGet('f:1:ghosts', 't2_a')).toBeUndefined();
   expect(await redis.hGet('f:1:carvings', 't2_a')).toBeUndefined();
   expect(await redis.zScore('f:1:scores', 't2_a')).toBeUndefined();
-  expect(await redis.hGetAll('f:1:heat')).toEqual(heat0);
+  expect((await tally(1)).deaths).toEqual(heat0);
   expect(await floorFor('t2_a', 1)).toMatchObject({ kind: 'play', attempt: 1 });
   expect((await submitRun('t2_a', 1, dies(floor).log, { name: 'alice' })).kind).toBe('saved'); // plays again
   expect(await redis.hGet('f:1:ghosts', 't2_b')).toBeTruthy(); // nobody else is touched

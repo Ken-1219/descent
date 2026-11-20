@@ -2,8 +2,8 @@
 import { expect } from 'vitest';
 import { createDevvitTest } from '@devvit/test/server/vitest';
 import { redis } from '@devvit/web/server';
-import { BAND, CURSE_TEXT, FLOOR_0, HOLD, LADDER_REACH, type Curse, PLAIN_BAND, TRAP_MAX, TRAP_ZONE_MAX } from '../src/shared/content';
-import { EMPTY_TALLY, fairSeed, setAside, modsFrom, plainBand, rolloverFloor, topFamily, winPct, type Tally } from '../src/shared/crowd';
+import { BAND, CROWD, CURSE_TEXT, FLOOR_0, HOLD, LADDER_REACH, type Curse, PLAIN_BAND, TRAP_MAX, TRAP_ZONE_MAX } from '../src/shared/content';
+import { EMPTY_TALLY, fairSeed, setAside, shapeOf, modsFrom, plainBand, rolloverFloor, topFamily, winPct, type Tally } from '../src/shared/crowd';
 import { generate, NO_MODS, safePath, zoneWeights, type Mods, type Trap } from '../src/shared/gen';
 import { zoneOf } from '../src/shared/grid';
 import { start, step, type Floor } from '../src/shared/sim';
@@ -156,28 +156,45 @@ test('rollover turns the tally into tomorrow: curse, heat, owned traps and yeste
   expect(await rollover('2026-11-24')).toEqual({ posted: 2 });
   const f2 = await stored(2);
   expect(f2.curses).toEqual(['overrun']);
-  expect(f2.yesterday).toMatchObject({ depth: 1, fell: 6, curse: 'overrun' });
-  expect(f2.yesterday?.cleared).toBeGreaterThanOrEqual(1); // the winner, plus any bot that survived
+  expect(f2.yesterday).toMatchObject({ depth: 1, fell: 0, nameless: 6, curse: 'overrun' });
+  expect(f2.yesterday?.cleared).toBeGreaterThanOrEqual(1); // players only: the winner
   expect(JSON.parse((await redis.get('f:2:mods')) ?? '{}')).toMatchObject({ curses: ['overrun'] });
   const owned = f2.traps?.find((t) => t.owner === 't2_w');
   if (f2.traps?.length) expect(owned).toMatchObject({ kind: 'spikes', name: 'winnie' }); // placed unless the ladder dropped it
   expect(safePath(f2)).not.toBeNull();
-  expect(JSON.parse((await redis.hGet('chronicle', '1')) ?? '{}')).toMatchObject({ depth: 1, fell: 6 });
+  expect(JSON.parse((await redis.hGet('chronicle', '1')) ?? '{}')).toMatchObject({ depth: 1, fell: 0, nameless: 6, filled: true });
   // Idempotent: a doubled cron, and "Roll over now" after the cron, both find the depth already opened.
   expect(await rollover('2026-11-24')).toEqual({ posted: null });
   expect(await redis.hGet('game', 'day')).toBe('2');
-  expect(summary(f2.yesterday ?? { depth: 1, fell: 0, cleared: 0, zone: null, curse: null }, 1, { cleared: 1, fell: 0 })).toMatch(/Yesterday on Floor 1: 0 delvers fell, and 1 cleared it\. 6 nameless delvers \(the game's own bots\) fell there too.*Overrun/);
+  expect(f2.yesterday).toMatchObject({ fell: 0, cleared: 1, nameless: 6, filled: true }); // players apart from the bots, who filled in (A127)
+  expect(summary(f2.yesterday ?? { depth: 1, fell: 0, cleared: 0, zone: null, curse: null }, 1)).toMatch(/Yesterday on Floor 1: 0 players fell, and 1 cleared it\. 6 nameless delvers \(the game's own bots\) fell there too; with too few players.*Overrun/);
 });
 
-test('the summary comment (A125): real players counted, nameless delvers said apart, and a quiet day never reads "0 fell"', () => {
-  const y = { depth: 11, fell: 12, cleared: 2, zone: 4, curse: null };
-  const quiet = summary(y, 0, { cleared: 0, fell: 0 });
-  expect(quiet).toBe("Floor 12 is open. Be among the first down: where you fall, what you carve and the curse you vote shape Floor 13. On Floor 11, 12 nameless delvers (the game's own bots) fell: never on the boards, but where they fell shaped today's floor.");
+test('the summary comment (A125, A127): players and nameless delvers apart, whether bots shaped today, and a quiet day never reads "0 fell"', () => {
+  const y = { depth: 11, fell: 0, cleared: 0, zone: 4, curse: null, nameless: 12, filled: true };
+  const quiet = summary(y, 0);
+  expect(quiet).toBe("Floor 12 is open. Be among the first down: where you fall, what you carve and the curse you vote shape Floor 13. On Floor 11, 12 nameless delvers (the game's own bots) fell; with too few players, their deaths helped shape today.");
   expect(quiet).not.toMatch(/\b0\b/);
-  expect(summary({ ...y, fell: 0, cleared: 0, zone: null }, 0, { cleared: 0, fell: 0 })).toBe('Floor 12 is open. Be among the first down: where you fall, what you carve and the curse you vote shape Floor 13.');
-  expect(summary({ ...y, fell: 13, curse: 'frail' }, 1, { cleared: 3, fell: 1 })).toBe(
-    "Yesterday on Floor 11: 1 delver fell, and 3 cleared it. 12 nameless delvers (the game's own bots) fell there too: never on the boards, but where they fell shaped today's floor. Most deaths were in the centre. The crowd cursed today with Frail (" + CURSE_TEXT.frail.effect + '). Survivors set 1 trap; it waits below.',
+  expect(summary({ ...y, nameless: 0, filled: false, zone: null }, 0)).toBe('Floor 12 is open. Be among the first down: where you fall, what you carve and the curse you vote shape Floor 13.');
+  expect(summary({ ...y, fell: 6, cleared: 3, filled: false, curse: 'frail' }, 1)).toBe(
+    "Yesterday on Floor 11: 6 players fell, and 3 cleared it. 12 nameless delvers (the game's own bots) fell there too; enough players fell, so only players' deaths shaped today. Most deaths that shaped today were in the centre. The crowd cursed today with Frail (" + CURSE_TEXT.frail.effect + '). Survivors set 1 trap; it waits below.',
   );
+  expect(summary({ ...y, fell: 1, cleared: 2 }, 0)).toMatch(/^Yesterday on Floor 11: 1 player fell, and 2 cleared it\. 12 nameless delvers .*their deaths helped shape today\./);
+});
+
+test('what shapes tomorrow (A127): from CROWD.realDeaths real deaths, bots stop counting; below it they fill in; votes and traps never pass through', () => {
+  expect(CROWD.realDeaths).toBe(5);
+  const side = 15;
+  const real = (n: number) => Array.from({ length: n }, () => ({ x: 1, y: 1, cause: 'spikes' })); // north-west
+  const bots = Array.from({ length: 7 }, () => ({ x: 13, y: 13, cause: 'goblin', bot: true as const })); // south-east
+  const at = shapeOf([...real(CROWD.realDeaths), ...bots], side);
+  expect(at).toMatchObject({ players: 5, nameless: 7, filled: false, zone: 0, killer: 'spikes', kills: { spikes: 5 } });
+  expect(at.deaths.reduce((a, b) => a + b, 0)).toBe(5);
+  const below = shapeOf([...real(CROWD.realDeaths - 1), ...bots], side);
+  expect(below).toMatchObject({ players: 4, nameless: 7, filled: true, zone: 8, killer: 'goblin', kills: { spikes: 4, goblin: 7 } });
+  expect(below.deaths.reduce((a, b) => a + b, 0)).toBe(11);
+  expect(shapeOf(real(2), side)).toMatchObject({ players: 2, nameless: 0, filled: false }); // no bots to fill with
+  expect(shapeOf([], side)).toMatchObject({ zone: null, killer: null, filled: false });
 });
 
 test('"Roll over now" claims no date: the daily cron still runs that day; two presses at once post one floor', async () => {

@@ -51,7 +51,8 @@ export type Floor = {
   /** Phase 8: what yesterday's floor left: how many fell and cleared, the deadliest compass zone, today's curse. */
   /** Difficulty data (A39): the bot's predicted win rate for this floor, the plain floor's, and the target line, in %. */
   predicted?: { win: number; plain: number; target: number };
-  yesterday?: { depth: number; fell: number; cleared: number; zone: number | null; curse: Curse | null; deaths?: readonly number[]; killer?: string | null; setAside?: { curse: Curse | null; traps: number } };
+  /** Phase 11k (A127): `fell` and `cleared` are players only; `nameless` counts the bots' deaths apart, `filled` says they helped shape today. */
+  yesterday?: { depth: number; fell: number; cleared: number; zone: number | null; curse: Curse | null; deaths?: readonly number[]; killer?: string | null; setAside?: { curse: Curse | null; traps: number }; nameless?: number; filled?: boolean };
   /** Phase 9: the family introduced or raised today (the intro's "new today" line). */
   showcase?: readonly Family[];
 };

@@ -1142,6 +1142,9 @@ body:has(#end:not([hidden])) .carving {
   .end--intro .intro__compass-title {
     display: none;
   }
+  .end--intro .intro__line {
+    line-height: 1.3;
+  }
 }
 /* Short screens: steps and lists pack tighter so the panel fits 320 px of height. */
 @media (max-height: 480px) {

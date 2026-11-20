@@ -7,7 +7,7 @@ import { isWardenFloor, showcaseFamilies } from '../shared/gen';
 import type { Floor } from '../shared/sim';
 import { bossDay, openBoss } from './boss';
 import { health, healthLine } from './health';
-import { dayStats, drainFlair, floorSeed, openFloor, realResult, seedBots, tally, today, type FlairRun } from './game';
+import { drainFlair, floorSeed, openFloor, realResult, seedBots, tally, today, type FlairRun } from './game';
 
 /** Store, post and publish floor `depth`; `game` moves to it only after the post exists. */
 async function post(depth: number, made?: Parameters<typeof openFloor>[1]) {
@@ -25,21 +25,22 @@ async function post(depth: number, made?: Parameters<typeof openFloor>[1]) {
 /** A39: what the bot predicts for a new floor, stored with it so the real result can be set beside it a day later. */
 const predicted = (depth: number, r: Rolled) => ({ win: r.win, plain: r.plainWin, target: targetPct(depth) });
 
-const fellText = (n: number) => (n === 1 ? '1 delver fell' : `${n} delvers fell`);
+const fellText = (n: number) => (n === 1 ? '1 player fell' : `${n} players fell`);
 
 /**
- * The summary comment on the new post (A30; A125 in Phase 11k): what yesterday did to today. Its counts are real players
- * only. Nameless delvers (the game's bots) are said apart: they are on no board, but their deaths go into the heat like
- * anyone's, so the comment says where they fell shaped today. A day no player ran says what today asks instead of "0".
+ * The summary comment on the new post (A30; A125 and A127 in Phase 11k): what yesterday did to today. Players and nameless
+ * delvers (the game's bots) are counted apart, and it says whether the bots' deaths helped shape today (below
+ * CROWD.realDeaths real deaths they fill in). A day no player ran says what today asks instead of "0 fell".
  */
-export function summary(y: NonNullable<Floor['yesterday']>, traps: number, real: { cleared: number; fell: number }): string {
-  const bots = Math.max(0, y.fell - real.fell);
-  const where = y.zone === null ? '' : ` Most deaths were in the ${ZONE_NAMES[y.zone]?.toLowerCase()}.`;
-  const nameless = (lead: string, verb: string) => (bots ? ` ${lead}${bots === 1 ? '1 nameless delver' : `${bots} nameless delvers`} (the game's own bots) ${verb}: never on the boards, but where they fell shaped today's floor.` : '');
+export function summary(y: NonNullable<Floor['yesterday']>, traps: number): string {
+  const bots = y.nameless ?? 0;
+  const delvers = `${bots === 1 ? '1 nameless delver' : `${bots} nameless delvers`} (the game's own bots)`;
+  const shaped = y.filled ? 'with too few players, their deaths helped shape today' : "enough players fell, so only players' deaths shaped today";
+  const where = y.zone === null ? '' : ` Most deaths that shaped today were in the ${ZONE_NAMES[y.zone]?.toLowerCase()}.`;
   const curse = y.curse ? ` The crowd cursed today with ${CURSE_TEXT[y.curse].name} (${CURSE_TEXT[y.curse].effect}).` : ' No curse today.';
   const set = traps ? ` Survivors set ${traps} trap${traps === 1 ? '' : 's'}; ${traps === 1 ? 'it waits' : 'they wait'} below.` : '';
-  if (!real.cleared && !real.fell) return `Floor ${y.depth + 1} is open. Be among the first down: where you fall, what you carve and the curse you vote shape Floor ${y.depth + 2}.${nameless(`On Floor ${y.depth}, `, 'fell')}${y.curse ? curse : ''}${set}`;
-  return `Yesterday on Floor ${y.depth}: ${fellText(real.fell)}, and ${real.cleared} cleared it.${nameless('', 'fell there too')}${where}${curse}${set}`;
+  if (!y.fell && !y.cleared) return `Floor ${y.depth + 1} is open. Be among the first down: where you fall, what you carve and the curse you vote shape Floor ${y.depth + 2}.${bots ? ` On Floor ${y.depth}, ${delvers} fell; ${shaped}.` : ''}${y.curse ? curse : ''}${set}`;
+  return `Yesterday on Floor ${y.depth}: ${fellText(y.fell)}, and ${y.cleared} cleared it.${bots ? ` ${delvers} fell there too; ${shaped}.` : ''}${where}${curse}${set}`;
 }
 
 /**
@@ -50,13 +51,13 @@ async function advance(day: number, why: string): Promise<{ posted: number | nul
   const next = day + 1;
   if (!(await redis.hSetNX('rolled', String(next), '1'))) return { posted: null };
   const t0 = Date.now();
-  const [t, stats, real, was, h] = await Promise.all([tally(day), dayStats(day), realResult(day), redis.get(`f:${day}:floor`), health(day)]);
+  const [t, real, was, h] = await Promise.all([tally(day), realResult(day), redis.get(`f:${day}:floor`), health(day)]);
   const before: Floor | null = was ? JSON.parse(was) : null;
   const rolled = rolloverFloor(next, floorSeed(next), t);
   const curse = rolled.mods.curses[0] ?? null;
-  const killer = Object.entries(t.kills).sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))[0]?.[0] ?? null;
-  // The intro reads all of this from the floor itself: yesterday's deaths per zone, the top killer, today's new family.
-  const yesterday = { depth: day, fell: stats.fell, cleared: Math.max(0, stats.runs - stats.fell), zone: stats.zone, curse, deaths: [...t.deaths], killer, setAside: setAside(t, rolled) };
+  // The intro reads all of this from the floor itself: players and nameless delvers apart (A127), the deaths that shaped
+  // today per zone, the top killer, today's new family.
+  const yesterday = { depth: day, fell: real.fell, cleared: real.cleared, nameless: t.nameless, filled: t.filled, zone: t.zone, curse, deaths: [...t.deaths], killer: t.killer, setAside: setAside(t, rolled) };
   const floor: Floor = { ...rolled.floor, yesterday, showcase: showcaseFamilies(next), predicted: predicted(next, rolled) };
   // Phase 10: the Warden's day that just ended (killed, or what it carries), and the pool of a Warden posted now. Neither
   // may fail the rollover: an error is logged and the floor posts anyway.
@@ -65,7 +66,7 @@ async function advance(day: number, why: string): Promise<{ posted: number | nul
   const p = await post(next, { mods: rolled.mods, floor, seed: rolled.seed });
   console.log(`ROLLOVER ${why}: floor ${day} -> ${next} (post ${p.id}), ladder step "${rolled.step}"${rolled.tried.length ? ` (after ${rolled.tried.map((x) => `${x.step}: ${x.why}`).join('; ')})` : ''}, win ${rolled.win}% vs plain ${rolled.plainWin}% (plain band check ${rolled.plainBandWin}% after ${rolled.rerolls} rerolls), ${floor.traps?.length ?? 0} player traps, curse ${curse ?? 'none'}${ended ? `; ${ended.text} Pool ${ended.pool}: ${ended.stats.links} links from ${ended.stats.runs} runs (${ended.stats.fighters} fought), mean ${ended.stats.mean}, median ${ended.stats.median}, max ${ended.stats.max}` : ''}${waits ? `; Warden pool ${waits.pool}${waits.carried ? ' (carried)' : ''}` : ''}; floor ${day} predicted ${before?.predicted ? `${before.predicted.win}%` : 'n/a'}, players ${real.cleared} cleared / ${real.fell} fell${real.cleared + real.fell ? ` (${Math.round((100 * real.cleared) / (real.cleared + real.fell))}%)` : ''}; health ${healthLine(h)}, ${Date.now() - t0} ms`);
   const boss = [ended?.text, waits ? `The Warden waits in its arena: ${waits.pool} links${waits.carried ? ', still wounded from its last floor' : ''}.` : ''].filter(Boolean).join(' ');
-  await reddit.submitComment({ id: p.id, text: `${summary(yesterday, floor.traps?.length ?? 0, real)}${boss ? ` ${boss}` : ''}` }).then((c) => console.log(`summary comment ${c.id} on floor ${next}`), (e: unknown) => console.error(`summary comment failed: ${String(e)}`));
+  await reddit.submitComment({ id: p.id, text: `${summary(yesterday, floor.traps?.length ?? 0)}${boss ? ` ${boss}` : ''}` }).then((c) => console.log(`summary comment ${c.id} on floor ${next}`), (e: unknown) => console.error(`summary comment failed: ${String(e)}`));
   const { deaths: _, ...ledger } = yesterday;
   await redis.hSet('chronicle', { [String(day)]: JSON.stringify({ ...ledger, predicted: before?.predicted?.win ?? null, players: real, ...(ended ? { warden: { hp: ended.hp, pool: ended.pool, killed: ended.killed, ...ended.stats } } : {}) }) });
   await flair(day);
@@ -75,8 +76,8 @@ async function advance(day: number, why: string): Promise<{ posted: number | nul
 
 /**
  * Phase 11c: the "Nameless delvers per day" setting. Its bot ghosts are added by their own job a little after the post, never
- * inside the rollover; they stay labelled and excluded like any seeded bot (boards, funnel, real counts). Their deaths go into
- * the heat and kills like anyone's, so they do reach the tally (Phase 11k found the old comment wrong).
+ * inside the rollover; they stay labelled and excluded like any seeded bot (boards, funnel, player counts). Their deaths
+ * shape tomorrow only as a fill-in, below CROWD.realDeaths real deaths (A127, shapeOf).
  */
 async function scheduleNameless(depth: number) {
   const n = Number((await settings.get<number>('namelessDelvers')) ?? 0);
