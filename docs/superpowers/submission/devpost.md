@@ -53,6 +53,8 @@ Devvit Web, TypeScript, Phaser, Hono, Vite, Redis (Devvit), WebAudio.
 
 ## Links (for the form)
 - Demo subreddit: https://www.reddit.com/r/DescentDaily/ (public). The pinned "Descent: today's floor" post always opens today's floor.
+- Test post (pinned, always today): https://www.reddit.com/r/DescentDaily/comments/1y463th/descent_todays_floor/
+- Reddit username: u/Clean_Position8332. Ported game: No.
 - App listing: https://developers.reddit.com/apps/descent-game
 - Code: https://github.com/Ken-1219/descent
 
