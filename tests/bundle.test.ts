@@ -30,6 +30,9 @@ test('bundles: server has gen and bot; client has no gen, bot, scenes, Lab, loca
   for (const chunk of ['phaser-core.js', 'scene.js']) expect(game).toContain(`href="/${chunk}"`);
   expect(gzipSync(readFileSync('dist/client/phaser-core.js')).length).toBeLessThan(230_000);
   expect(readFileSync('dist/client/phaser-core.js', 'utf8')).not.toContain('ArcadePhysics');
+  // Every file the splash warms is in the build (11k: a stale 'sprites.js' 404'd on every warm).
+  const warm = /const WARM = \[([^\]]+)\]/.exec(readFileSync('src/client/splash.ts', 'utf8'))?.[1] ?? '';
+  for (const f of warm.match(/[\w.-]+\.\w+/g) ?? []) expect(readdirSync('dist/client'), f).toContain(f);
   // The splash loads only the scripts its HTML names: no Phaser, no sim.
   const splash = readFileSync('dist/client/splash.html', 'utf8');
   const scripts = [...splash.matchAll(/(?:src|href)="\/([^"]+\.js)"/g)].map((m) => m[1] ?? '');

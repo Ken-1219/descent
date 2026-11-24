@@ -67,3 +67,18 @@ Source: the owner's Phase 11k brief (Nov 20), after accepting Phase 11j and 0.0.
 - `bun run check` 172/172 (with A127's tests: the pure threshold test, the server's tally at and below the threshold, the 28-day test and both bands unchanged).
 - `bun run e2e` 147/147, both with its own server and against a running harness.
 - CI: see the report.
+
+## Tonight's rollover on 0.0.3 (Nov 20, 15:00 UTC)
+- `ROLLOVER cron 2026-11-20: floor 12 -> 13 (post t3_1y15mhz), ladder step "full", win 67% vs plain 19% (plain band check 33% after 5 rerolls)`, 3,451 ms.
+  - 67% is the posted floor's 64-run win: inside Floor 13's plain band (35–75%) and A124's target (41–69%).
+  - The redraw count isn't in the log (`Mods.draw` isn't printed), so it isn't known for tonight.
+- Summary comment t1_19sxci8slvcg5, old wording: "Yesterday on Floor 12: 12 delvers fell, most in the west, and 2 cleared it. No curse today." The log says players 0 cleared / 0 fell, so all 14 were nameless delvers: the miscount A125 and A127 fix from 0.0.4.
+- `NAMELESS floor 13: 12 bot ghosts from 21 runs`; flair 0 set; `SWEEP checked 1, purged 0`; errors 0, failed saves 0.
+- "Your mark": none, correctly. No player cleared Floor 12, so nobody had a trap or vote to show.
+- **Found:** the splash warmed `sprites.js`, which the build stopped emitting, so every warm logged a 404. It's gone from `WARM`, and `tests/bundle.test.ts` now checks that every warmed file is in the build.
+
+## Release: 0.0.4
+- Gate: `bun run check` 172/172 (an earlier run timed out while the machine slept; the rerun under `caffeinate` passed), lint clean, `bun run e2e` 147/147, ponytail review clean.
+- `bun run deploy` uploaded 0.0.4; `devvit install r/descent_game_dev descent-game@0.0.4`; `devvit list installs` shows v0.0.4.
+- Settings carried over: Nameless delvers 12, Dev tools on, the new help text.
+- Floor 13 loads from the 0.0.4 web origin with no `sprites.js` 404. Its intro still reads "12 fell" because 0.0.3 stored that floor's yesterday. Tomorrow's Floor 14 is the first to carry the players-and-delvers counts.

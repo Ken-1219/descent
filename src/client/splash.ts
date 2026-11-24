@@ -33,7 +33,7 @@ const expand = (e: MouseEvent) => (import.meta.env.DEV ? location.assign(`game.h
 // Phase 11b: on a sign of intent to descend (a hover, focus or press on the button, never a mere feed impression), warm the
 // game's largest files into the HTTP cache the game shares with this card, so its load starts ahead. Names match the build
 // (vite.config.ts names phaser-core.js and scene.js too).
-const WARM = ['game.html', 'game.js', 'phaser-core.js', 'scene.js', 'sprites.js', 'atlas.png'];
+const WARM = ['game.html', 'game.js', 'phaser-core.js', 'scene.js', 'atlas.png'];
 let warmed = false;
 const warm = () => {
   if (warmed || import.meta.env.DEV) return;
