@@ -21,8 +21,9 @@ Commands are from the project root; `bunx devvit` is the Devvit CLI already in `
 
 ## 3. Start the game there
 1. **Dev tools off:** open the subreddit's settings for the app (subreddit → Mod Tools → Apps → descent-game → Settings). Confirm "Dev tools (reset my run, roll over now, set the Warden's links)" is **off**. Its default is off.
-2. **Wiki on:** Mod Tools → Settings → Wiki → enable it ("Mod editing only" is enough). Then the privacy page shows on new Reddit.
+2. **Wiki on:** Mod Tools → Wiki → Settings (bottom left) → turn **Public visibility** on and keep editing to mods. Then the privacy page shows on new Reddit.
 3. From the subreddit's Mod Tools ⋯ menu, run **Write the privacy page**. A toast says "Privacy page written to the wiki".
+   - **On a new subreddit this may not stick** (r/DescentDaily, Nov 24): the app's save reported success twice, with the same revision ID, but the page never appeared, even after Public visibility was turned on. If `wiki/descent-privacy` says "does not exist", create it by hand: wiki → **+ Page**, name `descent-privacy`, paste `PRIVACY.text` (`src/shared/content.ts`) as plain text, and use the editor's toolbar for the heading and the bullet list. The new editor is rich text only, so markdown symbols would show as typed.
 4. From the same menu, run **Start Floor 1**. It posts "Floor 1" once; running it again only says Floor 1 is live.
 
 ## 4. Confirm
