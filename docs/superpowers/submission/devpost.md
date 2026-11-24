@@ -3,6 +3,9 @@
 ## Tagline
 The community's deaths build the dungeon.
 
+## Inspiration
+Daily games give everyone the same board, but nothing anyone does on it carries over: tomorrow starts clean. A subreddit is a crowd with a memory, so we wanted a daily game where yesterday's crowd is visible in today's level. Where people died, what they warned about and what the winners chose should become the floor you play next.
+
 ## What it is
 **The community's deaths build the dungeon.** Descent posts one floor of a dungeon to its subreddit every day. Everyone plays the same floor, once. Where the crowd dies today decides tomorrow's floor:
 - Hazards gather where people fell.
@@ -35,10 +38,24 @@ A run is a few minutes of turn-based play: a torch that burns down with every mo
 - Teaching a roguelike without a tutorial wall: six blind playtests reshaped the first floor, the hints, the map and every danger's warning.
 
 ## What we learned
-<!-- owner: your own words -->
+- A crowd-shaped level needs a referee. Without a bot measuring every floor, a few unlucky days compounded into floors nobody could clear.
+- Fairness has to be measured, not assumed: a win rate from 16 bot runs swings by 12 points, so the final verdict uses 64.
+- Teaching beats telling. Each blind playtest removed text and added a one-line hint at the moment it mattered.
+- A daily game needs a crowd on day one, so the game's own labelled bots fill a quiet floor and then step aside once real players arrive.
 
 ## What's next
-<!-- owner -->
+- More families of dangers and curses as the floors deepen past the first Warden.
+- Subreddit-versus-subreddit seasons: the same seed in two communities, compared floor by floor.
+- Weekly digests in the subreddit: the deadliest tile, the most-trusted carving, the trap that caught the most delvers.
 
 ## Built with
 Devvit Web, TypeScript, Phaser, Hono, Vite, Redis (Devvit), WebAudio.
+
+## Links (for the form)
+- Demo subreddit: https://www.reddit.com/r/DescentDaily/ (public). The pinned "Descent: today's floor" post always opens today's floor.
+- App listing: https://developers.reddit.com/apps/descent-game
+- Code: https://github.com/Ken-1219/descent
+
+## Testing instructions (for the form)
+Open the pinned "Descent: today's floor" post on r/DescentDaily and tap Descend. A first visit starts with a one-minute practice floor. One run a day counts for the boards and shapes tomorrow; after it, "Practice this floor" on the result card replays the floor as often as you like. A new floor posts every day at 15:00 UTC with a summary comment of what the crowd did. Works on desktop, mobile web and the Reddit apps.
+
