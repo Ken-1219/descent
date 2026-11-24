@@ -1,6 +1,6 @@
 # Descent: Devpost description (draft for the owner to edit)
 
-**Status:** submitted on Devpost on Nov 24, 2026 (editable until Dec 9, 7:30 am IST). Still to add: 3:2 thumbnail, screenshots, the video, the feedback survey.
+**Status:** submitted on Devpost on Nov 24, 2026 (editable until Dec 9, 7:30 am IST). Thumbnail: `frontdoor/thumb-1200x800.png`. Gallery (3:2, in order): `gallery/g0-card.png` (the feed card), `g1-intro.png` (today's intro and compass), `g2-play.png` (a run), `g3-result.png` (the result card), `g4-vote.png` (voting tomorrow's curse), `g5-warden.png` (the shared Warden). Shot in the local harness, which runs the real client on the server's shared code. Still to add: the video, the feedback survey.
 
 ## Tagline
 The community's deaths build the dungeon.

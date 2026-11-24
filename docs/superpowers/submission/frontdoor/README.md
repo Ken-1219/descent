@@ -46,6 +46,7 @@ Everything here is from the game's own art and words: no "Reddit" in any name, a
 | `icon-256.png` | Avatar (community icon) | 256×256 |
 | `banner-desktop-1920x384.png` | Banner, desktop | 1920×384 |
 | `banner-mobile-1600x480.png` | Banner, mobile (if the setting offers a separate one) | 1600×480 |
+| `thumb-1200x800.png` | Devpost thumbnail (3:2) | 1200×800 |
 
 - **How they were made:** they're drawn in the Lab's "Front door" tab (`bun run local`, then http://localhost:5190/lab.html#frontdoor). They use the Descent sprites (the Delver, the wisps) and the graded CC0 dungeon tiles the game uses, in the game's two fonts and flat palette tokens (no gradients).
 - **How they were exported:** a Playwright screenshot of each canvas at one CSS pixel per pixel.

@@ -338,6 +338,26 @@ const frontDoorTab = (): Node[] => {
     }),
     art('banner-desktop', 1920, 384, banner(1920, 384)),
     art('banner-mobile', 1600, 480, banner(1600, 480)),
+    // Devpost's thumbnail and gallery want 3:2: the same scene, taller, the hero on the floor left of the title.
+    art('thumb', 1200, 800, (ctx, pack) => {
+      const z = 6;
+      for (let x = 0; x < 1200; x += TILE * z) {
+        put(ctx, packIcon(pack, 'wall-top', z), x, 0);
+        put(ctx, packIcon(pack, 'wall', z), x, TILE * z);
+        put(ctx, packIcon(pack, 'floor', z), x, 800 - TILE * z);
+      }
+      const hero = iconCanvas('hero', 12);
+      put(ctx, hero, 170 - hero.width / 2, 800 - TILE * z - hero.height + 24);
+      [[0.72, 0.36], [0.8, 0.62], [0.88, 0.42], [0.62, 0.66]].forEach(([fx = 0, fy = 0], i) => put(ctx, iconCanvas(i % 2 ? 'wisp-b' : 'wisp', 5 + (i % 2)), 1200 * fx, 800 * fy));
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'alphabetic';
+      ctx.fillStyle = PALETTE.gilt;
+      ctx.font = "176px 'Jacquard 24'";
+      ctx.fillText('Descent', 600, 440);
+      ctx.fillStyle = PALETTE.bone;
+      ctx.font = "36px 'Pixelify Sans'";
+      ctx.fillText("The community's deaths build the dungeon.", 600, 510);
+    }),
   ];
   void Promise.all([loadPack(), document.fonts.load("10px 'Jacquard 24'"), document.fonts.load("10px 'Pixelify Sans'")]).then(([pack]) => {
     for (const d of draws) d(pack);
