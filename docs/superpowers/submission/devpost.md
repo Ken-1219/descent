@@ -1,5 +1,7 @@
 # Descent: Devpost description (draft for the owner to edit)
 
+**Status:** submitted on Devpost on Nov 24, 2026 (editable until Dec 9, 7:30 am IST). Still to add: 3:2 thumbnail, screenshots, the video, the feedback survey.
+
 ## Tagline
 The community's deaths build the dungeon.
 
