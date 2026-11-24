@@ -11,7 +11,7 @@
 
 | # | Time | Shot | Set-up | What must be on screen |
 |---|---|---|---|---|
-| 1 | 0–5 s | The feed card | the always-today post on r/descent_game_dev, or `splash.html?ghosts=20` | "Descent", the one-line pitch, "Floor N", the floor's name, "N fell here today · N carved a warning", the date and the attribution |
+| 1 | 0–5 s | The feed card | the always-today post on r/DescentDaily, or `splash.html?ghosts=20` | "Descent", the one-line pitch, "Floor N", the floor's name, "N fell here today · N carved a warning", the date and the attribution |
 | 2 | 5–12 s | Today's intro | `game.html?world=video&day=9` | The floor's name, the compass (☠ fell yesterday, ▲ danger today), the curse and "New today"; tap Descend |
 | 3 | 12–20 s | Playing | same | A few moves, a red wind-up mark and a dodge, a nameless delver's carving ("Stairs this way ←") read under the HUD, the Map button showing the seen map (no turn spent) |
 | 4 | 20–26 s | **A death** | `game.html?floor=trap&yesterday=1`, walk onto the spikes until dead | The hit-stop and shake, the collapse, the wisp rising, and the cause on the result card: "A trap set by u/trapper" |
@@ -24,7 +24,7 @@
 
 **Optional cut-ins (1–2 s each, if time allows):** "Practice this floor" on a result card; a teach-once line under the HUD the first time a dark room appears; the Chronicle.
 
-**On Reddit instead (optional, real data):** on r/descent_game_test with Dev tools on (never on r/descent_game_dev):
+**On Reddit instead (optional, real data):** on r/descent_game_dev with Dev tools on (never on r/DescentDaily):
 1. Die on today's floor and carve.
 2. Win with a second account, vote a curse and set a trap.
 3. Run "Roll over now".

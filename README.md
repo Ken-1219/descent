@@ -52,7 +52,7 @@ Descent stores your Reddit user ID and name with your runs, ghosts, carvings, vo
 - **Play locally without Reddit:** `bun run local`, then open http://localhost:5190/game.html (the server is faked in the browser). Dev knobs are listed at the top of `src/client/local.ts`; the Lab (`/lab.html`) shows the art, every enemy scene, the generator and the screens.
 - **Checks:** `bun run check` runs the type check, the unit tests and the golden runs. `bun run e2e` runs the end-to-end suite (`tests/play.mcp.js`) in Playwright's Chromium, serving the local harness itself; `bun run build && bun run e2e --budgets` also measures the §15.3 budgets on the production build. CI runs both `check` and `e2e`.
 - **The one browser script:** browsers are otherwise driven only step by step through the Playwright MCP tools (the owner's rule). `tests/e2e.mjs` is the single, explicit exception the owner allowed on Nov 20 2026, so the suite can run in CI.
-- **Playtest on Reddit:** `bun run dev` (r/descent_game_test only; r/descent_game_dev is the players').
+- **Playtest on Reddit:** `bun run dev` (r/descent_game_dev only; r/DescentDaily is the players').
 - **Release:** [RELEASE.md](RELEASE.md).
 
 `src/shared` holds the rules (the same code judges a run on the server and plays it in the browser), `src/server` the Devvit server, `src/client` the splash card and the game.

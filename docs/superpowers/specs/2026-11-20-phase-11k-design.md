@@ -82,3 +82,8 @@ Source: the owner's Phase 11k brief (Nov 20), after accepting Phase 11j and 0.0.
 - `bun run deploy` uploaded 0.0.4; `devvit install r/descent_game_dev descent-game@0.0.4`; `devvit list installs` shows v0.0.4.
 - Settings carried over: Nameless delvers 12, Dev tools on, the new help text.
 - Floor 13 loads from the 0.0.4 web origin with no `sprites.js` 404. Its intro still reads "12 fell" because 0.0.3 stored that floor's yesterday. Tomorrow's Floor 14 is the first to carry the players-and-delvers counts.
+
+## The players' subreddit moves to r/DescentDaily (Nov 24)
+- The owner created r/DescentDaily, a public subreddit with a plain name, as the players' subreddit. 0.0.4 is installed there with `devvit install r/DescentDaily descent-game@0.0.4`, and the owner starts Floor 1 there from the menu.
+- r/descent_game_dev stays private and becomes the playtest subreddit (`devvit.json` `dev.subreddit`), so r/descent_game_test isn't needed. It keeps its Floor 13 and Dev tools on.
+- RELEASE.md, the README, the front-door kit, the Journeys request, the video shot list and the client's report-link fallback now name r/DescentDaily.

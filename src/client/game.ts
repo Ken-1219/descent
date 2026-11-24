@@ -85,7 +85,7 @@ where.screen = () => (end.hidden ? 'run' : end.classList.contains('end--intro') 
 watchErrors();
 /** Reddit's modmail compose, pre-filled: floor, screen and client class. One tap opens it, one sends it. */
 const reportUrl = (screen: string) =>
-  `https://www.reddit.com/message/compose?to=${encodeURIComponent(`/r/${context?.subredditName ?? 'descent_game_dev'}`)}&subject=${encodeURIComponent(`Descent: something broke (Floor ${where.depth})`)}&message=${encodeURIComponent(`Floor ${where.depth}, ${screen}, ${clientClass()}.\n\nWhat happened:\n`)}`;
+  `https://www.reddit.com/message/compose?to=${encodeURIComponent(`/r/${context?.subredditName ?? 'DescentDaily'}`)}&subject=${encodeURIComponent(`Descent: something broke (Floor ${where.depth})`)}&message=${encodeURIComponent(`Floor ${where.depth}, ${screen}, ${clientClass()}.\n\nWhat happened:\n`)}`;
 let live: Live | null = null;
 // Saved logs are keyed by depth and seed, so an old log can never replay onto a different floor; and by the mod reset
 // tool's attempt count, so a cleared run's log is never resubmitted.

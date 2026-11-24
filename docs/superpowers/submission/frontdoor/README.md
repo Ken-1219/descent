@@ -1,4 +1,4 @@
-# Front-door kit for r/descent_game_dev (Phase 11k, for the owner to apply by hand)
+# Front-door kit for r/DescentDaily (Phase 11k, for the owner to apply by hand)
 
 Everything here is from the game's own art and words: no "Reddit" in any name, and no Snoo.
 
@@ -15,7 +15,7 @@ Everything here is from the game's own art and words: no "Reddit" in any name, a
 >
 > A new floor every day at 15:00 UTC.
 >
-> **Privacy:** what Descent keeps and how to delete it: [r/descent_game_dev/wiki/descent-privacy](https://www.reddit.com/r/descent_game_dev/wiki/descent-privacy)
+> **Privacy:** what Descent keeps and how to delete it: [r/DescentDaily/wiki/descent-privacy](https://www.reddit.com/r/DescentDaily/wiki/descent-privacy)
 
 ## 3. Welcome post (text post; pin it under the game post)
 
@@ -37,7 +37,7 @@ Everything here is from the game's own art and words: no "Reddit" in any name, a
 >
 > The nameless delvers you'll meet are the game's own bots, so the first floors aren't empty. They carve what's true where they fell, mostly. One in four lies.
 >
-> Privacy: [wiki/descent-privacy](https://www.reddit.com/r/descent_game_dev/wiki/descent-privacy). Bugs and ideas: comment here.
+> Privacy: [wiki/descent-privacy](https://www.reddit.com/r/DescentDaily/wiki/descent-privacy). Bugs and ideas: comment here.
 
 ## 4. Images (Mod Tools → Community appearance)
 

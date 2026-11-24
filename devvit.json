@@ -102,7 +102,7 @@
     "dev": "vite build --watch"
   },
   "dev": {
-    "subreddit": "descent_game_test"
+    "subreddit": "descent_game_dev"
   },
   "scheduler": {
     "tasks": {
