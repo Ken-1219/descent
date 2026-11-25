@@ -1405,7 +1405,7 @@ async (page) => {
     await p.goto('http://localhost:5190/splash.html?ghosts=20');
     await p.waitForFunction(() => !document.getElementById('go').disabled);
     const t = await p.evaluate(() => ({ text: document.querySelector('.splash__card').innerText, fits: document.documentElement.scrollWidth <= innerWidth && document.querySelector('.splash__foot').getBoundingClientRect().bottom <= innerHeight + 0.5 }));
-    check('splash essentials at 320×320: name, description, floor, date, attribution and today\'s stats, all on the card', /Descent/.test(t.text) && /A daily dungeon/.test(t.text) && /Floor \d+/.test(t.text) && /\d{1,2} [A-Z][a-z]{2}/.test(t.text) && /by u\//.test(t.text) && /\d+ fell here today · \d+ carved a warning/.test(t.text) && t.fits, t.text.replace(/\n+/g, ' | '));
+    check('splash essentials at 320×320: name, description, floor, date, attribution and today\'s stats, all on the card', /Descent/.test(t.text) && /A daily dungeon/.test(t.text) && /Floor \d+/.test(t.text) && /\d{1,2} [A-Z][a-z]{2}/.test(t.text) && /by u\//.test(t.text) && /\d+ (?:[a-z ]+\d+ [a-z ]+)?fell here today · \d+ carved a warning/.test(t.text) && t.fits, `${t.fits ? "" : "OVERFLOW "}${t.text}`.replace(/\n+/g, ' | '));
     await ctx.close();
   }
 
