@@ -506,3 +506,15 @@ test('bot carvings: true at the floor, a lie one time in BOT_LIE_IN, determinist
   expect(lies / all).toBeGreaterThan(0.2);
   expect(lies / all).toBeLessThan(0.3);
 });
+
+// A128: the card's count names players and nameless delvers apart (11k: "12 fell" on a floor no player had died on).
+import { fellText, ghostView } from '../src/shared/ghosts';
+test('ghostView counts bots as nameless, and fellText names them apart', () => {
+  const g = (x: number, bot?: true) => ({ name: bot ? null : 'p', x, y: 1, cause: 'spike', at: x, ...(bot ? { bot } : {}) });
+  expect(ghostView({ a: g(1), b: g(2, true), c: g(3, true) }, {}, null)).toMatchObject({ fell: 3, nameless: 2 });
+  expect(fellText(0, 0)).toBe('0 fell');
+  expect(fellText(1, 0)).toBe('1 fell');
+  expect(fellText(12, 12)).toBe('12 nameless delvers fell');
+  expect(fellText(13, 12)).toBe('1 player and 12 nameless delvers fell');
+  expect(fellText(5, 1)).toBe('4 players and 1 nameless delver fell');
+});

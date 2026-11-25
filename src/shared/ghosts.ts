@@ -16,8 +16,16 @@ export type Vote = 'trust' | 'liar';
  */
 /** `by`: the name of the player whose trap killed this ghost (Phase 8). */
 export type Ghost = { id: string; name: string | null; x: number; y: number; cause: string; carving: string | null; by?: string; mine?: true; votes?: { trust: number; liar: number }; myVote?: Vote };
-/** `tiles`: [x, y, count] for every tile with a ghost. `list`: capped records, carved first, then newest. */
-export type GhostView = { fell: number; tiles: [number, number, number][]; list: Ghost[] };
+/** `tiles`: [x, y, count] for every tile with a ghost. `list`: capped records, carved first, then newest. `nameless`: how many of `fell` are bots. */
+export type GhostView = { fell: number; nameless: number; tiles: [number, number, number][]; list: Ghost[] };
+
+/** Who fell, players and nameless delvers named apart (A128): "3 fell", "12 nameless delvers fell", "3 players and 12 nameless delvers fell". */
+export function fellText(fell: number, nameless: number): string {
+  const players = Math.max(0, fell - nameless);
+  const bots = `${nameless} nameless delver${nameless === 1 ? '' : 's'}`;
+  if (!nameless) return `${players} fell`;
+  return players ? `${players} player${players === 1 ? '' : 's'} and ${bots} fell` : `${bots} fell`;
+}
 
 const DIRS: readonly Dir[] = ['U', 'D', 'L', 'R'];
 const isDir = (d: string | undefined): d is Dir => DIRS.some((x) => x === d);
@@ -48,9 +56,11 @@ export const CARVING_CHOICES: readonly string[] = Object.entries(CARVINGS).flatM
 export function ghostView(records: Readonly<Record<string, GhostRecord>>, carvings: Readonly<Record<string, string>>, me: string | null, cap = GHOSTS.list): GhostView {
   const keys = Object.keys(records).sort();
   const counts = new Map<string, [number, number, number]>();
+  let nameless = 0;
   for (const k of keys) {
     const g = records[k];
     if (!g) continue;
+    if (g.bot) nameless++;
     const t = counts.get(`${g.x},${g.y}`) ?? [g.x, g.y, 0];
     t[2]++;
     counts.set(`${g.x},${g.y}`, t);
@@ -63,7 +73,7 @@ export function ghostView(records: Readonly<Record<string, GhostRecord>>, carvin
     const g = records[k];
     return g ? [{ id: k, name: g.name, x: g.x, y: g.y, cause: g.cause, carving: carvings[k] ?? null, ...(g.by ? { by: g.by } : {}), ...(k === me ? { mine: true as const } : {}) }] : [];
   });
-  return { fell: keys.length, tiles: [...counts.values()].sort((a, b) => a[1] - b[1] || a[0] - b[0]), list };
+  return { fell: keys.length, nameless, tiles: [...counts.values()].sort((a, b) => a[1] - b[1] || a[0] - b[0]), list };
 }
 
 /** Walkable floor tiles of a floor, in reading order (fixtures and bot carvings pick from these). */

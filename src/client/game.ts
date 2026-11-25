@@ -5,7 +5,7 @@ import { find, slitLine, zoneOf } from '../shared/grid';
 import { context, navigateTo, showLoginPrompt } from '@devvit/web/client';
 import type { BossView, FloorResponse, GhostView, MyTrap, RunResult, Yours } from '../shared/api';
 import type { Trap } from '../shared/gen';
-import { carvingLabel, type Ghost, type Vote } from '../shared/ghosts';
+import { carvingLabel, fellText, type Ghost, type Vote } from '../shared/ghosts';
 import { isAction, replay, start, step, type Action, type End, type Event, type Floor, type Pos, type Tell } from '../shared/sim';
 import { api, clientClass, report, submit, watchErrors, where } from './net';
 import { journey } from './journey';
@@ -117,9 +117,10 @@ let burnt = 0;
 const begin = () => ((burnt = live ? burnedOver(floor, live.log) : 0), live ? replay(floor, [...live.log].filter(isAction)) : start(floor));
 let state = begin();
 // Ghosts (7a): the crowd's on the day's floor, scripted ones on Floor 0; declared before the first view() reads them.
-const NONE: GhostView = { fell: 0, tiles: [], list: [] };
+const NONE: GhostView = { fell: 0, nameless: 0, tiles: [], list: [] };
 const SCRIPTED: GhostView = {
   fell: FLOOR_0_GHOSTS.length,
+  nameless: 0,
   tiles: FLOOR_0_GHOSTS.map((g) => [g.x, g.y, 1]),
   list: FLOOR_0_GHOSTS.map((g, i) => ({ id: `floor0:${i}`, name: null, x: g.x, y: g.y, cause: g.cause, carving: g.carving })),
 };
@@ -317,7 +318,7 @@ async function practisePast(depth: number, back: () => void) {
   if (!r || r.kind !== 'practice') return endPanel(end, { title: 'Practice', line: r?.reason === 'play it first' ? 'Play today\'s floor first; then you can practise it.' : "Can't open that floor. Try again.", primary: { label: 'Back', run: back } });
   practise(r.depth, r.floor, r.ghosts, back);
 }
-const fellLine = (n: number) => (n === 1 ? '1 fell here today.' : `${n} fell here today.`);
+const fellLine = (n: number, nameless: number) => `${fellText(n, nameless)} here today.`;
 let played: RunResult | null = null;
 /** Resolves true once the day's run is stored; a carving waits on it (§15.1: play never waits on the network). */
 let runSaved: Promise<boolean> = Promise.resolve(false);
@@ -503,7 +504,7 @@ async function result(prefetched?: FloorResponse) {
   ];
   // The already-played screen: your wisp on the map, the streak, the live count (polled), the countdown, then more.
   body.unshift(miniMap(r.floor.rows, r.ghosts.tiles.map(([x, y]) => ({ x, y, mine: !!mine && mine.x === x && mine.y === y }))));
-  const fellNow = el('span', 'plate__fell', fellLine(r.ghosts.fell));
+  const fellNow = el('span', 'plate__fell', fellLine(r.ghosts.fell, r.ghosts.nameless));
   const clock = el('span', 'plate__clock', '');
   body.push(el('p', 'plate__meta', `Streak ${r.streak} floor${r.streak === 1 ? '' : 's'} · `, fellNow, ' · ', clock));
   boss = r.boss ?? null;
@@ -567,7 +568,7 @@ async function result(prefetched?: FloorResponse) {
   const practiceAgain: PanelAction = { label: 'Practice this floor', run: () => practise(r.depth, r.floor, r.ghosts, () => void result()) };
   endPanel(end, { kicker: nameOf(r.floor), title, line, body, primary: first, secondary: practiceAgain });
   if (!next) journey.end(r.run.outcome === 'won', r.run.score); // Phase 11c: the run's journey closes once no choice is left
-  watch(r.depth, r.nextAt, fellNow, clock, bossNow); // after the plate is in the page: the clock stops once it leaves
+  watch(r.depth, r.nextAt, r.ghosts.nameless, fellNow, clock, bossNow); // after the plate is in the page: the clock stops once it leaves
 }
 let plate: (FloorResponse & { kind: 'played' }) | null = null;
 /** Steps skipped from the result card on this visit (they stop being offered as its next step). */
@@ -583,7 +584,7 @@ function wardenPlate(root: HTMLElement, b: BossView) {
   root.replaceChildren(...(b.killer ? [el('p', 'intro__boss', `The Warden fell to u/${b.killer}.`)] : [chainMeter(b.hp, b.pool)]), ...(b.you ? [el('p', 'muted', linksLine(b.you).trim())] : []));
   return root;
 }
-function watch(depth: number, nextAt: number, fell: HTMLElement, clock: HTMLElement, bossNow: HTMLElement) {
+function watch(depth: number, nextAt: number, nameless: number, fell: HTMLElement, clock: HTMLElement, bossNow: HTMLElement) {
   clearInterval(watching);
   let ticks = 0;
   const tick = () => {
@@ -593,7 +594,7 @@ function watch(depth: number, nextAt: number, fell: HTMLElement, clock: HTMLElem
     clock.textContent = left ? `next floor in ${h}h ${String(m).padStart(2, '0')}m ${String(sec).padStart(2, '0')}s` : 'the next floor is opening';
     if (++ticks % (BOARD.pollMs / 1000) === 0 && !document.hidden)
       void api.pulse(depth).then((p) => {
-        fell.textContent = fellLine(p.fell);
+        fell.textContent = fellLine(p.fell, nameless); // ponytail: nameless from page load (bots arrive at rollover); a mid-day 'Seed bot ghosts' shows on reload
         if (p.boss) wardenPlate(bossNow, (boss = p.boss)); // A47: live HP rides the same visible-only poll
       }, () => undefined);
   };

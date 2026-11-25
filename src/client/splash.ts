@@ -2,6 +2,7 @@
 // The feed card: floor number, Descend, played state. No Phaser and no sim: one request, a few DOM writes (§15.3).
 import { context, navigateTo, requestExpandedMode, showLoginPrompt } from '@devvit/web/client';
 import { ATTRIBUTION, CURSE_TEXT, floorName, PALETTE, PRIVACY } from '../shared/content';
+import { fellText } from '../shared/ghosts';
 import type { Floor } from '../shared/sim';
 import { miniMap } from './minimap';
 import { api, report } from './net';
@@ -25,9 +26,9 @@ if (typeof depth === 'number') floor.textContent = `Floor ${depth}`;
 // still yesterday's. The attribution sits beside it, Privacy last.
 $('when').textContent = new Date(Date.now() - 15 * 3_600_000).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
 $('by').textContent = ATTRIBUTION;
-const stats = (g: { fell: number; list: readonly { carving: unknown }[] }) => {
+const stats = (g: { fell: number; nameless: number; list: readonly { carving: unknown }[] }) => {
   const carved = g.list.filter((x) => x.carving).length;
-  return g.fell ? `${g.fell} fell here today${carved ? ` · ${carved} carved a warning` : ''}.` : 'Nobody has fallen here yet. Be the first ghost.';
+  return g.fell ? `${fellText(g.fell, g.nameless)} here today${carved ? ` · ${carved} carved a warning` : ''}.` : 'Nobody has fallen here yet. Be the first ghost.';
 };
 const expand = (e: MouseEvent) => (import.meta.env.DEV ? location.assign(`game.html${location.search}`) : requestExpandedMode(e, 'game'));
 // Phase 11b: on a sign of intent to descend (a hover, focus or press on the button, never a mere feed impression), warm the
@@ -127,7 +128,7 @@ void api.floor().then(
       expand(e);
     });
     else if (r.kind === 'played' && r.today) set(`Floor ${r.depth}`, `${r.run.outcome === 'won' ? 'Cleared' : 'Fell'} · score ${r.run.score}. Today is Floor ${r.today}.`, "Today's floor", () => r.todayUrl && (import.meta.env.DEV ? location.assign(r.todayUrl) : navigateTo(r.todayUrl))); // an old floor points on (A61)
-    else if (r.kind === 'played') set(`Floor ${r.depth}`, boss || `${r.run.outcome === 'won' ? 'Cleared' : 'Fell'} · score ${r.run.score} · ${r.ghosts.fell} fell`, 'See your run');
+    else if (r.kind === 'played') set(`Floor ${r.depth}`, boss || `${r.run.outcome === 'won' ? 'Cleared' : 'Fell'} · score ${r.run.score} · ${fellText(r.ghosts.fell, r.ghosts.nameless)}`, 'See your run');
     else if (r.kind === 'closed') set(`Floor ${r.depth}`, `Closed. Today is Floor ${r.today}.`, "Today's floor", () => r.todayUrl && (import.meta.env.DEV ? location.assign(r.todayUrl) : navigateTo(r.todayUrl)));
     else if (r.kind === 'login') set(`Floor ${r.depth}`, 'One run a day, under your name.', 'Log in to descend', () => showLoginPrompt());
     else set('Floor 0', 'No floor yet. Practice first.', 'Practice');
