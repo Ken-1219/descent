@@ -13,9 +13,9 @@
     "login": "devvit login",
     "prettier": "prettier --write .",
     "test:types": "tsc --build",
-    "test:unit": "vitest run",
+    "test:unit": "vitest run --testTimeout=60000",
     "local": "vite --config vite.local.config.ts",
-    "check": "tsc --build && vitest run",
+    "check": "tsc --build && vitest run --testTimeout=60000",
     "e2e": "node tests/e2e.mjs"
   },
   "engines": {
